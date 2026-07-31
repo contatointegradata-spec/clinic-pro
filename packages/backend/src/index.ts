@@ -26,6 +26,7 @@ import { startLightScheduler } from './lib/chatbot-light-engine'
 import adminRoutes from './routes/admin'
 import adminSqlRoutes from './routes/admin-sql'
 import adminIntegrationsRoutes from './routes/admin-integrations'
+import platformAdminRoutes from './routes/platform-admin'
 import versionRoutes from './routes/version'
 import readinessRoutes from './routes/readiness'
 import subscriptionRoutes from './routes/subscriptions'
@@ -83,6 +84,7 @@ app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLi
 app.use('/api/my/rooms', authenticate, requireActiveSubscription, myRoomsRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
 app.use('/api/admin/integrations', adminIntegrationsRoutes)
+app.use('/api/platform-admin', platformAdminRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/version', versionRoutes)
 app.use('/api/readiness', readinessRoutes)

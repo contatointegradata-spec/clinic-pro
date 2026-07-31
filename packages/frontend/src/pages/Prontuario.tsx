@@ -17,16 +17,17 @@ import {
   ChevronDown,
   AlertTriangle,
   Pencil,
+  DollarSign,
+  CheckCircle2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import PageHeader from '../components/ui/PageHeader'
 import { useAuthStore } from '../store/authStore'
-import type { Patient, User as UserType, GroupedMedicalRecord, MedicalRecord } from '../types'
+import type { Patient, User as UserType, GroupedMedicalRecord, MedicalRecord, AppointmentType, HealthPlan } from '../types'
 import Modal from '../components/ui/Modal'
-import { SpecialtyFormRouter, type SpecialtySubmitData } from '../components/prontuario/SpecialtyForms'
 import { SpecialtyRecordView } from '../components/prontuario/SpecialtyRecordView'
-import { getSpecialtyKey, SPECIALTY_LABELS } from '../components/prontuario/specialtyUtils'
+import LancarFinanceiroModal from '../components/prontuario/LancarFinanceiroModal'
 
 const recordTypeConfig: Record<string, { label: string; color: string; bg: string; icon: string }> = {
   ANAMNESE: { label: 'Anamnese', color: 'text-blue-700', bg: 'bg-blue-100', icon: '📋' },
@@ -48,15 +49,137 @@ const schema = z.object({
   doctorId: z.string().min(1, 'Selecione um médico'),
   type: z.enum(['ANAMNESE', 'EVOLUCAO', 'PRESCRICAO', 'EXAME', 'ATESTADO', 'OUTROS']),
   title: z.string().min(2, 'Título obrigatório'),
-  content: z.string().min(10, 'Conteúdo muito curto'),
   date: z.string(),
+  objetivoClinico: z.string().optional(),
+  sintese: z.string().optional(),
+  encaminhamento: z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
 
-function RecordCard({ record, onDelete, onEdit, canDelete, canEdit }: { record: MedicalRecord; onDelete: () => void; onEdit: () => void; canDelete: boolean; canEdit: boolean }) {
+interface ProcedureEntry {
+  appointmentTypeId?: string
+  name: string
+  valorTabelado: number
+  valorPago: number
+}
+
+// ─── Seção de Procedimentos (dentro do formulário de prontuário) ──────────────
+
+function ProceduresSection({
+  appointmentTypes,
+  healthPlan,
+  procedures,
+  onChange,
+}: {
+  appointmentTypes: AppointmentType[]
+  healthPlan?: HealthPlan | null
+  procedures: ProcedureEntry[]
+  onChange: (next: ProcedureEntry[]) => void
+}) {
+  const [selectedTypeId, setSelectedTypeId] = useState('')
+
+  const suggestedValueFor = (typeId: string) => {
+    const override = healthPlan?.procedures?.find(p => p.appointmentTypeId === typeId)
+    if (override) return override.value
+    const type = appointmentTypes.find(t => t.id === typeId)
+    return type?.baseValue ?? 0
+  }
+
+  const handleAdd = () => {
+    const type = appointmentTypes.find(t => t.id === selectedTypeId)
+    if (!type) return
+    const value = suggestedValueFor(selectedTypeId)
+    onChange([...procedures, { appointmentTypeId: type.id, name: type.name, valorTabelado: value, valorPago: value }])
+    setSelectedTypeId('')
+  }
+
+  const handleFieldChange = (index: number, field: 'valorTabelado' | 'valorPago', value: number) => {
+    onChange(procedures.map((p, i) => i === index ? { ...p, [field]: value } : p))
+  }
+
+  const handleRemove = (index: number) => {
+    onChange(procedures.filter((_, i) => i !== index))
+  }
+
+  return (
+    <div>
+      <label className="label flex items-center gap-1">
+        <Stethoscope className="w-3.5 h-3.5 text-slate-400" />
+        Procedimentos
+      </label>
+
+      {procedures.length > 0 && (
+        <div className="space-y-2 mb-3">
+          <div className="grid grid-cols-[1fr,110px,110px,24px] gap-2 px-1">
+            <span className="text-xs text-slate-400 font-medium">Procedimento</span>
+            <span className="text-xs text-slate-400 font-medium">Valor tabelado</span>
+            <span className="text-xs text-slate-400 font-medium">Valor pago</span>
+            <span />
+          </div>
+          {procedures.map((p, idx) => (
+            <div key={idx} className="grid grid-cols-[1fr,110px,110px,24px] gap-2 items-center">
+              <span className="text-sm text-slate-700 truncate">{p.name}</span>
+              <input
+                type="number" step="0.01" min="0"
+                value={p.valorTabelado}
+                onChange={e => handleFieldChange(idx, 'valorTabelado', parseFloat(e.target.value) || 0)}
+                className="input-field text-sm py-1.5"
+              />
+              <div>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={p.valorPago}
+                  onChange={e => handleFieldChange(idx, 'valorPago', parseFloat(e.target.value) || 0)}
+                  className="input-field text-sm py-1.5"
+                />
+                {p.valorPago === 0 && (
+                  <span className="text-[10px] text-amber-600 font-semibold">Cortesia</span>
+                )}
+              </div>
+              <button type="button" onClick={() => handleRemove(idx)} className="text-slate-400 hover:text-red-600">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {appointmentTypes.length > 0 ? (
+        <div className="flex gap-2">
+          <select value={selectedTypeId} onChange={e => setSelectedTypeId(e.target.value)} className="input-field flex-1">
+            <option value="">Selecione um procedimento</option>
+            {appointmentTypes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+          <button type="button" onClick={handleAdd} disabled={!selectedTypeId} className="btn-secondary px-3 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap">
+            <Plus className="w-4 h-4" />
+            Adicionar Procedimento
+          </button>
+        </div>
+      ) : (
+        <p className="text-xs text-slate-400">Cadastre procedimentos em Configurações → Procedimento pra usá-los aqui.</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Card de registro salvo ─────────────────────────────────────────────────
+
+function RecordCard({
+  record, onDelete, onEdit, onLaunchFinance, canDelete, canEdit,
+}: {
+  record: MedicalRecord
+  onDelete: () => void
+  onEdit: () => void
+  onLaunchFinance: () => void
+  canDelete: boolean
+  canEdit: boolean
+}) {
   const [expanded, setExpanded] = useState(false)
   const tc = recordTypeConfig[record.type] || recordTypeConfig.OUTROS
+  const procedures = record.procedures ?? []
+  const canLaunchFinance = canEdit && procedures.length > 0 && !record.billedAt
+  const specialtyData = record.specialtyData as { objetivoClinico?: string; sintese?: string; encaminhamento?: string } | null | undefined
 
   return (
     <div
@@ -83,6 +206,12 @@ function RecordCard({ record, onDelete, onEdit, canDelete, canEdit }: { record: 
             <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${tc.bg} ${tc.color}`}>
               {tc.label}
             </span>
+            {record.billedAt && (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
+                <CheckCircle2 className="w-3 h-3" />
+                Lançado
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-400 mt-0.5">
             {format(new Date(record.date), "dd 'de' MMM 'de' yyyy", { locale: ptBR })}
@@ -100,7 +229,28 @@ function RecordCard({ record, onDelete, onEdit, canDelete, canEdit }: { record: 
 
       {expanded && (
         <div className="px-4 pb-4 pt-3 border-t border-blue-100/70 bg-blue-50/30 animate-slide-in">
-          {record.specialtyData && record.specialtyType ? (
+          {record.specialtyType === 'GERAL' && specialtyData ? (
+            <div className="space-y-3">
+              {specialtyData.objetivoClinico && (
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Objetivo Clínico</p>
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{specialtyData.objetivoClinico}</p>
+                </div>
+              )}
+              {specialtyData.sintese && (
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Síntese</p>
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{specialtyData.sintese}</p>
+                </div>
+              )}
+              {specialtyData.encaminhamento && (
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">Encaminhamento</p>
+                  <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{specialtyData.encaminhamento}</p>
+                </div>
+              )}
+            </div>
+          ) : record.specialtyData && record.specialtyType ? (
             <SpecialtyRecordView
               specialtyType={record.specialtyType}
               data={record.specialtyData}
@@ -108,8 +258,39 @@ function RecordCard({ record, onDelete, onEdit, canDelete, canEdit }: { record: 
           ) : (
             <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{record.content}</p>
           )}
+
+          {procedures.length > 0 && (
+            <div className="mt-4 border-t border-blue-100 pt-3">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Procedimentos</p>
+              <div className="space-y-1.5">
+                {procedures.map(p => (
+                  <div key={p.id} className="flex items-center justify-between text-sm">
+                    <span className="text-slate-700 flex items-center gap-2">
+                      {p.name}
+                      {p.valorPago === 0 && (
+                        <span className="text-[10px] font-semibold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full">Cortesia</span>
+                      )}
+                    </span>
+                    <span className="font-medium text-slate-800">R$ {p.valorPago.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {(canEdit || canDelete) && (
             <div className="flex justify-end gap-2 mt-4">
+              {canLaunchFinance && (
+                <button
+                  onClick={onLaunchFinance}
+                  className="flex items-center gap-1.5 text-xs text-emerald-600 hover:text-emerald-800
+                             hover:bg-emerald-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
+                             border border-transparent hover:border-emerald-100"
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  Lançar Financeiro
+                </button>
+              )}
               {canEdit && (
                 <button
                   onClick={onEdit}
@@ -140,26 +321,34 @@ function RecordCard({ record, onDelete, onEdit, canDelete, canEdit }: { record: 
   )
 }
 
+// ─── Formulário único de registro (criação e edição) ───────────────────────────
+
 function RecordForm({
   defaultPatientId,
   patients,
   doctors,
+  appointmentTypes,
+  healthPlans,
   currentUser,
   onSubmit,
   loading,
   initialValues,
+  initialProcedures,
   submitLabel = 'Salvar Prontuário',
 }: {
   defaultPatientId?: string
   patients: Patient[]
   doctors: UserType[]
+  appointmentTypes: AppointmentType[]
+  healthPlans: HealthPlan[]
   currentUser: { id: string; role: string } | null
-  onSubmit: (data: FormData) => void
+  onSubmit: (data: FormData & { procedures: ProcedureEntry[] }) => void
   loading: boolean
   initialValues?: Partial<FormData>
+  initialProcedures?: ProcedureEntry[]
   submitLabel?: string
 }) {
-  const { register, handleSubmit, formState: { errors } } = useForm<FormData>({
+  const { register, handleSubmit, watch, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       patientId: defaultPatientId || '',
@@ -167,13 +356,23 @@ function RecordForm({
       type: 'EVOLUCAO',
       date: format(new Date(), 'yyyy-MM-dd'),
       title: '',
-      content: '',
+      objetivoClinico: '',
+      sintese: '',
+      encaminhamento: '',
       ...initialValues,
     },
   })
+  const [procedures, setProcedures] = useState<ProcedureEntry[]>(initialProcedures ?? [])
+
+  const watchPatientId = watch('patientId')
+  const selectedPatient = patients.find(p => p.id === watchPatientId)
+  const primaryPlanId = selectedPatient?.patientPlans?.[0]?.healthPlanId
+  const healthPlan = healthPlans.find(hp => hp.id === primaryPlanId) ?? null
+
+  const submit = (data: FormData) => onSubmit({ ...data, procedures })
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={handleSubmit(submit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="label">Paciente *</label>
@@ -215,15 +414,41 @@ function RecordForm({
       </div>
 
       <div>
-        <label className="label">Conteúdo / Descrição *</label>
+        <label className="label">Objetivo Clínico</label>
         <textarea
-          {...register('content')}
-          rows={6}
+          {...register('objetivoClinico')}
+          rows={3}
           className="input-field resize-none"
-          placeholder="Descreva o atendimento, sintomas, diagnóstico, orientações..."
+          placeholder="Objetivo do atendimento..."
         />
-        {errors.content && <p className="text-xs text-red-500 mt-1">{errors.content.message}</p>}
       </div>
+
+      <div>
+        <label className="label">Síntese</label>
+        <textarea
+          {...register('sintese')}
+          rows={3}
+          className="input-field resize-none"
+          placeholder="Síntese do que foi observado/discutido..."
+        />
+      </div>
+
+      <div>
+        <label className="label">Encaminhamento</label>
+        <textarea
+          {...register('encaminhamento')}
+          rows={2}
+          className="input-field resize-none"
+          placeholder="Encaminhamentos, orientações, próximos passos..."
+        />
+      </div>
+
+      <ProceduresSection
+        appointmentTypes={appointmentTypes}
+        healthPlan={healthPlan}
+        procedures={procedures}
+        onChange={setProcedures}
+      />
 
       <button type="submit" disabled={loading} className="btn-primary w-full">
         {loading ? (
@@ -244,6 +469,7 @@ export default function Prontuario() {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<MedicalRecord | null>(null)
+  const [launchingRecord, setLaunchingRecord] = useState<MedicalRecord | null>(null)
 
   const { data: patients = [] } = useQuery<Patient[]>({
     queryKey: ['patients', search],
@@ -255,22 +481,24 @@ export default function Prontuario() {
     queryFn: () => api.get('/doctors').then(r => r.data),
   })
 
+  const { data: appointmentTypes = [] } = useQuery<AppointmentType[]>({
+    queryKey: ['appointment-types'],
+    queryFn: () => api.get('/appointment-types').then(r => r.data),
+  })
+
+  const { data: healthPlans = [] } = useQuery<HealthPlan[]>({
+    queryKey: ['health-plans'],
+    queryFn: () => api.get('/health-plans').then(r => r.data),
+  })
+
   const { data: grouped = [] } = useQuery<GroupedMedicalRecord[]>({
     queryKey: ['prontuario', selectedPatient?.id],
     queryFn: () => api.get(`/medical-records/by-patient/${selectedPatient!.id}`).then(r => r.data),
     enabled: !!selectedPatient,
   })
 
-  // Detect the logged-in doctor's specialty for specialty-aware forms
-  const currentDoctor = user?.role === 'DOCTOR'
-    ? doctors.find(d => d.id === user.id)
-    : null
-  const doctorSpecialty = user?.specialty ?? currentDoctor?.specialty
-  const specialtyKey = getSpecialtyKey(doctorSpecialty)
-  const hasSpecialtyForm = user?.role === 'DOCTOR'
-
   const createMutation = useMutation({
-    mutationFn: (data: FormData | SpecialtySubmitData) => api.post('/medical-records', data),
+    mutationFn: (data: FormData & { procedures: ProcedureEntry[] }) => api.post('/medical-records', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['prontuario'] })
       toast.success('Prontuário registrado!')
@@ -288,7 +516,7 @@ export default function Prontuario() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (vars: { id: string; data: FormData }) => api.put(`/medical-records/${vars.id}`, vars.data),
+    mutationFn: (vars: { id: string; data: FormData & { procedures: ProcedureEntry[] } }) => api.put(`/medical-records/${vars.id}`, vars.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['prontuario'] })
       toast.success('Prontuário atualizado!')
@@ -461,6 +689,7 @@ export default function Prontuario() {
                             canEdit={user?.role === 'ADMIN' || user?.role === 'DOCTOR'}
                             onDelete={() => deleteMutation.mutate(record.id)}
                             onEdit={() => setEditingRecord(record)}
+                            onLaunchFinance={() => setLaunchingRecord(record)}
                           />
                         ))}
                       </div>
@@ -476,33 +705,19 @@ export default function Prontuario() {
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
-        title={
-          hasSpecialtyForm && specialtyKey !== 'CLINICO_GERAL'
-            ? `Novo Registro · ${SPECIALTY_LABELS[specialtyKey]}`
-            : 'Novo Registro de Prontuário'
-        }
+        title="Novo Registro de Prontuário"
         size="lg"
       >
-        {hasSpecialtyForm ? (
-          <SpecialtyFormRouter
-            patients={patients}
-            doctors={doctors}
-            currentUser={user}
-            defaultPatientId={selectedPatient?.id}
-            specialtyKey={specialtyKey}
-            onSubmit={(data) => createMutation.mutate(data)}
-            loading={createMutation.isPending}
-          />
-        ) : (
-          <RecordForm
-            defaultPatientId={selectedPatient?.id}
-            patients={patients}
-            doctors={doctors}
-            currentUser={user}
-            onSubmit={(data) => createMutation.mutate(data)}
-            loading={createMutation.isPending}
-          />
-        )}
+        <RecordForm
+          defaultPatientId={selectedPatient?.id}
+          patients={patients}
+          doctors={doctors}
+          appointmentTypes={appointmentTypes}
+          healthPlans={healthPlans}
+          currentUser={user}
+          onSubmit={(data) => createMutation.mutate(data)}
+          loading={createMutation.isPending}
+        />
       </Modal>
 
       <Modal
@@ -517,6 +732,8 @@ export default function Prontuario() {
             defaultPatientId={editingRecord.patientId}
             patients={patients}
             doctors={doctors}
+            appointmentTypes={appointmentTypes}
+            healthPlans={healthPlans}
             currentUser={user}
             submitLabel="Salvar alterações"
             initialValues={{
@@ -525,13 +742,39 @@ export default function Prontuario() {
               type: editingRecord.type === 'SISTEMA' ? 'OUTROS' : editingRecord.type,
               date: format(new Date(editingRecord.date), 'yyyy-MM-dd'),
               title: editingRecord.title,
-              content: editingRecord.content,
+              objetivoClinico: editingRecord.specialtyType === 'GERAL'
+                ? (editingRecord.specialtyData as { objetivoClinico?: string })?.objetivoClinico ?? ''
+                : '',
+              sintese: editingRecord.specialtyType === 'GERAL'
+                ? (editingRecord.specialtyData as { sintese?: string })?.sintese ?? ''
+                : '',
+              encaminhamento: editingRecord.specialtyType === 'GERAL'
+                ? (editingRecord.specialtyData as { encaminhamento?: string })?.encaminhamento ?? ''
+                : '',
             }}
+            initialProcedures={(editingRecord.procedures ?? []).map(p => ({
+              appointmentTypeId: p.appointmentTypeId ?? undefined,
+              name: p.name,
+              valorTabelado: p.valorTabelado,
+              valorPago: p.valorPago,
+            }))}
             onSubmit={(data) => updateMutation.mutate({ id: editingRecord.id, data })}
             loading={updateMutation.isPending}
           />
         )}
       </Modal>
+
+      {launchingRecord && (
+        <LancarFinanceiroModal
+          isOpen={!!launchingRecord}
+          onClose={() => setLaunchingRecord(null)}
+          record={launchingRecord}
+          onCharged={() => {
+            qc.invalidateQueries({ queryKey: ['prontuario'] })
+            setLaunchingRecord(null)
+          }}
+        />
+      )}
     </div>
   )
 }

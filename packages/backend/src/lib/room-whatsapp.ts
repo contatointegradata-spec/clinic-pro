@@ -295,6 +295,34 @@ function logRoom(level: 'info' | 'warn' | 'error', instanceKey: string, event: s
   console.log(JSON.stringify({ ts, level, module: 'ROOM_WA', instanceKey, event, ...meta }))
 }
 
+// ─── Baileys version cache ────────────────────────────────────────────────────
+// fetchLatestBaileysVersion() faz uma chamada de rede ao GitHub sem timeout.
+// Sem cache, toda tentativa de conectar/reconectar pagava esse round-trip de
+// novo, atrasando o aparecimento do QR Code. Cacheia por algumas horas e usa
+// timeout curto + último valor bom conhecido como fallback.
+const baileysVersionCache = new NodeCache({ stdTTL: 6 * 60 * 60, checkperiod: 600 })
+const BAILEYS_VERSION_CACHE_KEY = 'version'
+let lastKnownBaileysVersion: [number, number, number] | null = null
+
+async function getCachedBaileysVersion(): Promise<[number, number, number]> {
+  const cached = baileysVersionCache.get<[number, number, number]>(BAILEYS_VERSION_CACHE_KEY)
+  if (cached) return cached
+
+  try {
+    const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+    const { version } = await Promise.race([fetchLatestBaileysVersion(), timeout])
+    const v = version as [number, number, number]
+    baileysVersionCache.set(BAILEYS_VERSION_CACHE_KEY, v)
+    lastKnownBaileysVersion = v
+    return v
+  } catch (err) {
+    logRoom('warn', 'system', 'baileys_version.fetch_failed', { error: String(err) })
+    if (lastKnownBaileysVersion) return lastKnownBaileysVersion
+    // Fallback fixo conhecido — evita travar a conexão caso a rede/GitHub estejam fora.
+    return [2, 3000, 1023223821]
+  }
+}
+
 /**
  * Start a WhatsApp session for a room.
  * Creates/updates the RoomWhatsAppConnection record as the session progresses.
@@ -319,7 +347,7 @@ export async function startRoomSession(connectionId: string, instanceKey: string
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(sessDir)
-    const { version } = await fetchLatestBaileysVersion()
+    const version = await getCachedBaileysVersion()
 
     const sock = makeWASocket({
       version,
@@ -541,6 +569,29 @@ export async function stopRoomSession(instanceKey: string, logout = false): Prom
 }
 
 /**
+ * Faz um polling curto (limitado por timeoutMs) no registro da conexão até o
+ * `status` sair do valor que tinha no momento da chamada (normalmente vira
+ * 'CONNECTING' assim que o Baileys começa o handshake) ou até já ter QR Code
+ * gravado. Usado pelas rotas de connect/reconnect pra responder já com o
+ * estado atualizado — em vez do estado estático de antes da tentativa —
+ * sem bloquear a requisição HTTP por muito tempo.
+ */
+export async function waitForConnectionProgress(connectionId: string, timeoutMs = 4000) {
+  const initial = await prisma.roomWhatsAppConnection.findUnique({ where: { id: connectionId } })
+  if (!initial) return null
+
+  let current = initial
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline && current.status === initial.status && !current.qrCode) {
+    await new Promise(resolve => setTimeout(resolve, 300))
+    const fresh = await prisma.roomWhatsAppConnection.findUnique({ where: { id: connectionId } })
+    if (!fresh) break
+    current = fresh
+  }
+  return current
+}
+
+/**
  * Reset session files to force new QR code on next connect.
  */
 export function resetRoomSessionFiles(instanceKey: string): void {
@@ -574,6 +625,11 @@ export function normalizeToWhatsAppJid(input: string): string {
  * Verifica se um número existe no WhatsApp via onWhatsApp() do Baileys.
  * Retorna o JID correto retornado pelo servidor, ou null se não encontrado/erro.
  */
+// Evita reconsultar os servidores do WhatsApp (onWhatsApp()) pro mesmo número
+// a cada mensagem enviada pelo bot num mesmo atendimento — era a principal
+// causa de delay perceptível nas respostas em turnos com várias mensagens.
+const phoneCheckCache = new NodeCache({ stdTTL: 600, checkperiod: 120 })
+
 export async function checkPhoneOnWhatsApp(
   instanceKey: string,
   phone: string,
@@ -584,10 +640,17 @@ export async function checkPhoneOnWhatsApp(
   const jid = normalizeToWhatsAppJid(phone)
   const numberOnly = jid.replace('@s.whatsapp.net', '')
 
+  const cacheKey = `${instanceKey}:${numberOnly}`
+  const cached = phoneCheckCache.get<{ exists: boolean; jid: string }>(cacheKey)
+  if (cached) return cached
+
   try {
     const result = await (sock as any).onWhatsApp(numberOnly)
-    if (!result || result.length === 0) return { exists: false, jid }
-    return { exists: result[0].exists, jid: result[0].jid ?? jid }
+    const resolved = (!result || result.length === 0)
+      ? { exists: false, jid }
+      : { exists: result[0].exists, jid: result[0].jid ?? jid }
+    phoneCheckCache.set(cacheKey, resolved)
+    return resolved
   } catch (err) {
     logRoom('warn', instanceKey, 'phone.check_failed', { phone, error: String(err) })
     return null

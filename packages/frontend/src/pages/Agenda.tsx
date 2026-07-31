@@ -18,8 +18,7 @@ import { useAgendaPreferences } from '../hooks/useAgendaPreferences'
 import AgendaSettingsModal from '../components/Agenda/AgendaSettingsModal'
 import { Settings } from 'lucide-react'
 
-function getApptColor(status: string, isBlocked: boolean) {
-  if (isBlocked) return 'bg-amber-50 text-amber-800 border-amber-500'
+function getApptColor(status: string) {
   const map: Record<string, string> = {
     SCHEDULED: 'bg-blue-50 text-blue-700 border-blue-500',
     CONFIRMED: 'bg-emerald-50 text-emerald-700 border-emerald-500',
@@ -332,7 +331,7 @@ export default function Agenda() {
   }
 
   appointments.forEach(appt => {
-    if (appt.isBlocked || appt.status === 'CANCELLED') return
+    if (appt.status === 'CANCELLED') return
     const apptDate = parseISO(appt.date)
     const startH = apptDate.getHours()
     const endH = Math.ceil(startH + appt.duration / 60)
@@ -482,8 +481,6 @@ export default function Agenda() {
 
   const handleApptClick = (e: React.MouseEvent, appt: Appointment) => {
     e.stopPropagation()
-    // Secretary cannot see details of blocked appointments
-    if (user?.role === 'SECRETARY' && appt.isBlocked) return
     setTooltip(null)
     setSelectedAppt(appt)
     setSelectedSlot(null)
@@ -491,13 +488,12 @@ export default function Agenda() {
   }
 
   const handleApptMouseEnter = useCallback((e: React.MouseEvent, appt: Appointment) => {
-    if (user?.role === 'SECRETARY' && appt.isBlocked) return
     if (tooltipTimer.current) clearTimeout(tooltipTimer.current)
     mouseCoords.current = { x: e.clientX, y: e.clientY }
     tooltipTimer.current = setTimeout(() => {
       setTooltip({ appt, x: mouseCoords.current.x, y: mouseCoords.current.y })
     }, 300)
-  }, [user])
+  }, [])
 
   const handleApptMouseMove = useCallback((e: React.MouseEvent) => {
     mouseCoords.current = { x: e.clientX, y: e.clientY }
@@ -718,7 +714,6 @@ export default function Agenda() {
                     if (activeAppt) {
                       const aStart = parseISO(activeAppt.date)
                       skipUntil = new Date(aStart.getTime() + activeAppt.duration * 60000)
-                      if (user?.role === 'SECRETARY' && activeAppt.isBlocked) return null // Secretary can't see blocked details
                       return (
                         <tr
                           key={activeAppt.id}
@@ -1000,35 +995,27 @@ export default function Agenda() {
                       const apptDate = parseISO(appt.date)
                       const top = getApptPosition(apptDate)
                       const height = getApptHeight(apptDate, appt.duration)
-                      const colorClass = getApptColor(appt.status, appt.isBlocked)
-                      const isSecretaryBlocked = user?.role === 'SECRETARY' && appt.isBlocked
+                      const colorClass = getApptColor(appt.status)
 
                       return (
                         <div
                           key={appt.id}
                           style={{ top: top + 1, height: height - 2, left: 2, right: 2 }}
-                          className={`absolute rounded-md border-l-4 px-1.5 py-0.5 shadow-sm z-10 overflow-hidden transition-all ${colorClass} ${isSecretaryBlocked ? 'cursor-not-allowed opacity-80' : 'cursor-pointer hover:brightness-95'}`}
+                          className={`absolute rounded-md border-l-4 px-1.5 py-0.5 shadow-sm z-10 overflow-hidden transition-all cursor-pointer hover:brightness-95 ${colorClass}`}
                           onClick={e => handleApptClick(e, appt)}
                           onMouseEnter={e => handleApptMouseEnter(e, appt)}
                           onMouseMove={handleApptMouseMove}
                           onMouseLeave={handleApptMouseLeave}
                         >
                           <p className="text-xs font-bold leading-tight truncate">
-                            {isSecretaryBlocked ? (
-                              <span className="flex items-center gap-1">
-                                <Lock className="w-3 h-3" />
-                                Bloqueado
-                              </span>
-                            ) : (
-                              <span className="flex items-center gap-1">
-                                {appt.patient.status === 'PRE_CADASTRO' && (
-                                  <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
-                                )}
-                                {format(apptDate, 'HH:mm')} {appt.patient.name}
-                              </span>
-                            )}
+                            <span className="flex items-center gap-1">
+                              {appt.patient.status === 'PRE_CADASTRO' && (
+                                <AlertTriangle className="w-3 h-3 text-amber-500 flex-shrink-0" />
+                              )}
+                              {format(apptDate, 'HH:mm')} {appt.patient.name}
+                            </span>
                           </p>
-                          {height > 36 && !isSecretaryBlocked && (
+                          {height > 36 && (
                             <p className="text-xs opacity-80 truncate leading-tight">{appt.duration}min · {appt.type || 'Consulta'}</p>
                           )}
                         </div>
@@ -1054,7 +1041,6 @@ export default function Agenda() {
           </div>
         ) : (
           appointments
-              .filter(a => !(user?.role === 'SECRETARY' && a.isBlocked))
               .map((appt, idx) => (
                 <div
                   key={appt.id}
@@ -1112,7 +1098,7 @@ export default function Agenda() {
             onMouseLeave={handleApptMouseLeave}
           >
             <div className="flex items-center gap-2">
-              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${tooltip.appt.isBlocked ? 'bg-amber-500' : (dotColors[tooltip.appt.status] || 'bg-blue-500')}`} />
+              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColors[tooltip.appt.status] || 'bg-blue-500'}`} />
               <p className="font-semibold text-slate-900 text-sm leading-tight truncate">{tooltip.appt.patient.name}</p>
             </div>
             <div className="space-y-1.5 text-xs text-slate-500">

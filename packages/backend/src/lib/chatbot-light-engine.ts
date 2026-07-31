@@ -817,7 +817,6 @@ export async function checkScheduledReminders() {
   const appts24h = await prisma.appointment.findMany({
     where: {
       status: { in: ['SCHEDULED', 'CONFIRMED'] },
-      isBlocked: false,
       reminder24hSent: false,
       date: { gte: range24hStart, lte: range24hEnd },
     },
@@ -865,7 +864,6 @@ export async function checkScheduledReminders() {
   const appts2h = await prisma.appointment.findMany({
     where: {
       status: { in: ['SCHEDULED', 'CONFIRMED'] },
-      isBlocked: false,
       reminder2hSent: false,
       date: { gte: range2hStart, lte: range2hEnd },
     },

@@ -8,6 +8,9 @@ export interface AuthRequest extends Request {
     email: string
     role: string
     name: string
+    isPlatformDeveloper: boolean
+    notificationsAccess: boolean
+    integrationsAccess: boolean
   }
 }
 
@@ -24,11 +27,19 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
   try {
     const payload = verifyToken(token)
 
-    // Verify user still exists and is active in the current DB.
-    // This rejects stale tokens from previous deployments or DB resets.
+    // Verify user still exists and is active in the current DB, and pull
+    // fresh role/permission flags — reading these from the DB (instead of
+    // trusting the JWT payload) means a permission grant/revoke by the
+    // platform developer takes effect immediately, without a new login.
     const user = await prisma.user.findUnique({
       where: { id: payload.userId, active: true },
-      select: { id: true },
+      select: {
+        id: true,
+        role: true,
+        isPlatformDeveloper: true,
+        notificationsAccess: true,
+        integrationsAccess: true,
+      },
     })
 
     if (!user) {
@@ -36,11 +47,33 @@ export async function authenticate(req: AuthRequest, res: Response, next: NextFu
       return
     }
 
-    req.user = payload
+    req.user = {
+      userId: payload.userId,
+      email: payload.email,
+      name: payload.name,
+      role: user.role,
+      isPlatformDeveloper: user.isPlatformDeveloper,
+      notificationsAccess: user.notificationsAccess,
+      integrationsAccess: user.integrationsAccess,
+    }
     next()
   } catch {
     res.status(401).json({ message: 'Token inválido ou expirado' })
   }
+}
+
+export function requirePlatformDeveloper(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    res.status(401).json({ message: 'Não autenticado' })
+    return
+  }
+
+  if (!req.user.isPlatformDeveloper) {
+    res.status(403).json({ message: 'Acesso negado. Permissão insuficiente.' })
+    return
+  }
+
+  next()
 }
 
 export function requireRole(...roles: string[]) {

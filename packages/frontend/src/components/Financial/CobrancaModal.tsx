@@ -2,16 +2,22 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { DollarSign, CreditCard, HeartPulse } from 'lucide-react'
+import { DollarSign, CreditCard, HeartPulse, Plus, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
-import type { Appointment, PaymentMethod } from '../../types'
+import type { Appointment, PaymentMethod, PatientPlan, AppointmentType } from '../../types'
 import Modal from '../ui/Modal'
+
+interface ChargeItem {
+  name: string
+  value: number
+}
 
 interface Props {
   isOpen: boolean
   onClose: () => void
   appointment: Appointment
+  patientPlan?: PatientPlan
   discountPercent?: number
   onCharged: () => void
 }
@@ -24,14 +30,22 @@ export default function CobrancaModal({
   isOpen,
   onClose,
   appointment,
+  patientPlan,
   discountPercent = 0,
   onCharged,
 }: Props) {
-  const [valor, setValor] = useState<number>(appointment.value ?? 0)
+  const planName = patientPlan?.healthPlan?.name
+  const baseValue = patientPlan?.value ?? patientPlan?.healthPlan?.defaultValue ?? appointment.value ?? 0
+
+  const [items, setItems] = useState<ChargeItem[]>([
+    { name: planName ? `Consulta — ${planName}` : 'Consulta', value: baseValue },
+  ])
+  const [selectedProcedureId, setSelectedProcedureId] = useState('')
   const [selectedMethodId, setSelectedMethodId] = useState('')
   const [notes, setNotes] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const valor = items.reduce((sum, item) => sum + (item.value || 0), 0)
   const repasseValue = Math.floor(valor * (1 - discountPercent / 100) * 100) / 100
 
   const { data: methods = [] } = useQuery<PaymentMethod[]>({
@@ -40,9 +54,36 @@ export default function CobrancaModal({
     enabled: isOpen,
   })
 
+  const { data: appointmentTypes = [] } = useQuery<AppointmentType[]>({
+    queryKey: ['appointment-types'],
+    queryFn: () => api.get('/appointment-types').then(r => r.data),
+    enabled: isOpen,
+  })
+
   const selectedMethod = methods.find(m => m.id === selectedMethodId)
 
-  const planName = appointment.patient.patientPlans?.[0]?.healthPlan?.name
+  const suggestedValueFor = (typeId: string) => {
+    const override = patientPlan?.healthPlan?.procedures?.find(p => p.appointmentTypeId === typeId)
+    if (override) return override.value
+    const type = appointmentTypes.find(t => t.id === typeId)
+    return type?.baseValue ?? 0
+  }
+
+  const handleAddProcedure = () => {
+    if (!selectedProcedureId) return
+    const type = appointmentTypes.find(t => t.id === selectedProcedureId)
+    if (!type) return
+    setItems(prev => [...prev, { name: type.name, value: suggestedValueFor(selectedProcedureId) }])
+    setSelectedProcedureId('')
+  }
+
+  const handleItemValueChange = (index: number, newValue: number) => {
+    setItems(prev => prev.map((item, i) => i === index ? { ...item, value: newValue } : item))
+  }
+
+  const handleRemoveItem = (index: number) => {
+    setItems(prev => prev.filter((_, i) => i !== index))
+  }
 
   const handleSubmit = async () => {
     if (valor <= 0) {
@@ -54,6 +95,7 @@ export default function CobrancaModal({
       await api.post(`/appointments/${appointment.id}/charge`, {
         amount: valor,
         repasseValue,
+        items,
         paymentMethodId:   selectedMethodId || undefined,
         paymentMethodName: selectedMethod?.name || undefined,
         notes:             notes || undefined,
@@ -85,10 +127,6 @@ export default function CobrancaModal({
         {/* Info card */}
         <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-2.5">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-slate-500">Tipo</span>
-            <span className="font-medium text-slate-800">{appointment.type || 'Consulta'}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
             <span className="text-slate-500">Data</span>
             <span className="font-medium text-slate-800">
               {format(new Date(appointment.date), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
@@ -109,21 +147,60 @@ export default function CobrancaModal({
           )}
         </div>
 
-        {/* Valor cobrado */}
+        {/* Itens cobrados */}
         <div>
           <label className="label flex items-center gap-1.5">
             <DollarSign className="w-3.5 h-3.5 text-slate-400" />
-            Valor cobrado (R$)
+            Itens cobrados
           </label>
-          <input
-            type="number"
-            step="0.01"
-            min="0.01"
-            value={valor}
-            onChange={e => setValor(parseFloat(e.target.value) || 0)}
-            className="input-field text-lg font-semibold"
-            placeholder="0,00"
-          />
+          <div className="space-y-2">
+            {items.map((item, idx) => (
+              <div key={idx} className="flex items-center gap-2">
+                <span className="flex-1 text-sm text-slate-700 truncate">{item.name}</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={item.value}
+                  onChange={e => handleItemValueChange(idx, parseFloat(e.target.value) || 0)}
+                  className="input-field w-28 text-right font-medium"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleRemoveItem(idx)}
+                  className="text-slate-400 hover:text-red-600 flex-shrink-0"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex gap-2 mt-3">
+            <select
+              value={selectedProcedureId}
+              onChange={e => setSelectedProcedureId(e.target.value)}
+              className="input-field flex-1"
+            >
+              <option value="">Adicionar procedimento...</option>
+              {appointmentTypes.map(t => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={handleAddProcedure}
+              disabled={!selectedProcedureId}
+              className="btn-secondary px-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between mt-3 px-1">
+            <span className="text-sm font-semibold text-slate-600">Valor cobrado</span>
+            <span className="text-lg font-bold text-slate-900">{currency(valor)}</span>
+          </div>
         </div>
 
         {/* Breakdown repasse — mostra sempre que há desconto configurado */}

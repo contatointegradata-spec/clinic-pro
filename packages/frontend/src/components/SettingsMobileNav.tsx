@@ -7,7 +7,7 @@ export default function SettingsMobileNav() {
   const { user } = useAuthStore()
   const location = useLocation()
   const { permissions } = useSecretaryPermissions()
-  const items = getVisibleSettingsNav(user?.role, permissions)
+  const items = getVisibleSettingsNav(user ?? undefined, permissions)
 
   if (items.length === 0) return null
 

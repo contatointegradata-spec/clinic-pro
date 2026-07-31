@@ -24,7 +24,6 @@ const appointmentSchema = z.object({
   notes: z.string().optional(),
   type: z.string().optional(),
   value: z.number().optional(),
-  isBlocked: z.boolean().optional(),
   roomId: z.string().optional().nullable(),
   repeatCount: z.number().int().min(1).max(50).optional(),
   forceOverlap: z.boolean().optional(),
@@ -52,15 +51,6 @@ router.get('/', async (req: AuthRequest, res) => {
         where.doctorId = doctorId as string
       } else {
         where.doctorId = { in: linkedIds }
-      }
-
-      // Secretaries assigned to specific rooms only see appointments from those rooms.
-      const roomAssignments = await prisma.roomSecretary.findMany({
-        where: { secretaryId: req.user!.userId, active: true },
-        select: { roomId: true },
-      })
-      if (roomAssignments.length > 0) {
-        where.roomId = { in: roomAssignments.map(r => r.roomId) }
       }
     } else if (doctorId) {
       where.doctorId = doctorId as string
@@ -130,8 +120,7 @@ router.post('/', async (req: AuthRequest, res) => {
     const data = appointmentSchema.parse(req.body)
     const { repeatCount, forceOverlap, ...apptData } = data
 
-    // When blocked, disallow replication — force single occurrence
-    const effectiveRepeatCount = apptData.isBlocked ? 1 : (repeatCount && repeatCount > 1 ? repeatCount : 1)
+    const effectiveRepeatCount = repeatCount && repeatCount > 1 ? repeatCount : 1
 
     // Empty string roomId from the frontend form (hidden selector) must be null, not ''.
     // An empty string fails the FK constraint since no Room has id=''.
@@ -151,20 +140,6 @@ router.post('/', async (req: AuthRequest, res) => {
         res.status(403).json({ message: 'Acesso negado: profissional não vinculado a esta secretária' })
         return
       }
-
-      const roomAssignments = await prisma.roomSecretary.findMany({
-        where: { secretaryId: req.user!.userId, active: true, room: { doctorId: apptData.doctorId } },
-        select: { roomId: true },
-      })
-      if (roomAssignments.length > 0) {
-        const allowedRoomIds = new Set(roomAssignments.map(r => r.roomId))
-        if (!apptData.roomId) {
-          apptData.roomId = roomAssignments[0].roomId
-        } else if (!allowedRoomIds.has(apptData.roomId)) {
-          res.status(403).json({ message: 'Acesso negado: você não está vinculada a esta sala' })
-          return
-        }
-      }
     }
 
     const baseDate = new Date(apptData.date)
@@ -178,7 +153,7 @@ router.post('/', async (req: AuthRequest, res) => {
       dates.push(d)
     }
 
-    if (!apptData.isBlocked) {
+    {
       const duration = apptData.duration ?? 30
       for (const d of dates) {
         const isOverlap = await checkLunchOverlap(apptData.doctorId, d, duration)
@@ -190,7 +165,7 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     // Secretaries cannot book over time slots the doctor has explicitly blocked.
-    if (req.user!.role === 'SECRETARY' && !apptData.isBlocked) {
+    if (req.user!.role === 'SECRETARY') {
       const blocks = await prisma.appointmentBlock.findMany({ where: { doctorId: apptData.doctorId } })
       const durationMs = (apptData.duration ?? 30) * 60000
       const hasConflict = dates.some(d => {
@@ -204,7 +179,7 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     // Overlap validation
-    if (!apptData.isBlocked && !forceOverlap) {
+    if (!forceOverlap) {
       const durationMs = (apptData.duration ?? 30) * 60000
       
       const existingAppts = await prisma.appointment.findMany({
@@ -328,7 +303,6 @@ const appointmentUpdateSchema = z.object({
   notes: z.string().optional().nullable(),
   type: z.string().optional().nullable(),
   value: z.number().optional().nullable(),
-  isBlocked: z.boolean().optional(),
   roomId: z.string().optional().nullable(),
   forceOverlap: z.boolean().optional(),
 })
@@ -354,22 +328,6 @@ router.put('/:id', async (req: AuthRequest, res) => {
           where: { secretaryId: req.user!.userId, doctorId: existing.doctorId, active: true }
         })
         if (!link) { res.status(403).json({ message: 'Acesso negado' }); return }
-
-        if ('roomId' in data) {
-          const roomAssignments = await prisma.roomSecretary.findMany({
-            where: { secretaryId: req.user!.userId, active: true, room: { doctorId: existing.doctorId } },
-            select: { roomId: true },
-          })
-          if (roomAssignments.length > 0) {
-            const allowedRoomIds = new Set(roomAssignments.map(r => r.roomId))
-            if (!data.roomId) {
-               data.roomId = roomAssignments[0].roomId
-            } else if (!allowedRoomIds.has(data.roomId as string)) {
-               res.status(403).json({ message: 'Acesso negado: você não está vinculada a esta sala' })
-               return
-            }
-          }
-        }
       } else {
         res.status(403).json({ message: 'Acesso negado' })
         return
@@ -381,7 +339,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
       include: { transaction: true },
     })
 
-    if (!(data.isBlocked ?? current?.isBlocked)) {
+    {
       const newDate = data.date ? (data.date as Date) : (current?.date ?? new Date())
       const duration = ((data.duration as number | undefined) ?? current?.duration ?? 30)
       const isOverlap = await checkLunchOverlap(existing.doctorId, newDate, duration)
@@ -392,7 +350,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
     }
 
     // Secretaries cannot reschedule into a time slot the doctor has explicitly blocked.
-    if (req.user!.role === 'SECRETARY' && data.date && !(data.isBlocked ?? current?.isBlocked)) {
+    if (req.user!.role === 'SECRETARY' && data.date) {
       const blocks = await prisma.appointmentBlock.findMany({ where: { doctorId: existing.doctorId } })
       const durationMs = ((data.duration as number | undefined) ?? current?.duration ?? 30) * 60000
       const newDate = data.date as Date
@@ -405,7 +363,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
     }
 
     // Overlap validation
-    if (!(data.isBlocked ?? current?.isBlocked) && !forceOverlap) {
+    if (!forceOverlap) {
       const durationMs = ((data.duration as number | undefined) ?? current?.duration ?? 30) * 60000
       const newDate = data.date ? (data.date as Date) : (current?.date ?? new Date())
 
@@ -716,6 +674,12 @@ const chargeSchema = z.object({
   repasseValue: z.number().optional(),
   notes: z.string().optional(),
   coveredReturnIds: z.array(z.string()).optional(),
+  // Detalhamento do que foi cobrado (consulta base do convênio + procedimentos
+  // adicionados na hora) — ver modal Cobrar Consulta.
+  items: z.array(z.object({
+    name: z.string(),
+    value: z.number(),
+  })).optional(),
 })
 
 router.post('/:id/charge', async (req: AuthRequest, res) => {
@@ -776,6 +740,7 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
         data: {
           doctorId:        appointment.doctorId,
           appointmentId:   appointment.id,
+          patientId:       appointment.patientId,
           type:            'INCOME',
           amount:          netAmount,
           repasseValue:    body.repasseValue ?? null,
@@ -787,6 +752,7 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
           status:          'PAID',
           category:        appointment.type || 'Consulta',
           notes:           body.notes ?? null,
+          items:           body.items ?? undefined,
         },
       }),
       prisma.appointment.update({

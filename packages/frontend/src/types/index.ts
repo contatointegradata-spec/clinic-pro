@@ -41,6 +41,17 @@ export interface AuthUser {
   avatarUrl?: string | null
   lunchStart?: string | null
   lunchEnd?: string | null
+  isPlatformDeveloper?: boolean
+  notificationsAccess?: boolean
+  integrationsAccess?: boolean
+}
+
+export interface HealthPlanProcedure {
+  id: string
+  healthPlanId: string
+  appointmentTypeId: string
+  value: number
+  appointmentType: { id: string; name: string }
 }
 
 export interface HealthPlan {
@@ -55,6 +66,7 @@ export interface HealthPlan {
   room?: { id: string; name: string; logradouro?: string | null; cidade?: string | null } | null
   active: boolean
   createdAt: string
+  procedures?: HealthPlanProcedure[]
   _count?: { patientPlans: number }
 }
 
@@ -117,37 +129,58 @@ export interface Appointment {
   date: string
   duration: number
   status: AppointmentStatus
-  isBlocked: boolean
   notes?: string | null
   type?: string | null
   value?: number | null
   billedAt?: string | null
   createdAt: string
-  patient: { id: string; name: string; phone: string; status?: PatientStatus; patientPlans?: Array<{ healthPlan: { name: string; discountPercent?: number | null } }> }
+  patient: { id: string; name: string; phone: string; status?: PatientStatus; patientPlans?: Array<{ healthPlanId: string; value?: number | null; healthPlan: { name: string; discountPercent?: number | null; defaultValue?: number | null } }> }
   doctor: { id: string; name: string; specialty?: string | null; crm?: string | null }
   createdBy?: { id: string; name: string }
   room?: { id: string; name: string; logradouro?: string | null; cidade?: string | null } | null
   transaction?: { id: string } | null
 }
 
+export interface TransactionItem {
+  name: string
+  value: number
+  valorTabelado?: number
+}
+
 export interface Transaction {
   id: string
   doctorId: string
   appointmentId?: string | null
+  medicalRecordId?: string | null
+  patientId?: string | null
   type: TransactionType
   amount: number
   description: string
   date: string
   status: TransactionStatus
   category?: string | null
+  categoryId?: string | null
+  costCenterId?: string | null
+  bankAccountId?: string | null
   paymentMethod?: string | null
   paymentMethodId?: string | null
   repasseValue?: number | null
   paidAt?: string | null
   notes?: string | null
+  items?: TransactionItem[] | null
   createdAt: string
   doctor: { id: string; name: string }
   appointment?: { id: string; patient: { id: string; name: string } } | null
+  patient?: { id: string; name: string } | null
+}
+
+export interface MedicalRecordProcedure {
+  id: string
+  medicalRecordId: string
+  appointmentTypeId?: string | null
+  name: string
+  valorTabelado: number
+  valorPago: number
 }
 
 export interface MedicalRecord {
@@ -160,10 +193,13 @@ export interface MedicalRecord {
   date: string
   specialtyType?: string | null
   specialtyData?: Record<string, unknown> | null
+  billedAt?: string | null
   createdAt: string
   updatedAt: string
   patient?: { id: string; name: string }
   doctor: { id: string; name: string; specialty?: string | null; crm?: string | null }
+  procedures?: MedicalRecordProcedure[]
+  transaction?: { id: string } | null
 }
 
 export interface GroupedMedicalRecord {
@@ -397,4 +433,24 @@ export interface ProcedureAnalytics {
   procedure: string
   total: number
   count: number
+}
+
+export interface PatientAnalytics {
+  id: string
+  name: string
+  total: number
+  count: number
+}
+
+export interface RoomAnalytics {
+  id: string
+  name: string
+  cidade?: string | null
+  total: number
+  count: number
+}
+
+export interface CourtesyAnalytics {
+  count: number
+  notCharged: number
 }

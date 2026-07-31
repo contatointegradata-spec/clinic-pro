@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId, requireSecretaryPermission, logAudit } from '../lib/secretaryAccess'
-import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive } from '../lib/room-whatsapp'
+import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive, waitForConnectionProgress } from '../lib/room-whatsapp'
 
 const router = Router()
 router.use(authenticate)
@@ -416,7 +416,19 @@ router.post('/:roomId/whatsapp/connect', requireRole('DOCTOR', 'ADMIN'), async (
       description: `Conexão WhatsApp iniciada pelo médico para sala ${room.name}`,
     })
 
-    res.json({ message: 'Conexão iniciada. Aguarde o QR Code.', connectionId: connection.id })
+    // Espera alguns segundos (limitado) pelo status virar CONNECTING/QR pronto,
+    // pra já responder com o estado atualizado em vez do estado estático de
+    // antes da tentativa — evita o frontend pegar "DISCONNECTED" no refetch
+    // imediato e cair pro polling lento de 15s.
+    const progress = await waitForConnectionProgress(connection.id)
+
+    res.json({
+      message: 'Conexão iniciada. Aguarde o QR Code.',
+      connectionId: connection.id,
+      status: progress?.status ?? 'CONNECTING',
+      qrCode: progress?.status === 'CONNECTING' ? progress.qrCode : null,
+      qrCodeExpiresAt: progress?.qrCodeExpiresAt ?? null,
+    })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -449,7 +461,14 @@ router.post('/:roomId/whatsapp/reconnect', requireRole('DOCTOR', 'ADMIN'), async
       description: `Reconexão WhatsApp para sala ${room.name}`,
     })
 
-    res.json({ message: 'Reconectando WhatsApp da sala...' })
+    const progress = await waitForConnectionProgress(connectionId)
+
+    res.json({
+      message: 'Reconectando WhatsApp da sala...',
+      status: progress?.status ?? 'CONNECTING',
+      qrCode: progress?.status === 'CONNECTING' ? progress.qrCode : null,
+      qrCodeExpiresAt: progress?.qrCodeExpiresAt ?? null,
+    })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

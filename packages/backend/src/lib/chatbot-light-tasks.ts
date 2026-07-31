@@ -84,7 +84,7 @@ export async function getChatbotLightTasks(doctorId: string): Promise<TasksResul
       take: TAKE,
     }),
     prisma.appointment.findMany({
-      where: { doctorId, status: 'SCHEDULED', isBlocked: false, date: { gte: now, lte: in48h } },
+      where: { doctorId, status: 'SCHEDULED', date: { gte: now, lte: in48h } },
       include: { patient: true },
       orderBy: { date: 'asc' },
       take: TAKE,

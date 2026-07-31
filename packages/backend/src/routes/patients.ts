@@ -92,7 +92,7 @@ router.get('/', async (req: AuthRequest, res) => {
         _count: { select: { appointments: true } },
         patientPlans: {
           include: {
-            healthPlan: { select: { id: true, name: true, type: true, discountPercent: true } },
+            healthPlan: { select: { id: true, name: true, type: true, discountPercent: true, defaultValue: true } },
           },
         },
       },

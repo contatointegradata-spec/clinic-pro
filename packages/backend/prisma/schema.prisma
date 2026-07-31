@@ -86,12 +86,18 @@ enum IntegrationType {
 }
 
 model User {
-  id               String    @id @default(uuid())
-  name             String
-  email            String    @unique
-  password         String
-  role             Role      @default(SECRETARY)
-  active           Boolean   @default(true)
+  id                   String    @id @default(uuid())
+  name                 String
+  email                String    @unique
+  password             String
+  role                 Role      @default(SECRETARY)
+  active               Boolean   @default(true)
+  // Desenvolvedor da plataforma (hoje só admin@cliniq.com) — ortogonal ao Role,
+  // controla acesso aos menus Notificações/Integrações e ao painel Admin
+  // Desenvolvedor. Ver routes/platform-admin.ts.
+  isPlatformDeveloper  Boolean   @default(false)
+  notificationsAccess  Boolean   @default(false)
+  integrationsAccess   Boolean   @default(false)
   specialty        String?
   certType         String?
   certNumber       String?
@@ -200,6 +206,7 @@ model Patient {
   patientPlans    PatientPlan[]
   medicalRecords  MedicalRecord[]
   assessments     Assessment[]
+  transactions    Transaction[]
 
   @@index([doctorId])
   @@index([status])
@@ -223,11 +230,30 @@ model HealthPlan {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  doctor       User?         @relation("DoctorHealthPlans", fields: [doctorId], references: [id])
-  room         Room?         @relation("RoomHealthPlans", fields: [roomId], references: [id])
+  doctor       User?                 @relation("DoctorHealthPlans", fields: [doctorId], references: [id])
+  room         Room?                 @relation("RoomHealthPlans", fields: [roomId], references: [id])
   patientPlans PatientPlan[]
+  procedures   HealthPlanProcedure[]
 
   @@map("TBLPLANOSAUDE")
+}
+
+// Valor específico de um Procedimento (AppointmentType) quando cobrado sob um
+// Convênio (HealthPlan) — usado para montar o valor sugerido no modal Cobrar
+// Consulta (base do convênio + procedimentos adicionados).
+model HealthPlanProcedure {
+  id                String   @id @default(uuid())
+  healthPlanId      String
+  appointmentTypeId String
+  value             Float
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  healthPlan      HealthPlan      @relation(fields: [healthPlanId], references: [id], onDelete: Cascade)
+  appointmentType AppointmentType @relation(fields: [appointmentTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([healthPlanId, appointmentTypeId])
+  @@map("TBLPLANOSAUDEPROCEDIMENTO")
 }
 
 model PatientPlan {
@@ -270,13 +296,36 @@ model MedicalRecord {
   date          DateTime   @default(now())
   specialtyType String?
   specialtyData Json?
+  // Preenchido quando os procedimentos deste registro já foram lançados no
+  // financeiro (ver POST /medical-records/:id/charge) — evita lançar 2x.
+  billedAt      DateTime?
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  patient Patient @relation(fields: [patientId], references: [id])
-  doctor  User    @relation("DoctorRecords", fields: [doctorId], references: [id])
+  patient    Patient                  @relation(fields: [patientId], references: [id])
+  doctor     User                     @relation("DoctorRecords", fields: [doctorId], references: [id])
+  procedures MedicalRecordProcedure[]
+  transaction Transaction?
 
   @@map("TBLPRONTUARIO")
+}
+
+// Procedimento avulso registrado dentro de um prontuário (nome/valor tabelado
+// vindos do catálogo de Procedimentos, valor pago editável — 0 = cortesia).
+// Somados e lançados no financeiro via POST /medical-records/:id/charge.
+model MedicalRecordProcedure {
+  id                String   @id @default(uuid())
+  medicalRecordId   String
+  appointmentTypeId String?
+  name              String
+  valorTabelado     Float
+  valorPago         Float
+  createdAt         DateTime @default(now())
+
+  medicalRecord   MedicalRecord    @relation(fields: [medicalRecordId], references: [id], onDelete: Cascade)
+  appointmentType AppointmentType? @relation(fields: [appointmentTypeId], references: [id], onDelete: SetNull)
+
+  @@map("TBLPRONTUARIOPROCEDIMENTO")
 }
 
 model Assessment {
@@ -310,7 +359,6 @@ model Appointment {
   date            DateTime
   duration        Int               @default(30)
   status          AppointmentStatus @default(SCHEDULED)
-  isBlocked       Boolean           @default(false)
   notes           String?
   type            String?
   value           Float?
@@ -341,7 +389,9 @@ model AppointmentType {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  doctor User? @relation("DoctorAppointmentTypes", fields: [doctorId], references: [id])
+  doctor             User?                    @relation("DoctorAppointmentTypes", fields: [doctorId], references: [id])
+  healthPlanLinks    HealthPlanProcedure[]
+  medicalRecordLinks MedicalRecordProcedure[]
 
   @@map("TBLTIPOAGENDAMENTO")
 }
@@ -365,6 +415,12 @@ model Transaction {
   id                  String            @id @default(uuid())
   doctorId            String
   appointmentId       String?           @unique
+  medicalRecordId     String?           @unique
+  // Vínculo direto de paciente — necessário pros lançamentos que não passam
+  // por um Appointment (ex: Lançar Financeiro a partir do Prontuário), e
+  // também preenchido pelo charge da Agenda, pra relatórios "por paciente"
+  // funcionarem de forma unificada independente da origem do lançamento.
+  patientId           String?
   type                TransactionType
   amount              Float
   description         String
@@ -379,6 +435,11 @@ model Transaction {
   repasseValue        Float?
   paidAt              DateTime?
   notes               String?
+  // Detalhamento do que foi cobrado (consulta base + procedimentos
+  // adicionados) — [{name, value}]. Só preenchido pelo endpoint de cobrança
+  // de agendamento (POST /appointments/:id/charge); auditoria/breakdown, o
+  // `amount` acima continua sendo a fonte de verdade do valor lançado.
+  items               Json?
   reminderSent        Boolean           @default(false)
   overdueReminderSent Boolean           @default(false)
   createdAt           DateTime          @default(now())
@@ -386,6 +447,8 @@ model Transaction {
 
   doctor            User               @relation(fields: [doctorId], references: [id])
   appointment       Appointment?       @relation(fields: [appointmentId], references: [id])
+  medicalRecord     MedicalRecord?     @relation(fields: [medicalRecordId], references: [id])
+  patient           Patient?           @relation(fields: [patientId], references: [id])
   financialCategory FinancialCategory? @relation("CategoryTransactions", fields: [categoryId], references: [id])
   costCenter        CostCenter?        @relation("CostCenterTransactions", fields: [costCenterId], references: [id])
   bankAccount       BankAccount?       @relation("BankAccountTransactions", fields: [bankAccountId], references: [id])

@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 
@@ -12,6 +13,7 @@ router.use(requireRole('ADMIN', 'DOCTOR'))
 const transactionSchema = z.object({
   doctorId: z.string(),
   appointmentId: z.string().optional(),
+  patientId: z.string().optional(),
   type: z.enum(['INCOME', 'EXPENSE']),
   amount: z.number().nonnegative('Valor deve ser positivo ou zero'),
   description: z.string().min(2, 'Descrição muito curta'),
@@ -440,6 +442,128 @@ router.get('/analytics/by-procedure', async (req: AuthRequest, res) => {
     }))
 
     res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/analytics/by-patient', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        doctorId,
+        type: 'INCOME',
+        status: 'PAID',
+        date: { gte: start, lte: end },
+        patientId: { not: null },
+      },
+      include: {
+        patient: { select: { id: true, name: true } },
+      },
+    })
+
+    const patientMap = new Map<string, { name: string; total: number; count: number }>()
+    for (const tx of transactions) {
+      if (!tx.patient) continue
+      const prev = patientMap.get(tx.patient.id) ?? { name: tx.patient.name, total: 0, count: 0 }
+      patientMap.set(tx.patient.id, { ...prev, total: prev.total + tx.amount, count: prev.count + 1 })
+    }
+
+    const data = Array.from(patientMap.entries())
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => b.total - a.total)
+
+    res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+router.get('/analytics/by-room', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        doctorId,
+        type: 'INCOME',
+        status: 'PAID',
+        date: { gte: start, lte: end },
+      },
+      include: {
+        appointment: {
+          include: { room: { select: { id: true, name: true, cidade: true } } },
+        },
+      },
+    })
+
+    const roomMap = new Map<string, { name: string; cidade?: string | null; total: number; count: number }>()
+    for (const tx of transactions) {
+      const room = tx.appointment?.room
+      if (!room) continue
+      const prev = roomMap.get(room.id) ?? { name: room.name, cidade: room.cidade, total: 0, count: 0 }
+      roomMap.set(room.id, { ...prev, total: prev.total + tx.amount, count: prev.count + 1 })
+    }
+
+    const data = Array.from(roomMap.entries())
+      .map(([id, v]) => ({ id, ...v }))
+      .sort((a, b) => b.total - a.total)
+
+    res.json(data)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// Conta procedimentos lançados com valor pago R$ 0 ("cortesia") no período —
+// itens vêm do breakdown `Transaction.items` (Cobrar da Agenda e Lançar
+// Financeiro do Prontuário populam esse campo com {name, value, valorTabelado?}).
+router.get('/analytics/courtesies', async (req: AuthRequest, res) => {
+  try {
+    const { startDate, endDate } = req.query
+    const doctorId = req.user!.role === 'DOCTOR' ? req.user!.userId : (req.query.doctorId as string | undefined)
+    if (!doctorId) { res.status(400).json({ message: 'doctorId obrigatório para ADMIN' }); return }
+
+    const start = startDate ? new Date(startDate as string) : new Date(new Date().setDate(1))
+    const end   = endDate   ? new Date(endDate as string)   : new Date()
+
+    const transactions = await prisma.transaction.findMany({
+      where: {
+        doctorId,
+        type: 'INCOME',
+        status: 'PAID',
+        date: { gte: start, lte: end },
+        items: { not: Prisma.JsonNull },
+      },
+      select: { items: true },
+    })
+
+    let count = 0
+    let notCharged = 0
+    for (const tx of transactions) {
+      const items = tx.items as { name: string; value: number; valorTabelado?: number }[] | null
+      if (!Array.isArray(items)) continue
+      for (const item of items) {
+        if (item.value === 0) {
+          count++
+          notCharged += item.valorTabelado ?? 0
+        }
+      }
+    }
+
+    res.json({ count, notCharged })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

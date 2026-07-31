@@ -22,6 +22,9 @@ import type {
   DayOfWeekAnalytics,
   ConvenioAnalytics,
   ProcedureAnalytics,
+  PatientAnalytics,
+  RoomAnalytics,
+  CourtesyAnalytics,
 } from '../../types'
 
 const CHART_COLORS = ['#0e7490', '#0891b2', '#06b6d4', '#22d3ee', '#67e8f9', '#a5f3fc', '#f97316', '#fb923c']
@@ -99,6 +102,21 @@ export default function AnaliseAvancada() {
     queryFn: () => api.get('/financial/analytics/by-procedure', { params }).then(r => r.data),
   })
 
+  const { data: byPatient = [], isLoading: loadingPatient } = useQuery<PatientAnalytics[]>({
+    queryKey: ['analytics-by-patient', startDate, endDate],
+    queryFn: () => api.get('/financial/analytics/by-patient', { params }).then(r => r.data),
+  })
+
+  const { data: byRoom = [], isLoading: loadingRoom } = useQuery<RoomAnalytics[]>({
+    queryKey: ['analytics-by-room', startDate, endDate],
+    queryFn: () => api.get('/financial/analytics/by-room', { params }).then(r => r.data),
+  })
+
+  const { data: courtesies } = useQuery<CourtesyAnalytics>({
+    queryKey: ['analytics-courtesies', startDate, endDate],
+    queryFn: () => api.get('/financial/analytics/courtesies', { params }).then(r => r.data),
+  })
+
   const totalFaturado = byPayment.reduce((s, r) => s + r.total, 0)
   const totalTransacoes = byPayment.reduce((s, r) => s + r.count, 0)
   const ticketMedio = totalTransacoes > 0 ? totalFaturado / totalTransacoes : 0
@@ -133,6 +151,16 @@ export default function AnaliseAvancada() {
     Faturamento: p.total,
   }))
 
+  const patientBarData = byPatient.slice(0, 8).map(p => ({
+    name: p.name.length > 20 ? p.name.slice(0, 20) + '…' : p.name,
+    Faturamento: p.total,
+  }))
+
+  const roomBarData = byRoom.slice(0, 8).map(r => ({
+    name: r.name.length > 20 ? r.name.slice(0, 20) + '…' : r.name,
+    Faturamento: r.total,
+  }))
+
   return (
     <div className="space-y-6 page-stagger">
       <PageHeader
@@ -165,10 +193,11 @@ export default function AnaliseAvancada() {
       </div>
 
       {/* KPI tiles */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <StatTile label="Total faturado" value={currency(totalFaturado)} />
         <StatTile label="Transações" value={String(totalTransacoes)} />
         <StatTile label="Ticket médio" value={currency(ticketMedio)} />
+        <StatTile label="Cortesias fechadas" value={String(courtesies?.count ?? 0)} />
       </div>
 
       {/* Row 1: PieChart + BarChart hora */}
@@ -309,6 +338,55 @@ export default function AnaliseAvancada() {
           )}
         </div>
       )}
+
+      {/* Row 4: Por Paciente + Por Local */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {loadingPatient ? <SkeletonCard /> : (
+          <div className="card">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Faturamento por Paciente</h3>
+            {patientBarData.length === 0 ? (
+              <div className="flex items-center justify-center h-[280px] text-slate-400 text-sm">Sem dados no período</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  data={patientBarData}
+                  layout="vertical"
+                  margin={{ top: 4, right: 16, left: 4, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} opacity={0.3} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={yAxisFormatter} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={110} />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
+                  <Bar dataKey="Faturamento" fill={CHART_COLORS[1]} radius={[0, 4, 4, 0]} maxBarSize={28} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        )}
+
+        {loadingRoom ? <SkeletonCard /> : (
+          <div className="card">
+            <h3 className="text-sm font-semibold text-slate-900 mb-4">Faturamento por Local</h3>
+            {roomBarData.length === 0 ? (
+              <div className="flex items-center justify-center h-[280px] text-slate-400 text-sm">Sem dados no período</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  data={roomBarData}
+                  layout="vertical"
+                  margin={{ top: 4, right: 16, left: 4, bottom: 0 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} opacity={0.3} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} tickFormatter={yAxisFormatter} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={110} />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#f8fafc' }} />
+                  <Bar dataKey="Faturamento" fill={CHART_COLORS[3]} radius={[0, 4, 4, 0]} maxBarSize={28} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

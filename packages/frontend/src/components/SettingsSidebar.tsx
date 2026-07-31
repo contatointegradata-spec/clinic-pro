@@ -13,7 +13,7 @@ export default function SettingsSidebar({ collapsed = false, onToggleCollapse }:
   const { user } = useAuthStore()
   const navigate = useNavigate()
   const { permissions } = useSecretaryPermissions()
-  const visible = getVisibleSettingsNav(user?.role, permissions)
+  const visible = getVisibleSettingsNav(user ?? undefined, permissions)
 
   const initials = user?.name
     ?.split(' ')

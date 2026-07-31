@@ -3,10 +3,11 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import type { Transaction, User, AuthUser } from '../../types'
+import type { Transaction, User, AuthUser, Patient } from '../../types'
 
 const schema = z.object({
   doctorId: z.string().min(1, 'Selecione um médico'),
+  patientId: z.string().optional(),
   type: z.enum(['INCOME', 'EXPENSE']),
   amount: z.coerce.number().positive('Valor deve ser positivo'),
   description: z.string().min(2, 'Descrição muito curta'),
@@ -20,6 +21,7 @@ type FormData = z.infer<typeof schema>
 interface Props {
   transaction: Transaction | null
   doctors: User[]
+  patients: Patient[]
   currentUser: AuthUser | null
   onSubmit: (data: FormData) => void
   loading: boolean
@@ -30,7 +32,7 @@ const CATEGORIES = {
   EXPENSE: ['Material', 'Equipamento', 'Aluguel', 'Salário', 'Impostos', 'Marketing', 'Outros'],
 }
 
-export default function TransactionForm({ transaction, doctors, currentUser, onSubmit, loading }: Props) {
+export default function TransactionForm({ transaction, doctors, patients, currentUser, onSubmit, loading }: Props) {
   const { register, handleSubmit, formState: { errors }, setValue, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -45,6 +47,7 @@ export default function TransactionForm({ transaction, doctors, currentUser, onS
   useEffect(() => {
     if (transaction) {
       setValue('doctorId', transaction.doctorId)
+      setValue('patientId', transaction.patientId || '')
       setValue('type', transaction.type)
       setValue('amount', transaction.amount)
       setValue('description', transaction.description)
@@ -102,6 +105,18 @@ export default function TransactionForm({ transaction, doctors, currentUser, onS
             ))}
           </select>
           {errors.doctorId && <p className="text-xs text-red-500 mt-1">{errors.doctorId.message}</p>}
+        </div>
+      )}
+
+      {watchType === 'INCOME' && (
+        <div>
+          <label className="label">Paciente (opcional)</label>
+          <select {...register('patientId')} className="input-field">
+            <option value="">Não informado</option>
+            {patients.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
         </div>
       )}
 

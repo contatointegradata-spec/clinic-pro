@@ -14,7 +14,37 @@ const planSchema = z.object({
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   defaultValue: z.coerce.number().min(0).optional(),
   roomId: z.string().optional().nullable(),
+  procedures: z.array(z.object({
+    appointmentTypeId: z.string(),
+    value: z.coerce.number().min(0),
+  })).optional(),
 })
+
+const PROCEDURES_INCLUDE = {
+  procedures: { include: { appointmentType: { select: { id: true, name: true } } } },
+} as const
+
+// Substitui a lista de Procedimentos vinculados a um Convênio pela recebida
+// no payload (apaga os removidos, faz upsert dos demais) — chamado após
+// create/update do HealthPlan.
+async function syncHealthPlanProcedures(healthPlanId: string, procedures?: { appointmentTypeId: string; value: number }[]) {
+  if (!procedures) return
+  await prisma.$transaction([
+    prisma.healthPlanProcedure.deleteMany({
+      where: {
+        healthPlanId,
+        appointmentTypeId: { notIn: procedures.map(p => p.appointmentTypeId) },
+      },
+    }),
+    ...procedures.map(p =>
+      prisma.healthPlanProcedure.upsert({
+        where: { healthPlanId_appointmentTypeId: { healthPlanId, appointmentTypeId: p.appointmentTypeId } },
+        create: { healthPlanId, appointmentTypeId: p.appointmentTypeId, value: p.value },
+        update: { value: p.value },
+      })
+    ),
+  ])
+}
 
 /**
  * Retorna o doctorId efetivo com base no papel do usuário autenticado.
@@ -58,6 +88,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       include: {
         _count: { select: { patientPlans: true } },
         room: { select: { id: true, name: true, logradouro: true, cidade: true } },
+        ...PROCEDURES_INCLUDE,
       },
       orderBy: [{ type: 'asc' }, { name: 'asc' }],
     })
@@ -84,6 +115,7 @@ router.get('/all', async (req: AuthRequest, res: Response) => {
       include: {
         _count: { select: { patientPlans: true } },
         room: { select: { id: true, name: true, logradouro: true, cidade: true } },
+        ...PROCEDURES_INCLUDE,
       },
       orderBy: [{ type: 'asc' }, { name: 'asc' }],
     })
@@ -113,8 +145,11 @@ router.post('/', requireRole('ADMIN', 'SECRETARY', 'DOCTOR'), async (req: AuthRe
       return
     }
 
-    const plan = await prisma.healthPlan.create({ data: { ...data, doctorId } })
-    res.status(201).json(plan)
+    const { procedures, ...planData } = data
+    const plan = await prisma.healthPlan.create({ data: { ...planData, doctorId } })
+    await syncHealthPlanProcedures(plan.id, procedures)
+    const withProcedures = await prisma.healthPlan.findUnique({ where: { id: plan.id }, include: PROCEDURES_INCLUDE })
+    res.status(201).json(withProcedures)
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
@@ -154,8 +189,11 @@ router.put('/:id', requireRole('ADMIN', 'SECRETARY', 'DOCTOR'), async (req: Auth
       }
     }
 
-    const updated = await prisma.healthPlan.update({ where: { id }, data })
-    res.json(updated)
+    const { procedures, ...planData } = data
+    const updated = await prisma.healthPlan.update({ where: { id }, data: planData })
+    await syncHealthPlanProcedures(id, procedures)
+    const withProcedures = await prisma.healthPlan.findUnique({ where: { id }, include: PROCEDURES_INCLUDE })
+    res.json(withProcedures)
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })

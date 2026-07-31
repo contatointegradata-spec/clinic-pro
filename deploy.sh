@@ -1,6 +1,9 @@
 #!/bin/bash
-# Deploy ClinIQ Pro — git pull + build + up
-# Uso: bash deploy.sh
+# Deploy ClinIQ Pro — fallback manual: só puxa a imagem já publicada no
+# ghcr.io e reinicia (não builda nada localmente). O caminho normal de
+# deploy é o workflow .github/workflows/deploy-prod.yml — este script existe
+# só pra emergências, quando o GitHub Actions estiver indisponível.
+# Requer `docker login ghcr.io` já feito uma vez nesta VPS.
 # O backend executa scripts/migrate.sh ao iniciar:
 #   1. rename-tables.sql (idempotente)
 #   2. baseline automático se for a primeira vez com migrate deploy
@@ -10,25 +13,22 @@
 set -euo pipefail
 
 echo "========================================"
-echo "  ClinIQ Pro — Deploy"
+echo "  ClinIQ Pro — Deploy (fallback manual)"
 echo "========================================"
 
-# 1. Pull latest code
+# 1. Sincroniza docker-compose.yml/nginx.conf/scripts (não builda código)
 echo ""
-echo "[1/4] Atualizando codigo..."
+echo "[1/4] Atualizando docker-compose.yml/nginx.conf..."
 git pull origin main
 
-# 2. Versão do build: hash curto do commit + timestamp UTC
-export RELEASE_SHA="$(git rev-parse --short HEAD)"
-export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-echo "[DEPLOY] Versão: $RELEASE_SHA (build $BUILD_DATE)"
-
-# 3. Build images (apenas os que mudaram são reconstruídos pelo cache)
+# 2. Baixa a imagem ":latest" publicada pelo GitHub Actions no último deploy
+#    (RELEASE_SHA fica sem valor de propósito — cai no default ":latest" do
+#    docker-compose.yml, que é sempre a última imagem publicada).
 echo ""
-echo "[2/4] Buildando imagens..."
-docker compose build
+echo "[2/4] Baixando imagens já publicadas no ghcr.io..."
+docker compose pull
 
-# 4. Sobe/recria apenas os containers cuja imagem realmente mudou.
+# 3. Sobe/recria apenas os containers cuja imagem realmente mudou.
 #    Sem --force-recreate: postgres e nginx só reiniciam se sua config mudar,
 #    evitando derrubar o banco e as sessões do WhatsApp a cada deploy.
 echo ""
@@ -50,7 +50,7 @@ until docker inspect --format='{{.State.Health.Status}}' clinicmedia_backend 2>/
   sleep 3
 done
 
-# 5. Smoke test: confirma que a versão publicada é a que acabamos de buildar
+# 5. Smoke test: confirma que a versão publicada é a que acabamos de puxar
 echo ""
 echo "[4/4] Smoke test..."
 PUBLISHED_VERSION="$(curl -sf http://localhost/api/version | grep -o '"version":"[^"]*"' || echo 'FALHOU')"

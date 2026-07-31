@@ -13,7 +13,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getRoomSecretaryAccess, logAudit, getEffectiveDoctorId } from '../lib/secretaryAccess'
-import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive } from '../lib/room-whatsapp'
+import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive, waitForConnectionProgress } from '../lib/room-whatsapp'
 
 const router = Router()
 router.use(authenticate)
@@ -247,7 +247,15 @@ router.post('/:roomId/whatsapp/connect', async (req: AuthRequest, res) => {
       description: `Solicitação de conexão WhatsApp para sala ${room.name}`,
     })
 
-    res.json({ message: 'Iniciando conexão WhatsApp. Aguarde o QR Code.', connectionId: connection.id })
+    const progress = await waitForConnectionProgress(connection.id)
+
+    res.json({
+      message: 'Iniciando conexão WhatsApp. Aguarde o QR Code.',
+      connectionId: connection.id,
+      status: progress?.status ?? 'CONNECTING',
+      qrCode: progress?.status === 'CONNECTING' ? progress.qrCode : null,
+      qrCodeExpiresAt: progress?.qrCodeExpiresAt ?? null,
+    })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -301,7 +309,14 @@ router.post('/:roomId/whatsapp/reconnect', async (req: AuthRequest, res) => {
       description: `Reconexão WhatsApp para sala ${room.name}`,
     })
 
-    res.json({ message: 'Reconectando WhatsApp da sala...' })
+    const progress = await waitForConnectionProgress(connectionId)
+
+    res.json({
+      message: 'Reconectando WhatsApp da sala...',
+      status: progress?.status ?? 'CONNECTING',
+      qrCode: progress?.status === 'CONNECTING' ? progress.qrCode : null,
+      qrCodeExpiresAt: progress?.qrCodeExpiresAt ?? null,
+    })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }

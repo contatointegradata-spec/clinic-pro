@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, ArrowRight, Info, RefreshCw, Check, X, MapPin, Search, DollarSign, Bell } from 'lucide-react'
+import { Trash2, Info, RefreshCw, Check, X, Search, DollarSign, Bell } from 'lucide-react'
 import type { Appointment, User, Patient, AuthUser, AppointmentType, Room } from '../../types'
 import PreRegisterModal from './PreRegisterModal'
 import CobrancaModal from '../Financial/CobrancaModal'
@@ -26,10 +26,7 @@ const schema = z.object({
   date: z.string().min(1, 'Data obrigatória'),
   duration: z.coerce.number().min(15),
   status: z.enum(['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
-  type: z.string().optional(),
-  value: z.coerce.number().optional(),
   notes: z.string().optional(),
-  isBlocked: z.boolean().optional(),
   roomId: z.string().optional().nullable(),
   repeatCount: z.coerce.number().int().min(1).max(50).optional(),
 })
@@ -57,8 +54,6 @@ export default function AppointmentForm({
   defaultDate,
   doctors,
   patients,
-  appointmentTypes,
-  rooms,
   currentUser,
   onSubmit,
   onDelete,
@@ -72,7 +67,6 @@ export default function AppointmentForm({
       status: 'SCHEDULED',
       duration: 50,
       doctorId: currentUser?.role === 'DOCTOR' ? currentUser.id : '',
-      isBlocked: false,
       repeatCount: 1,
       roomId: '',
     },
@@ -123,22 +117,6 @@ export default function AppointmentForm({
   }
 
   const watchPatient = watch('patientId')
-  const watchType = watch('type')
-  const watchValue = watch('value')
-  const watchBlocked = watch('isBlocked')
-  const watchDoctorId = watch('doctorId')
-
-  const filteredRooms = rooms.filter(r => r.doctorId === watchDoctorId)
-
-  // Find the selected appointment type object
-  const selectedAppType = appointmentTypes.find(t => t.name === watchType)
-
-  // Reset returns flow when type changes
-  useEffect(() => {
-    setWantsReturns(null)
-    setReturnsCount(5)
-    setValue('repeatCount', 1)
-  }, [watchType, setValue])
 
   useEffect(() => {
     if (appointment) {
@@ -148,10 +126,7 @@ export default function AppointmentForm({
       setValue('date', format(new Date(appointment.date), "yyyy-MM-dd'T'HH:mm"))
       setValue('duration', appointment.duration)
       setValue('status', appointment.status)
-      setValue('type', appointment.type || '')
-      setValue('value', appointment.value || undefined)
       setValue('notes', appointment.notes || '')
-      setValue('isBlocked', appointment.isBlocked ?? false)
       setValue('roomId', appointment.roomId || '')
       // Pre-select patient display for edit mode
       const p = allPatients.find(pt => pt.id === appointment.patientId)
@@ -181,32 +156,6 @@ export default function AppointmentForm({
     }
   }, [selectedPatientFull, appointment, setValue])
 
-  // Auto-populate room from the patient's primary health plan
-  useEffect(() => {
-    if (!appointment && primaryPlan?.healthPlan?.roomId) {
-      setValue('roomId', primaryPlan.healthPlan.roomId)
-    }
-  }, [watchPatient, primaryPlan, appointment, setValue])
-
-  // Auto-fill room from the secretary's own room assignment for the selected
-  // doctor. Without this, a secretary scoped to a single room could leave the
-  // selector empty and the appointment would end up invisible in her own
-  // room-filtered agenda.
-  useEffect(() => {
-    if (!appointment && currentUser?.role === 'SECRETARY' && filteredRooms.length === 1) {
-      setValue('roomId', filteredRooms[0].id)
-    }
-  }, [filteredRooms, currentUser, appointment, setValue])
-
-  // Auto-calculate value when type or patient changes
-  useEffect(() => {
-    if (!appointment && selectedAppType?.baseValue) {
-      const discount = primaryPlan?.healthPlan?.discountPercent ?? 0
-      const calculated = selectedAppType.baseValue * (1 - discount / 100)
-      setValue('value', Math.round(calculated * 100) / 100)
-    }
-  }, [watchType, watchPatient, selectedAppType, primaryPlan, appointment, setValue])
-
   // Sync repeatCount with returns flow
   useEffect(() => {
     if (wantsReturns === true) {
@@ -216,17 +165,9 @@ export default function AppointmentForm({
     }
   }, [wantsReturns, returnsCount, setValue])
 
-  const repasseInfo = (() => {
-    if (!selectedAppType?.baseValue) return null
-    const discount = primaryPlan?.healthPlan?.discountPercent ?? 0
-    const repasse = selectedAppType.baseValue * (1 - discount / 100)
-    return { base: selectedAppType.baseValue, discount, repasse: Math.round(repasse * 100) / 100 }
-  })()
-
-  const fmt = (v: number) => v.toFixed(2).replace('.', ',')
-
-  // Returns flow only for new, non-blocked appointments with a hasReturns type
-  const showReturnsFlow = !appointment && !!selectedAppType?.hasReturns && !watchBlocked
+  // Retornos automáticos: perguntado sempre em consulta nova, independente
+  // de procedimento (antes dependia de um "Tipo" com hasReturns).
+  const showReturnsFlow = !appointment
 
   return (
     <>
@@ -247,33 +188,6 @@ export default function AppointmentForm({
           <div>
             <p className="font-semibold">Nenhum profissional vinculado</p>
             <p>Você não está vinculada a nenhum médico ativo. Contate o administrador.</p>
-          </div>
-        </div>
-      )}
-
-      {/* Doctor block toggle — visible only to doctors */}
-      {currentUser?.role === 'DOCTOR' && (
-        <div
-          className={`flex items-center gap-3 p-4 rounded-xl border-2 cursor-pointer transition-all ${watchBlocked ? 'bg-amber-50 border-amber-400' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}
-          onClick={() => setValue('isBlocked', !watchBlocked)}
-        >
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${watchBlocked ? 'bg-amber-100' : 'bg-slate-200'}`}>
-            <span className="text-lg">{watchBlocked ? '🔒' : '🔓'}</span>
-          </div>
-          <div className="flex-1">
-            <p className={`font-semibold text-sm ${watchBlocked ? 'text-amber-800' : 'text-slate-700'}`}>
-              {watchBlocked ? 'Horário Bloqueado para a Secretária' : 'Bloquear para a Secretária'}
-            </p>
-            <p className="text-xs text-slate-500">
-              {watchBlocked
-                ? 'A secretária verá este slot como "Bloqueado". Não é possível replicar bloqueios.'
-                : 'Clique para bloquear este horário. Só vale para esta data.'
-              }
-            </p>
-          </div>
-          <input {...register('isBlocked')} type="checkbox" className="sr-only" />
-          <div className={`w-10 h-6 rounded-full relative transition-colors ${watchBlocked ? 'bg-amber-500' : 'bg-slate-300'}`}>
-            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${watchBlocked ? 'left-4' : 'left-0.5'}`} />
           </div>
         </div>
       )}
@@ -388,67 +302,16 @@ export default function AppointmentForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div>
-          <label className="label">Tipo</label>
-          <select {...register('type')} className="input-field">
-            <option value="">Selecione</option>
-            {appointmentTypes.length > 0
-              ? appointmentTypes.map(t => (
-                  <option key={t.id} value={t.name}>{t.name}</option>
-                ))
-              : ['Consulta', 'Retorno', 'Avaliação', 'Sessão', 'Exame', 'Procedimento'].map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))
-            }
-          </select>
-        </div>
-
-        <div>
-          <label className="label">Status</label>
-          <select {...register('status')} className="input-field">
-            <option value="SCHEDULED">Agendado</option>
-            <option value="CONFIRMED">Confirmado</option>
-            <option value="COMPLETED">Concluído</option>
-            <option value="CANCELLED">Cancelado</option>
-            <option value="NO_SHOW">Faltou</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="label">Valor (R$)</label>
-          <input
-            {...register('value')}
-            type="number"
-            step="0.01"
-            min="0"
-            className="input-field"
-            placeholder="0,00"
-          />
-        </div>
+      <div>
+        <label className="label">Status</label>
+        <select {...register('status')} className="input-field">
+          <option value="SCHEDULED">Agendado</option>
+          <option value="CONFIRMED">Confirmado</option>
+          <option value="COMPLETED">Concluído</option>
+          <option value="CANCELLED">Cancelado</option>
+          <option value="NO_SHOW">Faltou</option>
+        </select>
       </div>
-
-      {/* Room selector */}
-      {filteredRooms.length > 0 && (
-        <div>
-          <label className="label flex items-center gap-1.5">
-            <MapPin className="w-3.5 h-3.5 text-slate-400" />
-            Local de atendimento
-          </label>
-          <select
-            {...register('roomId')}
-            className="input-field"
-            disabled={currentUser?.role === 'SECRETARY' && filteredRooms.length === 1}
-          >
-            <option value="">Sem sala definida</option>
-            {filteredRooms.map(r => (
-              <option key={r.id} value={r.id}>
-                {r.name}{r.cidade ? ` — ${r.cidade}` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
 
       {/* ── Returns flow ── */}
       {showReturnsFlow && (
@@ -456,7 +319,7 @@ export default function AppointmentForm({
           <div className="flex items-center gap-3 px-4 py-3 bg-violet-100 border-b border-violet-200">
             <RefreshCw className="w-4 h-4 text-violet-600 flex-shrink-0" />
             <p className="text-sm font-semibold text-violet-800">
-              O tipo vinculado disponibiliza retornos, quer agendar?
+              Deseja agendar retornos semanalmente?
             </p>
           </div>
 
@@ -533,46 +396,6 @@ export default function AppointmentForm({
         </div>
       )}
 
-      {/* Repasse info */}
-      {repasseInfo && !watchBlocked && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-          <Info className="w-4 h-4 text-emerald-600 flex-shrink-0" />
-          <div className="flex-1 text-xs text-emerald-700 flex items-center gap-2 flex-wrap">
-            <span className="font-medium">{selectedAppType!.name}</span>
-            <span className="text-emerald-500">R$ {fmt(repasseInfo.base)}</span>
-            {repasseInfo.discount > 0 && (
-              <>
-                <span className="text-emerald-500">−{repasseInfo.discount}%</span>
-                {primaryPlan?.healthPlan?.name && (
-                  <span className="text-emerald-500">({primaryPlan.healthPlan.name})</span>
-                )}
-                <ArrowRight className="w-3 h-3 text-emerald-400" />
-              </>
-            )}
-          </div>
-          <div className="text-right flex-shrink-0">
-            <p className="text-xs text-emerald-600">Valor de repasse</p>
-            <p className="text-sm font-bold text-emerald-800">R$ {fmt(repasseInfo.repasse)}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Plan info when no appointment type has base value */}
-      {!repasseInfo && primaryPlan?.healthPlan?.discountPercent && watchValue && watchValue > 0 && !watchBlocked && (
-        <div className="flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl">
-          <Info className="w-4 h-4 text-blue-500 flex-shrink-0" />
-          <div className="flex-1 text-xs text-blue-700">
-            <span>Plano: <strong>{primaryPlan.healthPlan.name}</strong> · {primaryPlan.healthPlan.discountPercent}% desconto</span>
-          </div>
-          <div className="text-right flex-shrink-0">
-            <p className="text-xs text-blue-600">Valor de repasse</p>
-            <p className="text-sm font-bold text-blue-800">
-              R$ {fmt(Math.round(watchValue * (1 - (primaryPlan.healthPlan.discountPercent ?? 0) / 100) * 100) / 100)}
-            </p>
-          </div>
-        </div>
-      )}
-
       <div>
         <label className="label">Observações</label>
         <textarea
@@ -639,6 +462,7 @@ export default function AppointmentForm({
         isOpen={showCobrancaModal}
         onClose={() => setShowCobrancaModal(false)}
         appointment={appointment}
+        patientPlan={primaryPlan}
         discountPercent={primaryPlan?.healthPlan?.discountPercent ?? 0}
         onCharged={() => {
           setShowCobrancaModal(false)

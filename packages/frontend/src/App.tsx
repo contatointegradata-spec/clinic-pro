@@ -40,12 +40,24 @@ import AdminGestao from './pages/AdminGestao'
 import AdminPlanos from './pages/AdminPlanos'
 import AdminSQL from './pages/AdminSQL'
 import AdminIntegracoes from './pages/AdminIntegracoes'
+import AdminDesenvolvedor from './pages/AdminDesenvolvedor'
 import { SecretaryGate } from './components/ui/SecretaryGate'
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
   const { isAuthenticated, user } = useAuthStore()
   if (!isAuthenticated) return <Navigate to="/login" replace />
   if (allowedRoles && user && !allowedRoles.includes(user.role)) return <Navigate to="/dashboard" replace />
+  return <>{children}</>
+}
+
+// Restringe uma rota ao desenvolvedor da plataforma (isPlatformDeveloper) ou,
+// quando `access` é passado, a quem recebeu essa permissão individualmente
+// pelo painel Admin Desenvolvedor — mesmo ADMINs comuns (donos de clínica)
+// são barrados aqui.
+function PlatformGate({ children, access }: { children: React.ReactNode; access?: 'notifications' | 'integrations' }) {
+  const { user } = useAuthStore()
+  const hasAccess = !!user?.isPlatformDeveloper || (access === 'notifications' ? !!user?.notificationsAccess : access === 'integrations' ? !!user?.integrationsAccess : false)
+  if (!hasAccess) return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -87,6 +99,7 @@ export default function App() {
           <Route path="admin/planos" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminPlanos /></ProtectedRoute>} />
           <Route path="admin/sql" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminSQL /></ProtectedRoute>} />
           <Route path="admin/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminIntegracoes /></ProtectedRoute>} />
+          <Route path="admin/desenvolvedor" element={<ProtectedRoute allowedRoles={['ADMIN']}><PlatformGate><AdminDesenvolvedor /></PlatformGate></ProtectedRoute>} />
           <Route path="minhas-salas" element={<ProtectedRoute allowedRoles={['SECRETARY']}><MinhasSalas /></ProtectedRoute>} />
 
           <Route path="configuracoes" element={<Navigate to="/configuracoes/perfil" replace />} />
@@ -99,8 +112,8 @@ export default function App() {
           <Route path="configuracoes/salas" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="salas"><Salas /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/documentos" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission="documentos"><Documentos /></SecretaryGate></ProtectedRoute>} />
           <Route path="configuracoes/formas-pagamento" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><FormasPagamento /></ProtectedRoute>} />
-          <Route path="configuracoes/notificacoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR']}><ConfigNotificacoes /></ProtectedRoute>} />
-          <Route path="configuracoes/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={INTEGRATION_PERMISSION_KEYS}><Integracoes /></SecretaryGate></ProtectedRoute>} />
+          <Route path="configuracoes/notificacoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><PlatformGate access="notifications"><ConfigNotificacoes /></PlatformGate></ProtectedRoute>} />
+          <Route path="configuracoes/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><PlatformGate access="integrations"><SecretaryGate permission={INTEGRATION_PERMISSION_KEYS}><Integracoes /></SecretaryGate></PlatformGate></ProtectedRoute>} />
           <Route path="configuracoes/assinatura" element={<Assinatura />} />
           <Route path="configuracoes/assinatura/pendente" element={<AssinaturaPendente />} />
         </Route>

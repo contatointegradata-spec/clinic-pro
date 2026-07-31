@@ -80,7 +80,16 @@
       "Bash(rm -f packages/frontend/src/components/ui/TrialBanner.tsx)",
       "Bash(rm -f packages/frontend/src/components/ui/FeatureGate.tsx)",
       "Bash(rm -f packages/frontend/src/hooks/useSubscription.ts)",
-      "Bash(rm -f packages/frontend/src/pages/configuracoes/Planos.tsx)"
+      "Bash(rm -f packages/frontend/src/pages/configuracoes/Planos.tsx)",
+      "Bash(grep -iE \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(xargs -I{} echo {})",
+      "Bash(cd /Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/backend *)",
+      "Read(//Users/kelvenpereiradasilva/Documents/Programaçao/frontend/**)",
+      "Bash(grep -n \"AppointmentForm$$$$\\\\|<AppointmentForm\" \"/Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/frontend/src/pages/Agenda.tsx\")",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(python3 -c \"import yaml, sys; yaml.safe_load\\(open\\('.github/workflows/deploy-prod.yml'\\)\\); print\\('deploy-prod.yml OK'\\)\")",
+      "Bash(python3 -c \"import yaml, sys; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); print\\('docker-compose.yml OK'\\)\")",
+      "Bash(bash -n deploy.sh)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

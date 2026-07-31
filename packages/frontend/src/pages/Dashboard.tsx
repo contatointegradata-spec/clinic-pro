@@ -8,7 +8,6 @@ import {
   Clock,
   TrendingUp,
   Activity,
-  Lock,
   ArrowRight,
   Zap,
   Stethoscope,
@@ -251,47 +250,28 @@ export default function Dashboard() {
               </div>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto pr-0.5 scrollbar-none flex-1">
-                {todayAppointments.map((appt, idx) => {
-                  const isSecretaryBlocked = user?.role === 'SECRETARY' && appt.isBlocked
-                  return (
-                    <div
-                      key={appt.id}
-                      className={`flex items-center gap-4 p-3.5 rounded-xl border transition-all duration-200 ${
-                        isSecretaryBlocked
-                          ? 'bg-amber-50 border-amber-100'
-                          : 'bg-slate-50 hover:bg-white hover:shadow-sm hover:border-slate-200 border-transparent cursor-pointer'
-                      }`}
-                      style={{ animationDelay: `${idx * 0.04}s` }}
-                    >
-                      <div className="text-center min-w-[52px]">
-                        <p className="text-sm font-bold text-slate-900 tabular-nums">
-                          {format(new Date(appt.date), 'HH:mm')}
-                        </p>
-                        <p className="text-xs text-slate-400">{appt.duration}min</p>
-                      </div>
-                      <div className={`w-px h-9 flex-shrink-0 ${isSecretaryBlocked ? 'bg-amber-200' : 'bg-slate-200'}`} />
-                      {isSecretaryBlocked ? (
-                        <div className="flex-1 min-w-0 flex items-center gap-2">
-                          <Lock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
-                          <div>
-                            <p className="font-medium text-amber-800 text-sm">Reservado pelo médico</p>
-                            <p className="text-xs text-amber-600">Dr(a). {appt.doctor.name}</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-slate-900 text-sm truncate">{appt.patient.name}</p>
-                            <p className="text-xs text-slate-400 truncate mt-0.5">
-                              {appt.type && `${appt.type} · `}Dr(a). {appt.doctor.name}
-                            </p>
-                          </div>
-                          <StatusBadge status={appt.status} />
-                        </>
-                      )}
+                {todayAppointments.map((appt, idx) => (
+                  <div
+                    key={appt.id}
+                    className="flex items-center gap-4 p-3.5 rounded-xl border transition-all duration-200 bg-slate-50 hover:bg-white hover:shadow-sm hover:border-slate-200 border-transparent cursor-pointer"
+                    style={{ animationDelay: `${idx * 0.04}s` }}
+                  >
+                    <div className="text-center min-w-[52px]">
+                      <p className="text-sm font-bold text-slate-900 tabular-nums">
+                        {format(new Date(appt.date), 'HH:mm')}
+                      </p>
+                      <p className="text-xs text-slate-400">{appt.duration}min</p>
                     </div>
-                  )
-                })}
+                    <div className="w-px h-9 flex-shrink-0 bg-slate-200" />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-slate-900 text-sm truncate">{appt.patient.name}</p>
+                      <p className="text-xs text-slate-400 truncate mt-0.5">
+                        {appt.type && `${appt.type} · `}Dr(a). {appt.doctor.name}
+                      </p>
+                    </div>
+                    <StatusBadge status={appt.status} />
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -32,7 +32,7 @@ import {
 import toast from 'react-hot-toast'
 import api from '../lib/api'
 import { useAuthStore } from '../store/authStore'
-import type { Transaction, FinancialResponse, MonthlyData, User, FinancialAnalytics } from '../types'
+import type { Transaction, FinancialResponse, MonthlyData, User, FinancialAnalytics, Patient } from '../types'
 import Modal from '../components/ui/Modal'
 import TransactionForm from '../components/Financial/TransactionForm'
 import PageHeader from '../components/ui/PageHeader'
@@ -177,6 +177,11 @@ export default function Financeiro() {
     queryKey: ['doctors'],
     queryFn: () => api.get('/doctors').then(r => r.data),
     enabled: user?.role === 'ADMIN',
+  })
+
+  const { data: patients = [] } = useQuery<Patient[]>({
+    queryKey: ['patients'],
+    queryFn: () => api.get('/patients').then(r => r.data),
   })
 
   const { data: analytics } = useQuery<FinancialAnalytics>({
@@ -628,6 +633,7 @@ export default function Financeiro() {
         <TransactionForm
           transaction={editTx}
           doctors={doctors}
+          patients={patients}
           currentUser={user}
           onSubmit={(data) => saveMutation.mutate(data as Record<string, unknown>)}
           loading={saveMutation.isPending}

@@ -64,6 +64,9 @@ router.post('/login', async (req, res) => {
         avatarUrl: user.avatarUrl,
         lunchStart: user.lunchStart,
         lunchEnd: user.lunchEnd,
+        isPlatformDeveloper: user.isPlatformDeveloper,
+        notificationsAccess: user.notificationsAccess,
+        integrationsAccess: user.integrationsAccess,
       },
     })
   } catch (error) {
@@ -131,6 +134,9 @@ router.post('/register', async (req, res) => {
         crm: user.crm,
         phone: user.phone,
         avatarUrl: user.avatarUrl,
+        isPlatformDeveloper: user.isPlatformDeveloper,
+        notificationsAccess: user.notificationsAccess,
+        integrationsAccess: user.integrationsAccess,
       },
     })
   } catch (error) {
@@ -245,6 +251,9 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
         lunchEnd: true,
         active: true,
         createdAt: true,
+        isPlatformDeveloper: true,
+        notificationsAccess: true,
+        integrationsAccess: true,
       },
     })
 

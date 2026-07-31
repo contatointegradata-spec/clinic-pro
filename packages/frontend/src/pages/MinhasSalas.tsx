@@ -3,7 +3,7 @@
  * Exibe apenas as salas nas quais a secretária foi vinculada.
  * Permite gerenciar WhatsApp da sala conforme permissões concedidas.
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Building2, MapPin, Clock, Wifi, WifiOff, QrCode, RefreshCw,
@@ -68,23 +68,39 @@ function WaBadge({ status }: { status?: string }) {
 
 // ─── Painel de WhatsApp da sala ───────────────────────────────────────────────
 
+// Janela de polling rápido após clicar em Conectar/Reconectar — cobre o
+// intervalo entre o clique e o status realmente virar CONNECTING/CONNECTED,
+// pra não depender do que a primeira resposta trouxe (evita cair pro
+// polling de 15s só porque o refetch imediato ainda pegou "DISCONNECTED").
+const FAST_POLL_WINDOW_MS = 45_000
+
 function WhatsAppPanel({ room, perms }: { room: MyRoom; perms: RoomPermissions }) {
   const qc = useQueryClient()
+  const [awaitingSince, setAwaitingSince] = useState<number | null>(null)
 
   const { data: waStatus, isLoading } = useQuery<RoomWhatsAppConnection>({
     queryKey: ['my-room-wa', room.id],
     queryFn: () => api.get(`/my/rooms/${room.id}/whatsapp/status`).then(r => r.data),
-    // Fast poll while connecting/reconnecting, slow poll otherwise so the page
-    // stays live without hammering the server when idle or connected.
+    // Fast poll while connecting/reconnecting, or right after a connect/reconnect
+    // click (awaitingSince), slow poll otherwise so the page stays live without
+    // hammering the server when idle or connected.
     refetchInterval: (query) => {
       const s = (query.state.data as RoomWhatsAppConnection | undefined)?.status
       if (s === 'CONNECTING' || s === 'RECONNECTING') return 2000
+      if (awaitingSince && Date.now() - awaitingSince < FAST_POLL_WINDOW_MS) return 2000
       return 15000
     },
   })
 
+  useEffect(() => {
+    if (waStatus?.status === 'CONNECTED' || waStatus?.status === 'CONNECTING') {
+      setAwaitingSince(null)
+    }
+  }, [waStatus?.status])
+
   const connectMutation = useMutation({
     mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/connect`),
+    onMutate: () => setAwaitingSince(Date.now()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
       toast.success('Aguardando QR Code...')
@@ -95,6 +111,7 @@ function WhatsAppPanel({ room, perms }: { room: MyRoom; perms: RoomPermissions }
 
   const reconnectMutation = useMutation({
     mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/reconnect`),
+    onMutate: () => setAwaitingSince(Date.now()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
       toast.success('Reconectando...')

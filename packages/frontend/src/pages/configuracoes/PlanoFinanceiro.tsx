@@ -3,10 +3,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Plus, Edit2, CreditCard, Users, CheckCircle, XCircle, Percent, DollarSign, Info, MapPin } from 'lucide-react'
+import { Plus, Edit2, CreditCard, Users, CheckCircle, XCircle, Percent, DollarSign, Info, MapPin, Stethoscope, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import api from '../../lib/api'
-import type { HealthPlan, Room } from '../../types'
+import type { HealthPlan, Room, AppointmentType, HealthPlanProcedure } from '../../types'
 import Modal from '../../components/ui/Modal'
 
 const PLAN_TYPES = [
@@ -50,8 +50,93 @@ const schema = z.object({
 })
 
 type FormData = z.infer<typeof schema>
+type ProcedureEntry = { appointmentTypeId: string; value: number }
+type PlanFormData = FormData & { procedures: ProcedureEntry[] }
 
-function PlanForm({ plan, rooms, onSubmit, loading }: { plan: HealthPlan | null; rooms: Room[]; onSubmit: (d: FormData) => void; loading: boolean }) {
+function ProceduresLinker({
+  appointmentTypes,
+  procedures,
+  onChange,
+}: {
+  appointmentTypes: AppointmentType[]
+  procedures: ProcedureEntry[]
+  onChange: (next: ProcedureEntry[]) => void
+}) {
+  const [selectedTypeId, setSelectedTypeId] = useState('')
+  const [value, setValue] = useState('')
+
+  const availableTypes = appointmentTypes.filter(t => !procedures.some(p => p.appointmentTypeId === t.id))
+
+  const handleAdd = () => {
+    const numericValue = parseFloat(value)
+    if (!selectedTypeId || isNaN(numericValue) || numericValue < 0) return
+    onChange([...procedures, { appointmentTypeId: selectedTypeId, value: numericValue }])
+    setSelectedTypeId('')
+    setValue('')
+  }
+
+  return (
+    <div>
+      <label className="label flex items-center gap-1">
+        <Stethoscope className="w-3.5 h-3.5 text-slate-400" />
+        Procedimentos vinculados
+      </label>
+      <p className="text-xs text-slate-400 mb-2">
+        Valor deste procedimento quando cobrado sob este convênio. Some ao valor da consulta no modal Cobrar.
+      </p>
+
+      {procedures.length > 0 && (
+        <div className="space-y-1.5 mb-2">
+          {procedures.map(p => {
+            const type = appointmentTypes.find(t => t.id === p.appointmentTypeId)
+            return (
+              <div key={p.appointmentTypeId} className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg">
+                <span className="flex-1 text-sm text-slate-700">{type?.name ?? 'Procedimento'}</span>
+                <span className="text-sm font-semibold text-slate-800">R$ {p.value.toFixed(2).replace('.', ',')}</span>
+                <button
+                  type="button"
+                  onClick={() => onChange(procedures.filter(x => x.appointmentTypeId !== p.appointmentTypeId))}
+                  className="text-slate-400 hover:text-red-600"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {availableTypes.length > 0 ? (
+        <div className="flex gap-2">
+          <select value={selectedTypeId} onChange={e => setSelectedTypeId(e.target.value)} className="input-field flex-1">
+            <option value="">Selecione um procedimento</option>
+            {availableTypes.map(t => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+          <input
+            type="number"
+            step="0.01"
+            min="0"
+            placeholder="R$"
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            className="input-field w-28"
+          />
+          <button type="button" onClick={handleAdd} className="btn-secondary px-3">
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
+      ) : (
+        appointmentTypes.length === 0 && (
+          <p className="text-xs text-slate-400">Cadastre procedimentos em Configurações → Procedimento para vinculá-los aqui.</p>
+        )
+      )}
+    </div>
+  )
+}
+
+function PlanForm({ plan, rooms, onSubmit, loading }: { plan: HealthPlan | null; rooms: Room[]; onSubmit: (d: PlanFormData) => void; loading: boolean }) {
   const { register, handleSubmit, formState: { errors }, watch } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
@@ -67,8 +152,19 @@ function PlanForm({ plan, rooms, onSubmit, loading }: { plan: HealthPlan | null;
 
   const watchType = watch('type')
 
+  const { data: appointmentTypes = [] } = useQuery<AppointmentType[]>({
+    queryKey: ['appointment-types'],
+    queryFn: () => api.get('/appointment-types').then(r => r.data),
+  })
+
+  const [procedures, setProcedures] = useState<ProcedureEntry[]>(
+    (plan?.procedures ?? []).map((p: HealthPlanProcedure) => ({ appointmentTypeId: p.appointmentTypeId, value: p.value }))
+  )
+
+  const submit = (data: FormData) => onSubmit({ ...data, procedures })
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+    <form onSubmit={handleSubmit(submit)} className="space-y-5">
       <div>
         <label className="label">Nome do Plano *</label>
         <input
@@ -183,6 +279,8 @@ function PlanForm({ plan, rooms, onSubmit, loading }: { plan: HealthPlan | null;
         </div>
       )}
 
+      <ProceduresLinker appointmentTypes={appointmentTypes} procedures={procedures} onChange={setProcedures} />
+
       <div>
         <label className="label">Descrição do Plano</label>
         <textarea
@@ -228,7 +326,7 @@ export default function PlanoFinanceiro() {
   })
 
   const saveMutation = useMutation({
-    mutationFn: (data: FormData) =>
+    mutationFn: (data: PlanFormData) =>
       editPlan ? api.put(`/health-plans/${editPlan.id}`, data) : api.post('/health-plans', data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['health-plans-all'] })
@@ -442,7 +540,7 @@ export default function PlanoFinanceiro() {
         <PlanForm
           plan={editPlan}
           rooms={rooms}
-          onSubmit={(data) => saveMutation.mutate(data as unknown as FormData)}
+          onSubmit={(data) => saveMutation.mutate(data)}
           loading={saveMutation.isPending}
         />
       </Modal>
