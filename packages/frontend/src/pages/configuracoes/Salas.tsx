@@ -35,6 +35,8 @@ const ROOM_PERM_LABELS: { key: keyof RoomPermissions; label: string; description
   { key: 'canViewHistory', label: 'Ver histórico', description: 'Visualizar histórico de ações da sala' },
 ]
 
+const SLOT_DURATIONS = [15, 20, 30, 40, 45, 60, 90]
+
 const schema = z.object({
   name: z.string().min(1, 'Nome obrigatório'),
   logradouro: z.string().optional(),
@@ -45,6 +47,10 @@ const schema = z.object({
   daysOfWeek: z.array(z.number()).min(1, 'Selecione ao menos um dia'),
   startTime: z.string().min(1, 'Horário inicial obrigatório'),
   endTime: z.string().min(1, 'Horário final obrigatório'),
+  breakStart: z.string().optional(),
+  breakEnd: z.string().optional(),
+  specialHours: z.record(z.object({ start: z.string(), end: z.string() })).optional(),
+  slotDurationMinutes: z.coerce.number().min(5).max(240).default(30),
   secretaryIds: z.array(z.string()).optional(),
 })
 
@@ -53,7 +59,7 @@ type TabId = 'dados' | 'equipe' | 'permissoes' | 'whatsapp' | 'historico'
 
 // ─── WhatsApp Status Badge ────────────────────────────────────────────────────
 
-function WhatsAppBadge({ connection }: { connection?: Room['whatsappConnection'] }) {
+export function WhatsAppBadge({ connection }: { connection?: Room['whatsappConnection'] }) {
   if (!connection) {
     return (
       <span className="inline-flex items-center gap-1 text-xs text-slate-400">
@@ -101,16 +107,35 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
       daysOfWeek: room?.daysOfWeek?.length ? room.daysOfWeek : [1, 2, 3, 4, 5],
       startTime: room?.startTime || '07:00',
       endTime: room?.endTime || '18:00',
+      breakStart: room?.breakStart || '',
+      breakEnd: room?.breakEnd || '',
+      specialHours: room?.specialHours || {},
+      slotDurationMinutes: room?.slotDurationMinutes || 30,
       secretaryIds: room?.secretaries?.filter(s => s.active).map(s => s.secretaryId) || [],
     },
   })
 
   const watchDays = watch('daysOfWeek')
   const watchSecIds = watch('secretaryIds') || []
+  const watchSpecialHours = watch('specialHours') || {}
 
   const toggleDay = (day: number) => {
     const current = watchDays || []
     setValue('daysOfWeek', current.includes(day) ? current.filter(d => d !== day) : [...current, day].sort())
+  }
+
+  const toggleSpecialHours = (day: number) => {
+    const next = { ...watchSpecialHours }
+    if (next[String(day)]) {
+      delete next[String(day)]
+    } else {
+      next[String(day)] = { start: watch('startTime') || '08:00', end: watch('endTime') || '18:00' }
+    }
+    setValue('specialHours', next)
+  }
+
+  const updateSpecialHours = (day: number, field: 'start' | 'end', value: string) => {
+    setValue('specialHours', { ...watchSpecialHours, [String(day)]: { ...watchSpecialHours[String(day)], [field]: value } })
   }
 
   const toggleSecretary = (id: string) => {
@@ -118,7 +143,10 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
   }
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+    <form
+      onSubmit={handleSubmit(d => onSubmit({ ...d, breakStart: d.breakStart || undefined, breakEnd: d.breakEnd || undefined }))}
+      className="space-y-5"
+    >
       <div>
         <label className="label">Nome da Sala / Local *</label>
         <input {...register('name')} className="input-field" placeholder="Ex: Consultório 1, Sala Norte..." />
@@ -165,6 +193,53 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
           <label className="label">Fim do atendimento</label>
           <input {...register('endTime')} type="time" className="input-field" />
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="label">Início do intervalo <span className="text-slate-400 font-normal">(opcional)</span></label>
+          <input {...register('breakStart')} type="time" className="input-field" />
+        </div>
+        <div>
+          <label className="label">Fim do intervalo <span className="text-slate-400 font-normal">(opcional)</span></label>
+          <input {...register('breakEnd')} type="time" className="input-field" />
+        </div>
+      </div>
+
+      {watchDays?.length > 0 && (
+        <div className="space-y-2">
+          <label className="label">Horário especial por dia <span className="text-slate-400 font-normal">(opcional)</span></label>
+          {DAYS.filter(d => watchDays.includes(d.value)).map(d => {
+            const special = watchSpecialHours[String(d.value)]
+            return (
+              <div key={d.value} className={`rounded-xl border p-3 ${special ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={!!special} onChange={() => toggleSpecialHours(d.value)} className="w-4 h-4 text-amber-600" />
+                  <span className="text-sm font-medium text-slate-700">Horário especial — {d.label}</span>
+                </label>
+                {special && (
+                  <div className="grid grid-cols-2 gap-3 mt-2">
+                    <div>
+                      <label className="label">Início</label>
+                      <input type="time" value={special.start} onChange={e => updateSpecialHours(d.value, 'start', e.target.value)} className="input-field" />
+                    </div>
+                    <div>
+                      <label className="label">Fim</label>
+                      <input type="time" value={special.end} onChange={e => updateSpecialHours(d.value, 'end', e.target.value)} className="input-field" />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div>
+        <label className="label">Duração de cada horário (minutos)</label>
+        <select {...register('slotDurationMinutes')} className="input-field">
+          {SLOT_DURATIONS.map(v => <option key={v} value={v}>{v} min</option>)}
+        </select>
       </div>
 
       {secretaries.length > 0 && (
@@ -308,9 +383,9 @@ function PermissionsTab({ room }: { room: Room }) {
 // intervalo entre o clique e o status realmente virar CONNECTING/CONNECTED,
 // pra não depender do que a primeira resposta trouxe (evita cair pro
 // polling de 15s só porque o refetch imediato ainda pegou "DISCONNECTED").
-const FAST_POLL_WINDOW_MS = 45_000
+export const FAST_POLL_WINDOW_MS = 45_000
 
-function WhatsAppTab({ room }: { room: Room }) {
+export function WhatsAppTab({ room }: { room: Room }) {
   const qc = useQueryClient()
   const [awaitingSince, setAwaitingSince] = useState<number | null>(null)
 

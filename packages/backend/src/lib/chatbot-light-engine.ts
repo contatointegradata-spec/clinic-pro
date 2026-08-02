@@ -6,6 +6,7 @@ import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLe
 import { resolveTemplateVariables, resolveMessageText, TemplateContext } from './chatbot-light-variables'
 import { isWithinBusinessHours, flowHasLeadCapture, BusinessHoursConfig } from './chatbot-light-business-hours'
 import { runBlockEngine } from './chatbot-block-engine'
+import { handleAiAgentMessage } from './ai-agent-engine'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -188,6 +189,16 @@ export async function handleIncomingLightMessage(params: {
     if (chatbot?.builderMode === 'visual_builder') {
       await runBlockEngine({
         instance,
+        chatbotId: instance.chatbotId,
+        doctorId: instance.doctorId,
+        contactPhone: contactKey,
+        deliveryJid,
+        messageText,
+      })
+      return
+    }
+    if (chatbot?.builderMode === 'ai_agent') {
+      await handleAiAgentMessage({
         chatbotId: instance.chatbotId,
         doctorId: instance.doctorId,
         contactPhone: contactKey,

@@ -18,6 +18,13 @@ const roomSchema = z.object({
   daysOfWeek: z.array(z.number().min(1).max(7)).default([]),
   startTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
   endTime: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM'),
+  breakStart: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM').optional().nullable(),
+  breakEnd: z.string().regex(/^\d{2}:\d{2}$/, 'Formato HH:MM').optional().nullable(),
+  specialHours: z.record(z.object({
+    start: z.string().regex(/^\d{2}:\d{2}$/),
+    end: z.string().regex(/^\d{2}:\d{2}$/),
+  })).optional(),
+  slotDurationMinutes: z.coerce.number().int().min(5).max(240).optional(),
   color: z.string().optional(),
   secretaryIds: z.array(z.string()).optional(),
 })

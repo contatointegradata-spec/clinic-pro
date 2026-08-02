@@ -317,6 +317,10 @@ export interface Room {
   daysOfWeek: number[]
   startTime: string
   endTime: string
+  breakStart?: string | null
+  breakEnd?: string | null
+  specialHours?: Record<string, { start: string; end: string }> | null
+  slotDurationMinutes?: number
   color?: string | null
   active: boolean
   createdAt: string
@@ -324,6 +328,54 @@ export interface Room {
   secretaries?: { id: string; secretaryId: string; active: boolean; secretary: { id: string; name: string; email: string } }[]
   whatsappConnection?: Pick<RoomWhatsAppConnection, 'id' | 'status' | 'phoneNumber' | 'displayName' | 'connectedAt'> | null
   myPermissions?: RoomPermissions | null
+}
+
+export interface LightNotificationTemplate {
+  id: string
+  name: string
+  message: string
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface AiAgentIgnoredNumber {
+  id: string
+  chatbotId: string
+  phone: string
+  name?: string | null
+  createdAt: string
+}
+
+export interface AiAgentMessage {
+  id: string
+  chatbotId: string
+  contactPhone: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt: string
+}
+
+export interface AiAgent {
+  id: string
+  doctorId: string
+  name: string
+  active: boolean
+  boundRoomId?: string | null
+  builderMode: string
+  agentName?: string | null
+  companyName?: string | null
+  businessType?: string | null
+  calendarUsage?: string | null
+  agentProfession?: string | null
+  personality?: string | null
+  extraInfo?: string | null
+  systemPrompt?: string | null
+  responseDelaySeconds: number
+  createdAt: string
+  updatedAt: string
+  boundRoom?: Room | null
+  _count?: { ignoredNumbers: number }
 }
 
 export interface DocumentTemplate {

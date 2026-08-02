@@ -89,7 +89,16 @@
       "Bash(echo \"EXIT:$?\")",
       "Bash(python3 -c \"import yaml, sys; yaml.safe_load\\(open\\('.github/workflows/deploy-prod.yml'\\)\\); print\\('deploy-prod.yml OK'\\)\")",
       "Bash(python3 -c \"import yaml, sys; yaml.safe_load\\(open\\('docker-compose.yml'\\)\\); print\\('docker-compose.yml OK'\\)\")",
-      "Bash(bash -n deploy.sh)"
+      "Bash(bash -n deploy.sh)",
+      "Bash(git rev-list *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(sed -n '2940,3160p' /tmp/ChatbotLight_original.tsx)",
+      "Read(//private/tmp/**)",
+      "Bash(grep -n \"LightNotificationTemplate\" /tmp/ChatbotLight_original.tsx | head -5 *)",
+      "Bash(sed -n '140,160p' /tmp/ChatbotLight_original.tsx)",
+      "Bash(grep -n \"saveMutation\\\\|onSubmit={\\(d\\)\\\\|RoomForm$\\\\|<RoomForm\" \"/Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/frontend/src/pages/configuracoes/Salas.tsx\")",
+      "Bash(tee /tmp/backend_tsc.log)",
+      "Bash(tee /tmp/frontend_tsc.log)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

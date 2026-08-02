@@ -520,6 +520,13 @@ model Room {
   daysOfWeek       Json     @default("[]")
   startTime        String
   endTime          String
+  // Intervalo opcional (ex: almoço) — vale para todos os dias selecionados.
+  breakStart          String?
+  breakEnd            String?
+  // Override de horário por dia da semana específico, ex: {"6": {"start":"09:00","end":"18:00"}}.
+  // Dias sem entrada aqui usam startTime/endTime padrão.
+  specialHours        Json?
+  slotDurationMinutes Int      @default(30)
   color            String?
   active           Boolean  @default(true)
   createdAt        DateTime @default(now())
@@ -932,24 +939,67 @@ model LightChatbot {
   // de "que chatbot é dono desta sala?" no roteamento inbound.
   boundRoomId   String?  @unique
   fallbackQueue String?
-  // "legacy" (padrão) = motor atual (LightFluxo/LightSystemActionConfig),
-  // intocado. "visual_builder" = motor novo de blocos genéricos (Fase 3) —
-  // handleIncomingLightMessage desvia pra runBlockEngine() e ignora
-  // LightFluxo/LightSystemActionConfig por completo pra esse chatbot.
-  builderMode   String   @default("legacy")
+  // "legacy" (padrão antigo) = motor por keywords (LightFluxo/LightSystemActionConfig).
+  // "visual_builder" (Fase 3, antigo) = motor de blocos genéricos.
+  // "ai_agent" (atual) = agente de IA real via Groq — handleIncomingLightMessage
+  // desvia pra handleAiAgentMessage() e ignora os motores antigos por completo.
+  builderMode   String   @default("ai_agent")
+  // ── Campos do Agente de IA ("Personalizar seu Prompt") ──
+  agentName            String?
+  companyName          String?
+  businessType         String?
+  calendarUsage        String?
+  agentProfession      String?
+  personality          String?  @db.Text
+  extraInfo            String?  @db.Text
+  // Prompt de sistema gerado (ou editado manualmente) que alimenta a LLM.
+  systemPrompt         String?  @db.Text
+  responseDelaySeconds Int      @default(3)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  doctor       User                     @relation("DoctorLightChatbots", fields: [doctorId], references: [id])
-  boundRoom    Room?                    @relation("ChatbotLightRoomBinding", fields: [boundRoomId], references: [id])
-  instance     WhatsAppInstance?
-  fluxos       LightFluxo[]
-  quickReplies LightQuickReply[]
-  integrations LightIntegrationConfig[]
-  messageLogs  LightMessageLog[]
+  doctor          User                     @relation("DoctorLightChatbots", fields: [doctorId], references: [id])
+  boundRoom       Room?                    @relation("ChatbotLightRoomBinding", fields: [boundRoomId], references: [id])
+  instance        WhatsAppInstance?
+  fluxos          LightFluxo[]
+  quickReplies    LightQuickReply[]
+  integrations    LightIntegrationConfig[]
+  messageLogs     LightMessageLog[]
+  ignoredNumbers  LightIgnoredNumber[]
+  agentMessages   AiAgentMessage[]
 
   @@index([doctorId])
   @@map("TBLLIGHTCHATBOT")
+}
+
+// Números que o Agente de IA deve ignorar por completo (não responde nada).
+model LightIgnoredNumber {
+  id        String   @id @default(uuid())
+  chatbotId String
+  phone     String
+  name      String?
+  createdAt DateTime @default(now())
+
+  chatbot LightChatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@unique([chatbotId, phone])
+  @@map("TBLLIGHTNUMEROPASS")
+}
+
+// Memória curta de conversa usada como contexto nas próximas chamadas à LLM —
+// não é o log de auditoria (isso já existe em LightMessageLog).
+model AiAgentMessage {
+  id           String   @id @default(uuid())
+  chatbotId    String
+  contactPhone String
+  role         String   // 'user' | 'assistant'
+  content      String   @db.Text
+  createdAt    DateTime @default(now())
+
+  chatbot LightChatbot @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+
+  @@index([chatbotId, contactPhone, createdAt])
+  @@map("TBLAIAGENTMESSAGE")
 }
 
 model WhatsAppMessageRetry {

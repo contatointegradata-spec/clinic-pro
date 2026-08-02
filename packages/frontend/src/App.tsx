@@ -34,7 +34,7 @@ import AssinaturaPendente from './pages/configuracoes/AssinaturaPendente'
 import ConfigNotificacoes from './pages/configuracoes/ConfigNotificacoes'
 import Integracoes from './pages/configuracoes/Integracoes'
 import { INTEGRATION_PERMISSION_KEYS } from './hooks/useSecretaryPermissions'
-import ChatbotLight from './pages/ChatbotLight'
+import WhatsappChatbot from './pages/WhatsappChatbot'
 import MinhasSalas from './pages/MinhasSalas'
 import AdminGestao from './pages/AdminGestao'
 import AdminPlanos from './pages/AdminPlanos'
@@ -70,9 +70,11 @@ export default function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
         <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
-        <Route path="/chatbot/light/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={['chatbot_light_operar', 'chatbot_light_configurar']}><ChatbotLight /></SecretaryGate></ProtectedRoute>} />
-        <Route path="/chatbot" element={<Navigate to="/chatbot/light" replace />} />
-        <Route path="/chatbot/*" element={<Navigate to="/chatbot/light" replace />} />
+        <Route path="/whatsapp/chatbot/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={['chatbot_light_operar', 'chatbot_light_configurar']}><WhatsappChatbot /></SecretaryGate></ProtectedRoute>} />
+        <Route path="/chatbot/light" element={<Navigate to="/whatsapp/chatbot" replace />} />
+        <Route path="/chatbot/light/*" element={<Navigate to="/whatsapp/chatbot" replace />} />
+        <Route path="/chatbot" element={<Navigate to="/whatsapp/chatbot" replace />} />
+        <Route path="/chatbot/*" element={<Navigate to="/whatsapp/chatbot" replace />} />
 
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />

@@ -89,7 +89,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
   const { can } = useSecretaryPermissions()
   const navigate = useNavigate()
   const location = useLocation()
-  const isChatbotRoute = location.pathname.startsWith('/chatbot')
+  const isChatbotRoute = location.pathname.startsWith('/whatsapp/chatbot') || location.pathname.startsWith('/chatbot')
 
   const { data: preRegistrations = [] } = useQuery<unknown[]>({
     queryKey: ['pre-registrations-count'],
@@ -195,7 +195,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         {(can('chatbot_light_operar') || can('chatbot_light_configurar')) && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
           <NavLink
-            to="/chatbot/light"
+            to="/whatsapp/chatbot"
             className={({ isActive: _ }) =>
               `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
             }

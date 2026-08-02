@@ -83,7 +83,7 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 })
 
-async function checkLunchOverlap(doctorId: string, date: Date, duration: number): Promise<boolean> {
+export async function checkLunchOverlap(doctorId: string, date: Date, duration: number): Promise<boolean> {
   const doctor = await prisma.user.findUnique({
     where: { id: doctorId },
     select: { lunchStart: true, lunchEnd: true }

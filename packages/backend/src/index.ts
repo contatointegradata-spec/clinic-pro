@@ -19,6 +19,7 @@ import paymentMethodRoutes from './routes/payment-methods'
 import integrationRoutes from './routes/integrations'
 import integrationAddonRoutes from './routes/integration-addons'
 import chatbotLightRoutes from './routes/chatbot-light'
+import aiAgentRoutes from './routes/ai-agent'
 import myRoomsRoutes from './routes/my-rooms'
 import { runStartupDatabaseCleanup } from './lib/whatsapp'
 import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsapp'
@@ -81,6 +82,7 @@ app.use('/api/payment-methods', authenticate, requireActiveSubscription, payment
 app.use('/api/integrations', authenticate, requireActiveSubscription, integrationRoutes)
 app.use('/api/integration-addons', authenticate, requireActiveSubscription, integrationAddonRoutes)
 app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLightRoutes)
+app.use('/api/ai-agent', authenticate, requireActiveSubscription, aiAgentRoutes)
 app.use('/api/my/rooms', authenticate, requireActiveSubscription, myRoomsRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
 app.use('/api/admin/integrations', adminIntegrationsRoutes)
