@@ -89,7 +89,7 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
   const { can } = useSecretaryPermissions()
   const navigate = useNavigate()
   const location = useLocation()
-  const isChatbotRoute = location.pathname.startsWith('/whatsapp/chatbot') || location.pathname.startsWith('/chatbot')
+  const isChatbotRoute = location.pathname.startsWith('/agente/chatbot') || location.pathname.startsWith('/whatsapp/chatbot') || location.pathname.startsWith('/chatbot')
 
   const { data: preRegistrations = [] } = useQuery<unknown[]>({
     queryKey: ['pre-registrations-count'],
@@ -195,16 +195,16 @@ export default function Sidebar({ collapsed = false, onToggleCollapse }: Sidebar
         {(can('chatbot_light_operar') || can('chatbot_light_configurar')) && (
         <div className={`${collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4'} border-t border-white/8`}>
           <NavLink
-            to="/whatsapp/chatbot"
+            to="/agente/chatbot"
             className={({ isActive: _ }) =>
               `sidebar-link group tooltip-trigger ${isChatbotRoute ? 'active' : ''}`
             }
           >
             <MessageSquare className={`w-5 h-5 flex-shrink-0 transition-all duration-200 ${isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-white group-hover:scale-110'}`} />
             {collapsed ? (
-              <span className="tooltip">WhatsApp</span>
+              <span className="tooltip">Agente de IA</span>
             ) : (
-              <span className="flex-1 overflow-hidden whitespace-nowrap">WhatsApp</span>
+              <span className="flex-1 overflow-hidden whitespace-nowrap">Agente de IA</span>
             )}
           </NavLink>
         </div>

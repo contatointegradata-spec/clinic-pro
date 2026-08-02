@@ -98,7 +98,9 @@
       "Bash(sed -n '140,160p' /tmp/ChatbotLight_original.tsx)",
       "Bash(grep -n \"saveMutation\\\\|onSubmit={\\(d\\)\\\\|RoomForm$\\\\|<RoomForm\" \"/Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/frontend/src/pages/configuracoes/Salas.tsx\")",
       "Bash(tee /tmp/backend_tsc.log)",
-      "Bash(tee /tmp/frontend_tsc.log)"
+      "Bash(tee /tmp/frontend_tsc.log)",
+      "Bash(tee /tmp/backend_tsc2.log)",
+      "Bash(tee /tmp/frontend_tsc2.log)"
     ],
     "additionalDirectories": [
       "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"

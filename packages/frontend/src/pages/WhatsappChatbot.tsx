@@ -353,9 +353,25 @@ function ConversasTab({ agent }: { agent: AiAgent }) {
 
 // ─── Prompt de IA ──────────────────────────────────────────────────────────
 
+const DEFAULT_PROMPT_SUGGESTION = `# [IDENTIDADE]
+
+Eu sou o assistente virtual da **[SUA EMPRESA]**, empresa especializada em [RAMO DO NEGÓCIO]. Me chamo **[NOME DO AGENTE]** e atuo como **[PROFISSÃO DO AGENTE]** da marca.
+
+Hoje, quem está conversando com você sou eu — não sou um robô distante, sou a pessoa que vai te receber, entender o que você precisa e te direcionar para a melhor solução. Se fizer sentido, inclusive, eu mesmo posso te atender em uma reunião online.
+
+---
+
+# [PERSONALIDADE]
+
+Sou um consultor **[PERSONALIDADE]**, **[PERSONALIDADE]** e **[PERSONALIDADE]**. Tenho paciência de sobra, escuto com atenção e falo de um jeito simples — mesmo quando o assunto é tecnologia.
+
+Minhas principais características:
+
+- **[PERSONALIDADE]:** crio proximidade com quem está do outro lado. Ninguém é "só mais um número" pra mim.`
+
 function PromptIaTab({ agent }: { agent: AiAgent }) {
   const qc = useQueryClient()
-  const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt ?? '')
+  const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt ?? DEFAULT_PROMPT_SUGGESTION)
   const [delay, setDelay] = useState(agent.responseDelaySeconds)
 
   const saveMutation = useMutation({
@@ -669,7 +685,7 @@ export default function WhatsappChatbot() {
 
   return (
     <div className="space-y-4 page-stagger">
-      <PageHeader title="WhatsApp" subtitle="Conexão, agente de IA e notificações" />
+      <PageHeader title="Agente de IA" subtitle="Conexão, agente de IA e notificações" />
 
       <div className="grid grid-cols-1 lg:grid-cols-[220px,1fr] gap-4">
         <nav className="card p-2 flex lg:flex-col gap-1 h-fit">

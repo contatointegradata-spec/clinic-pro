@@ -55,7 +55,7 @@ const schema = z.object({
 })
 
 type FormData = z.infer<typeof schema>
-type TabId = 'dados' | 'equipe' | 'permissoes' | 'whatsapp' | 'historico'
+type TabId = 'dados' | 'equipe' | 'historico'
 
 // ─── WhatsApp Status Badge ────────────────────────────────────────────────────
 
@@ -206,10 +206,9 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
         </div>
       </div>
 
-      {watchDays?.length > 0 && (
-        <div className="space-y-2">
-          <label className="label">Horário especial por dia <span className="text-slate-400 font-normal">(opcional)</span></label>
-          {DAYS.filter(d => watchDays.includes(d.value)).map(d => {
+      <div className="space-y-2">
+        <label className="label">Horário especial <span className="text-slate-400 font-normal">(opcional — Sábado e Domingo)</span></label>
+        {DAYS.filter(d => d.value === 6 || d.value === 7).map(d => {
             const special = watchSpecialHours[String(d.value)]
             return (
               <div key={d.value} className={`rounded-xl border p-3 ${special ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
@@ -232,8 +231,7 @@ function RoomForm({ room, secretaries, onSubmit, loading }: {
               </div>
             )
           })}
-        </div>
-      )}
+      </div>
 
       <div>
         <label className="label">Duração de cada horário (minutos)</label>
@@ -602,8 +600,6 @@ function RoomDetailModal({ room, secretaries, onClose }: {
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
     { id: 'dados', label: 'Dados', icon: Building2 },
     { id: 'equipe', label: 'Equipe', icon: Users },
-    { id: 'permissoes', label: 'Permissões', icon: Shield },
-    { id: 'whatsapp', label: 'WhatsApp', icon: Wifi },
     { id: 'historico', label: 'Histórico', icon: History },
   ]
 
@@ -633,8 +629,6 @@ function RoomDetailModal({ room, secretaries, onClose }: {
         <RoomForm room={room} secretaries={secretaries} onSubmit={d => saveMutation.mutate(d)} loading={saveMutation.isPending} />
       )}
       {tab === 'equipe' && <PermissionsTab room={room} />}
-      {tab === 'permissoes' && <PermissionsTab room={room} />}
-      {tab === 'whatsapp' && <WhatsAppTab room={room} />}
       {tab === 'historico' && <HistoryTab room={room} />}
     </Modal>
   )

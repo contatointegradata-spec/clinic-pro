@@ -47,6 +47,7 @@ const ROUTE_LABELS: Record<string, string> = {
   assinatura: 'Assinatura',
   pendente: 'Pagamento Pendente',
   chatbot: 'Chatbot IA',
+  agente: 'Agente de IA',
   admin: 'Admin',
   sql: 'SQL Admin',
   gestao: 'Gestão',

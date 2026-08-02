@@ -70,11 +70,12 @@ export default function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <Login />} />
         <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LandingPage />} />
 
-        <Route path="/whatsapp/chatbot/*" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={['chatbot_light_operar', 'chatbot_light_configurar']}><WhatsappChatbot /></SecretaryGate></ProtectedRoute>} />
-        <Route path="/chatbot/light" element={<Navigate to="/whatsapp/chatbot" replace />} />
-        <Route path="/chatbot/light/*" element={<Navigate to="/whatsapp/chatbot" replace />} />
-        <Route path="/chatbot" element={<Navigate to="/whatsapp/chatbot" replace />} />
-        <Route path="/chatbot/*" element={<Navigate to="/whatsapp/chatbot" replace />} />
+        <Route path="/chatbot/light" element={<Navigate to="/agente/chatbot" replace />} />
+        <Route path="/chatbot/light/*" element={<Navigate to="/agente/chatbot" replace />} />
+        <Route path="/chatbot" element={<Navigate to="/agente/chatbot" replace />} />
+        <Route path="/chatbot/*" element={<Navigate to="/agente/chatbot" replace />} />
+        <Route path="/whatsapp/chatbot" element={<Navigate to="/agente/chatbot" replace />} />
+        <Route path="/whatsapp/chatbot/*" element={<Navigate to="/agente/chatbot" replace />} />
 
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
@@ -103,6 +104,7 @@ export default function App() {
           <Route path="admin/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminIntegracoes /></ProtectedRoute>} />
           <Route path="admin/desenvolvedor" element={<ProtectedRoute allowedRoles={['ADMIN']}><PlatformGate><AdminDesenvolvedor /></PlatformGate></ProtectedRoute>} />
           <Route path="minhas-salas" element={<ProtectedRoute allowedRoles={['SECRETARY']}><MinhasSalas /></ProtectedRoute>} />
+          <Route path="agente/chatbot" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={['chatbot_light_operar', 'chatbot_light_configurar']}><WhatsappChatbot /></SecretaryGate></ProtectedRoute>} />
 
           <Route path="configuracoes" element={<Navigate to="/configuracoes/perfil" replace />} />
           <Route path="configuracoes/perfil" element={<Perfil />} />

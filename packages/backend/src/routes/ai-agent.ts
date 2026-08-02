@@ -155,26 +155,28 @@ router.put('/:id/room', async (req: AuthRequest, res: Response) => {
     const room = await prisma.room.findFirst({ where: { id: roomId, doctorId } })
     if (!room) { res.status(404).json({ message: 'Sala não encontrada' }); return }
 
+    // Salas podem ter ficado vinculadas a um chatbot do sistema antigo
+    // (Fluxos/Construtor de Blocos, hoje sem tela). Como essa amarração não
+    // é mais visível/gerenciável em lugar nenhum, ela é liberada
+    // automaticamente pro novo Agente de IA poder usar a sala — os dados do
+    // chatbot antigo continuam intactos, só o vínculo com a sala é solto.
+    const staleBinding = await prisma.lightChatbot.findFirst({ where: { boundRoomId: roomId, id: { not: agent.id } } })
+    if (staleBinding) {
+      await prisma.lightChatbot.update({ where: { id: staleBinding.id }, data: { boundRoomId: null } })
+    }
+
     await prisma.whatsAppInstance.upsert({
       where: { chatbotId: agent.id },
       create: { doctorId, type: 'CHATBOT_LIGHT', status: 'DISCONNECTED', chatbotId: agent.id },
       update: {},
     })
 
-    try {
-      const updated = await prisma.lightChatbot.update({
-        where: { id: agent.id },
-        data: { boundRoomId: roomId },
-        include: { boundRoom: true },
-      })
-      res.json(updated)
-    } catch (err: unknown) {
-      if ((err as { code?: string })?.code === 'P2002') {
-        res.status(409).json({ message: 'Esta sala já está vinculada a outro agente' })
-        return
-      }
-      throw err
-    }
+    const updated = await prisma.lightChatbot.update({
+      where: { id: agent.id },
+      data: { boundRoomId: roomId },
+      include: { boundRoom: true },
+    })
+    res.json(updated)
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
