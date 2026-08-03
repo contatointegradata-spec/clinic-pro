@@ -284,7 +284,31 @@ router.get('/:id/conversations', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const contacts = Array.from(byPhone.values()).sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
+    const phones = Array.from(byPhone.keys())
+
+    // Nome do contato: prioriza o nome real do paciente (dado no agendamento);
+    // se ainda não agendou, cai pro nome do WhatsApp (pushName) já capturado
+    // pela Conversation do inbox manual, que compartilha a mesma instância.
+    const [patients, instance] = await Promise.all([
+      prisma.patient.findMany({ where: { doctorId, phone: { in: phones } }, select: { phone: true, name: true } }),
+      prisma.whatsAppInstance.findUnique({ where: { chatbotId: agent.id }, select: { id: true } }),
+    ])
+    const patientNameByPhone = new Map(patients.map(p => [p.phone, p.name]))
+
+    let conversationNameByPhone = new Map<string, string>()
+    if (instance) {
+      const conversations = await prisma.conversation.findMany({
+        where: { instanceId: instance.id, contactPhone: { in: phones } },
+        select: { contactPhone: true, contactName: true },
+      })
+      conversationNameByPhone = new Map(
+        conversations.filter(c => c.contactName).map(c => [c.contactPhone, c.contactName as string])
+      )
+    }
+
+    const contacts = Array.from(byPhone.values())
+      .map(c => ({ ...c, name: patientNameByPhone.get(c.phone) ?? conversationNameByPhone.get(c.phone) ?? null }))
+      .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
     res.json(contacts)
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })

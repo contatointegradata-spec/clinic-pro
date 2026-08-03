@@ -280,7 +280,7 @@ function NumeroPassTab({ agent }: { agent: AiAgent }) {
 
 // ─── Conversas ─────────────────────────────────────────────────────────────
 
-interface ConversationContact { phone: string; lastMessage: string; lastMessageAt: string; count: number }
+interface ConversationContact { phone: string; name: string | null; lastMessage: string; lastMessageAt: string; count: number }
 
 function ConversasTab({ agent }: { agent: AiAgent }) {
   const [search, setSearch] = useState('')
@@ -297,7 +297,13 @@ function ConversasTab({ agent }: { agent: AiAgent }) {
     enabled: !!selectedPhone,
   })
 
-  const filtered = contacts.filter(c => c.phone.includes(search) || c.lastMessage.toLowerCase().includes(search.toLowerCase()))
+  const filtered = contacts.filter(c =>
+    c.phone.includes(search) ||
+    (c.name?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
+    c.lastMessage.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const selectedContact = contacts.find(c => c.phone === selectedPhone)
 
   return (
     <div className="space-y-3">
@@ -322,7 +328,8 @@ function ConversasTab({ agent }: { agent: AiAgent }) {
               onClick={() => setSelectedPhone(c.phone)}
               className={`w-full text-left px-4 py-3 border-t border-slate-100 hover:bg-slate-50 ${selectedPhone === c.phone ? 'bg-blue-50' : ''}`}
             >
-              <p className="text-sm font-semibold text-slate-800">{c.phone}</p>
+              <p className="text-sm font-semibold text-slate-800">{c.name || c.phone}</p>
+              {c.name && <p className="text-xs text-slate-400">{c.phone}</p>}
               <p className="text-xs text-slate-400 truncate">{c.lastMessage}</p>
             </button>
           ))}
@@ -336,14 +343,20 @@ function ConversasTab({ agent }: { agent: AiAgent }) {
               <p className="text-xs">Selecione um contato à esquerda para visualizar as mensagens</p>
             </div>
           ) : (
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
-              {messages.map(m => (
-                <div key={m.id} className={`flex ${m.role === 'assistant' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${m.role === 'assistant' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
-                    {m.content}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-100 flex-shrink-0">
+                <p className="text-sm font-semibold text-slate-800">{selectedContact?.name || selectedPhone}</p>
+                {selectedContact?.name && <p className="text-xs text-slate-400">{selectedPhone}</p>}
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {messages.map(m => (
+                  <div key={m.id} className={`flex ${m.role === 'assistant' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${m.role === 'assistant' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-800'}`}>
+                      {m.content}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
         </div>

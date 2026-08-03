@@ -166,13 +166,11 @@ function ProceduresSection({
 // ─── Card de registro salvo ─────────────────────────────────────────────────
 
 function RecordCard({
-  record, onDelete, onEdit, onLaunchFinance, canDelete, canEdit,
+  record, onEdit, onLaunchFinance, canEdit,
 }: {
   record: MedicalRecord
-  onDelete: () => void
   onEdit: () => void
   onLaunchFinance: () => void
-  canDelete: boolean
   canEdit: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -278,7 +276,7 @@ function RecordCard({
             </div>
           )}
 
-          {(canEdit || canDelete) && (
+          {canEdit && (
             <div className="flex justify-end gap-2 mt-4">
               {canLaunchFinance && (
                 <button
@@ -291,28 +289,15 @@ function RecordCard({
                   Lançar Financeiro
                 </button>
               )}
-              {canEdit && (
-                <button
-                  onClick={onEdit}
-                  className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800
-                             hover:bg-blue-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
-                             border border-transparent hover:border-blue-100"
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                  Editar
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  onClick={onDelete}
-                  className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-700
-                             hover:bg-red-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
-                             border border-transparent hover:border-red-100"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  Excluir registro
-                </button>
-              )}
+              <button
+                onClick={onEdit}
+                className="flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800
+                           hover:bg-blue-50 px-3 py-1.5 rounded-xl transition-all duration-150 active:scale-95
+                           border border-transparent hover:border-blue-100"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Editar
+              </button>
             </div>
           )}
         </div>
@@ -507,14 +492,6 @@ export default function Prontuario() {
     onError: () => toast.error('Erro ao salvar prontuário'),
   })
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.delete(`/medical-records/${id}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['prontuario'] })
-      toast.success('Registro removido')
-    },
-  })
-
   const updateMutation = useMutation({
     mutationFn: (vars: { id: string; data: FormData & { procedures: ProcedureEntry[] } }) => api.put(`/medical-records/${vars.id}`, vars.data),
     onSuccess: () => {
@@ -685,9 +662,7 @@ export default function Prontuario() {
                           <RecordCard
                             key={record.id}
                             record={record}
-                            canDelete={user?.role === 'ADMIN' || user?.role === 'DOCTOR'}
                             canEdit={user?.role === 'ADMIN' || user?.role === 'DOCTOR'}
-                            onDelete={() => deleteMutation.mutate(record.id)}
                             onEdit={() => setEditingRecord(record)}
                             onLaunchFinance={() => setLaunchingRecord(record)}
                           />

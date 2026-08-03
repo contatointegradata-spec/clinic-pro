@@ -223,15 +223,9 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
   }
 })
 
-router.delete('/:id', requireRole('ADMIN', 'DOCTOR'), async (req, res) => {
-  try {
-    const { id } = req.params
-    await prisma.medicalRecord.delete({ where: { id } })
-    res.json({ message: 'Prontuário removido' })
-  } catch {
-    res.status(500).json({ message: 'Erro interno do servidor' })
-  }
-})
+// Prontuário é o histórico permanente do paciente — não há endpoint de
+// exclusão, nem para médico/admin, mesmo que o paciente não esteja mais na
+// lista do médico.
 
 // ─── Charge Endpoint — lança os procedimentos do prontuário no financeiro ─────
 

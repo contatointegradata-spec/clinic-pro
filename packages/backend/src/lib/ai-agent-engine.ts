@@ -256,8 +256,9 @@ export async function handleAiAgentMessage(params: {
   const room = chatbot.boundRoom as RoomForSchedule | null
 
   let systemContent = chatbot.systemPrompt
+  systemContent += `\n\n---\n# REGRAS DE CONVERSA (sempre válidas, independente do restante do prompt)\n- Leia o histórico da conversa antes de responder. Nunca repita uma pergunta, oferta ou instrução que o paciente já respondeu ou que já foi concluída (ex: depois de confirmar um agendamento, não volte a perguntar sobre horários).\n- Se a última mensagem do paciente for só um agradecimento ou encerramento (ex: "obrigado", "ok", "valeu"), responda de forma breve e natural, sem reabrir assuntos já resolvidos.\n- Mensagens curtas, no estilo de WhatsApp — evite blocos de texto longos. Uma pergunta por vez.`
   if (room) {
-    systemContent += `\n\n---\n# HORÁRIO DE FUNCIONAMENTO DA CLÍNICA\n${describeRoomSchedule(room)}\nData e hora atual: ${getLocalDateInTz().toLocaleString('pt-BR')}\nUse a ferramenta check_availability antes de propor um horário, e create_appointment só depois que o paciente confirmar nome, data e horário.`
+    systemContent += `\n\n---\n# HORÁRIO DE FUNCIONAMENTO DA CLÍNICA\n${describeRoomSchedule(room)}\nData e hora atual: ${getLocalDateInTz().toLocaleString('pt-BR')}\nUse a ferramenta check_availability antes de propor um horário, e create_appointment só depois que o paciente confirmar nome, data e horário. Nunca invente horários — use sempre o resultado da ferramenta.`
   }
 
   const history = await prisma.aiAgentMessage.findMany({
@@ -275,7 +276,7 @@ export async function handleAiAgentMessage(params: {
   let finalText: string | null = null
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const result = await groqChatCompletion(messages, tools)
+      const result = await groqChatCompletion(messages, tools, 0.4)
 
       if (result.tool_calls && result.tool_calls.length > 0) {
         messages.push({ role: 'assistant', content: result.content ?? '', tool_calls: result.tool_calls })
@@ -347,7 +348,14 @@ export interface AgentPromptFields {
 }
 
 export async function generateSystemPrompt(fields: AgentPromptFields): Promise<string> {
-  const metaPrompt = `Você é um redator especialista em criar prompts de sistema pra agentes de atendimento via WhatsApp. Escreva um prompt de sistema completo, em português, organizado em seções com cabeçalhos markdown (ex: # [IDENTIDADE], # [PERSONALIDADE], # [REGRAS]), na primeira pessoa (o agente falando de si mesmo). Não inclua explicações fora do prompt — devolva só o texto do prompt final.`
+  const metaPrompt = `Você é um redator especialista em criar prompts de sistema pra agentes de atendimento via WhatsApp. Escreva um prompt de sistema completo, em português, organizado em seções com cabeçalhos markdown (ex: # [IDENTIDADE], # [PERSONALIDADE], # [REGRAS], # [COMUNICAÇÃO]), na primeira pessoa (o agente falando de si mesmo). Não inclua explicações fora do prompt — devolva só o texto do prompt final.
+
+Na seção de regras/comunicação, sempre inclua estas diretrizes de qualidade de conversa (adapte a redação ao tom do agente, mas mantenha o sentido):
+- Mensagens curtas e diretas, no estilo de WhatsApp — nunca blocos de texto longos.
+- Uma pergunta por vez; espere a resposta do paciente antes de seguir para a próxima informação.
+- Nunca repetir uma pergunta ou oferta que o paciente já respondeu ou que já foi concluída na conversa (ex: depois de confirmar um agendamento, não voltar a perguntar sobre horários disponíveis).
+- Nunca inventar horários disponíveis — sempre consultar a ferramenta de disponibilidade antes de sugerir um horário.
+- Ao encerrar o assunto (ex: paciente agradece), responder de forma breve e natural, sem reabrir tópicos já resolvidos.`
 
   const userPrompt = [
     fields.agentName ? `Nome do agente: ${fields.agentName}` : null,

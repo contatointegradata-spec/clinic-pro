@@ -12,10 +12,8 @@ import {
   PieChart,
   LineChart,
   Wallet,
-  Tags,
   Building2,
   FolderTree,
-  Settings2,
   PanelLeftClose,
   PanelLeft,
 } from 'lucide-react'
@@ -56,10 +54,8 @@ const CONFIG_SECTION = {
   label: 'Configurações',
   items: [
     { to: '/financeiro/formas-pagamento', label: 'Formas de pagamento', icon: Wallet },
-    { to: '/financeiro/categorias', label: 'Categorias financeiras', icon: Tags },
     { to: '/financeiro/contas-bancarias', label: 'Contas bancárias', icon: Building2 },
     { to: '/financeiro/centros-custo', label: 'Centros de custo', icon: FolderTree },
-    { to: '/financeiro/outras-configuracoes', label: 'Outras configurações', icon: Settings2 },
   ],
 }
 

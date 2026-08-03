@@ -47,6 +47,7 @@ export class GroqApiError extends Error {
 export async function groqChatCompletion(
   messages: GroqMessage[],
   tools?: GroqTool[],
+  temperature = 0.6,
 ): Promise<GroqCompletionResult> {
   const apiKey = process.env.GROQ_API_KEY
   if (!apiKey) throw new GroqApiError('GROQ_API_KEY não configurada', 'missing_key')
@@ -65,7 +66,7 @@ export async function groqChatCompletion(
         model: GROQ_MODEL,
         messages,
         ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-        temperature: 0.6,
+        temperature,
       }),
       signal: controller.signal,
     })
