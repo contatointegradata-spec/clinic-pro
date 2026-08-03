@@ -102,7 +102,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GITHUB_SHA
+          envs: GITHUB_SHA,GROQ_API_KEY
           script: |
             set -e
             cd ${{ secrets.VPS_APP_DIR }}
@@ -111,6 +111,12 @@ jobs:
             git pull origin main
 
             export RELEASE_SHA="${GITHUB_SHA}"
+
+            echo "==> Sincronizando GROQ_API_KEY no .env do servidor..."
+            touch .env
+            grep -v '^GROQ_API_KEY=' .env > .env.tmp || true
+            echo "GROQ_API_KEY=${GROQ_API_KEY}" >> .env.tmp
+            mv .env.tmp .env
 
             echo "==> Baixando imagens já publicadas no ghcr.io..."
             docker compose pull
@@ -128,3 +134,4 @@ jobs:
             docker compose ps
         env:
           GITHUB_SHA: ${{ github.sha }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
