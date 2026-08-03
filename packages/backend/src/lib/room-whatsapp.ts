@@ -606,6 +606,14 @@ export function isRoomSessionActive(instanceKey: string): boolean {
   return roomSockets.has(instanceKey)
 }
 
+// Sessão em handshake ativo (socket ainda não estabelecido, mas já em
+// andamento) — usado pelas rotas de connect/reconnect pra recusar uma nova
+// tentativa concorrente em vez de resetar os arquivos de sessão no meio de
+// um handshake já em curso (isso corrompia o QR/handshake ativo).
+export function isRoomSessionConnecting(instanceKey: string): boolean {
+  return roomConnecting.has(instanceKey)
+}
+
 export function getRoomSocket(instanceKey: string) {
   return roomSockets.get(instanceKey)
 }

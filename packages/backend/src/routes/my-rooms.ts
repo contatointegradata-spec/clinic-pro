@@ -3,8 +3,8 @@
  * GET  /api/my/rooms                        → listar salas vinculadas
  * GET  /api/my/rooms/:id                    → detalhes da sala + minhas permissões
  * GET  /api/my/rooms/:roomId/whatsapp/status → status do WhatsApp da sala
- * POST /api/my/rooms/:roomId/whatsapp/connect   → conectar (requer canConnectWhatsapp)
- * POST /api/my/rooms/:roomId/whatsapp/reconnect → reconectar (requer canReconnectWhatsapp)
+ * POST /api/my/rooms/:roomId/whatsapp/connect   → conectar (livre pra qualquer secretária vinculada à sala)
+ * POST /api/my/rooms/:roomId/whatsapp/reconnect → reconectar (livre pra qualquer secretária vinculada à sala)
  * POST /api/my/rooms/:roomId/whatsapp/disconnect → desconectar (requer canDisconnectWhatsapp)
  * GET  /api/my/rooms/:roomId/templates       → templates liberados para a sala
  * GET  /api/my/rooms/:roomId/history         → histórico (requer canViewHistory)
@@ -13,7 +13,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getRoomSecretaryAccess, logAudit, getEffectiveDoctorId } from '../lib/secretaryAccess'
-import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive, waitForConnectionProgress } from '../lib/room-whatsapp'
+import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive, isRoomSessionConnecting, waitForConnectionProgress } from '../lib/room-whatsapp'
 
 const router = Router()
 router.use(authenticate)
@@ -194,17 +194,6 @@ router.post('/:roomId/whatsapp/connect', async (req: AuthRequest, res) => {
     const access = await assertRoomAccess(req, res, roomId)
     if (!access) return
 
-    // Checar permissão canConnectWhatsapp para secretária
-    if (req.user!.role === 'SECRETARY' && typeof access === 'object') {
-      if (!access.canConnectWhatsapp) {
-        return res.status(403).json({
-          message: 'Você não tem permissão para conectar WhatsApp nesta sala',
-          code: 'ROOM_PERMISSION_DENIED',
-          requiredPermission: 'canConnectWhatsapp',
-        })
-      }
-    }
-
     const room = await prisma.room.findUnique({
       where: { id: roomId },
       include: { whatsappConnection: true },
@@ -229,6 +218,11 @@ router.post('/:roomId/whatsapp/connect', async (req: AuthRequest, res) => {
         where: { id: connection.id },
         data: { connectedByUserId: req.user!.userId },
       })
+    }
+
+    // Segunda blindagem contra concorrência (ver mesmo comentário em rooms.ts)
+    if (isRoomSessionConnecting(connection.instanceKey) || isRoomSessionActive(connection.instanceKey)) {
+      return res.status(409).json({ message: 'WhatsApp já está conectado ou em processo de conexão nesta sala' })
     }
 
     // Resetar arquivos de sessão para forçar novo QR
@@ -269,16 +263,6 @@ router.post('/:roomId/whatsapp/reconnect', async (req: AuthRequest, res) => {
     const access = await assertRoomAccess(req, res, roomId)
     if (!access) return
 
-    if (req.user!.role === 'SECRETARY' && typeof access === 'object') {
-      if (!access.canReconnectWhatsapp) {
-        return res.status(403).json({
-          message: 'Você não tem permissão para reconectar WhatsApp nesta sala',
-          code: 'ROOM_PERMISSION_DENIED',
-          requiredPermission: 'canReconnectWhatsapp',
-        })
-      }
-    }
-
     const room = await prisma.room.findUnique({
       where: { id: roomId },
       include: { whatsappConnection: true },
@@ -289,6 +273,12 @@ router.post('/:roomId/whatsapp/reconnect', async (req: AuthRequest, res) => {
     }
 
     const { instanceKey, id: connectionId } = room.whatsappConnection
+
+    // Não interrompe um handshake de QR já em andamento (ver mesmo
+    // comentário em rooms.ts)
+    if (isRoomSessionConnecting(instanceKey)) {
+      return res.status(409).json({ message: 'Já existe uma conexão em andamento — aguarde o QR Code ser escaneado ou expirar.' })
+    }
 
     // Parar sessão existente e reconectar
     await stopRoomSession(instanceKey, false)

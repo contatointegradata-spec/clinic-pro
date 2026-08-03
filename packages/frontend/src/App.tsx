@@ -104,7 +104,7 @@ export default function App() {
           <Route path="admin/integracoes" element={<ProtectedRoute allowedRoles={['ADMIN']}><AdminIntegracoes /></ProtectedRoute>} />
           <Route path="admin/desenvolvedor" element={<ProtectedRoute allowedRoles={['ADMIN']}><PlatformGate><AdminDesenvolvedor /></PlatformGate></ProtectedRoute>} />
           <Route path="minhas-salas" element={<ProtectedRoute allowedRoles={['SECRETARY']}><MinhasSalas /></ProtectedRoute>} />
-          <Route path="agente/chatbot" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><SecretaryGate permission={['chatbot_light_operar', 'chatbot_light_configurar']}><WhatsappChatbot /></SecretaryGate></ProtectedRoute>} />
+          <Route path="agente/chatbot" element={<ProtectedRoute allowedRoles={['ADMIN', 'DOCTOR', 'SECRETARY']}><WhatsappChatbot /></ProtectedRoute>} />
 
           <Route path="configuracoes" element={<Navigate to="/configuracoes/perfil" replace />} />
           <Route path="configuracoes/perfil" element={<Perfil />} />

@@ -31,12 +31,25 @@ export interface GroqCompletionResult {
   tool_calls?: GroqToolCall[]
 }
 
+// Carrega o status HTTP original da Groq (ou 'missing_key'/'timeout') pra quem
+// chama poder devolver uma mensagem específica ao usuário em vez de um erro
+// genérico — essencial pra diagnosticar chave inválida/expirada em produção
+// sem depender de olhar log do servidor.
+export class GroqApiError extends Error {
+  status: number | 'missing_key' | 'timeout'
+  constructor(message: string, status: number | 'missing_key' | 'timeout') {
+    super(message)
+    this.name = 'GroqApiError'
+    this.status = status
+  }
+}
+
 export async function groqChatCompletion(
   messages: GroqMessage[],
   tools?: GroqTool[],
 ): Promise<GroqCompletionResult> {
   const apiKey = process.env.GROQ_API_KEY
-  if (!apiKey) throw new Error('GROQ_API_KEY não configurada')
+  if (!apiKey) throw new GroqApiError('GROQ_API_KEY não configurada', 'missing_key')
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 30_000)
@@ -59,7 +72,7 @@ export async function groqChatCompletion(
 
     if (!res.ok) {
       const errText = await res.text().catch(() => '')
-      throw new Error(`Groq API error ${res.status}: ${errText}`)
+      throw new GroqApiError(`Groq API error ${res.status}: ${errText}`, res.status)
     }
 
     const data = await res.json() as {
@@ -70,6 +83,10 @@ export async function groqChatCompletion(
       content: message?.content ?? null,
       tool_calls: message?.tool_calls,
     }
+  } catch (err) {
+    if (err instanceof GroqApiError) throw err
+    if (err instanceof Error && err.name === 'AbortError') throw new GroqApiError('Groq API timeout', 'timeout')
+    throw err
   } finally {
     clearTimeout(timeout)
   }

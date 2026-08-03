@@ -11,6 +11,7 @@ import api from '../lib/api'
 import PageHeader from '../components/ui/PageHeader'
 import Modal from '../components/ui/Modal'
 import { WhatsAppTab } from './configuracoes/Salas'
+import { useAuthStore } from '../store/authStore'
 import type { AiAgent, AiAgentIgnoredNumber, AiAgentMessage, Room, LightNotificationTemplate } from '../types'
 
 const UPSELL_PHONE = '5534992142504'
@@ -104,7 +105,7 @@ function PersonalizarPromptTab({ agent, onGenerated }: { agent: AiAgent; onGener
       toast.success('Prompt gerado! Veja e ajuste em "Prompt de IA".')
       onGenerated()
     },
-    onError: () => toast.error('Erro ao gerar prompt com IA'),
+    onError: (err: any) => toast.error(err?.response?.data?.message ?? 'Erro ao gerar prompt com IA'),
   })
 
   return (
@@ -671,8 +672,17 @@ const MENU: { key: Panel; label: string; icon: typeof Wifi }[] = [
 ]
 
 export default function WhatsappChatbot() {
+  const { user } = useAuthStore()
   const [panel, setPanel] = useState<Panel>('conectar')
 
+  // Configuração do Agente de IA (prompt, agenda, número pass) é restrita a
+  // médico/admin — a secretária só conecta o WhatsApp e vê notificações.
+  const menu = user?.role === 'SECRETARY' ? MENU.filter(m => m.key !== 'agente') : MENU
+
+  // A secretária não configura o agente, mas precisa saber qual sala está
+  // vinculada a ele pra abrir a conexão certa em "Conectar" (leitura, sem
+  // acesso de escrita — a rota /ai-agent já permite GET pra qualquer papel
+  // vinculado ao médico).
   const { data: agent, isLoading: loadingAgent } = useQuery<AiAgent | null>({
     queryKey: ['ai-agent'],
     queryFn: () => api.get('/ai-agent').then(r => r.data),
@@ -689,7 +699,7 @@ export default function WhatsappChatbot() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[220px,1fr] gap-4">
         <nav className="card p-2 flex lg:flex-col gap-1 h-fit">
-          {MENU.map(item => {
+          {menu.map(item => {
             const Icon = item.icon
             const active = panel === item.key
             return (

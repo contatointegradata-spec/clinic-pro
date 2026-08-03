@@ -12,6 +12,7 @@ import toast from 'react-hot-toast'
 import api from '../../lib/api'
 import type { Room, DoctorSecretary, RoomSecretary, RoomWhatsAppConnection, RoomPermissions } from '../../types'
 import Modal from '../../components/ui/Modal'
+import { useAuthStore } from '../../store/authStore'
 
 const DAYS = [
   { value: 1, label: 'Seg' },
@@ -26,8 +27,6 @@ const DAYS = [
 const ROOM_PERM_LABELS: { key: keyof RoomPermissions; label: string; description: string }[] = [
   { key: 'canViewSchedule', label: 'Ver agenda', description: 'Visualizar agendamentos da sala' },
   { key: 'canManageWhatsapp', label: 'Gerenciar WhatsApp', description: 'Acesso ao painel WhatsApp da sala' },
-  { key: 'canConnectWhatsapp', label: 'Conectar WhatsApp', description: 'Iniciar nova conexão via QR Code' },
-  { key: 'canReconnectWhatsapp', label: 'Reconectar WhatsApp', description: 'Reestabelecer conexão existente' },
   { key: 'canDisconnectWhatsapp', label: 'Desconectar WhatsApp', description: 'Encerrar sessão ativa' },
   { key: 'canSendMessages', label: 'Enviar mensagens', description: 'Enviar mensagens via WhatsApp da sala' },
   { key: 'canUseTemplates', label: 'Usar templates', description: 'Utilizar templates liberados para a sala' },
@@ -385,7 +384,12 @@ export const FAST_POLL_WINDOW_MS = 45_000
 
 export function WhatsAppTab({ room }: { room: Room }) {
   const qc = useQueryClient()
+  const { user } = useAuthStore()
   const [awaitingSince, setAwaitingSince] = useState<number | null>(null)
+
+  // Médico/admin usa /rooms, secretária usa /my/rooms (mesma sala, endpoints
+  // diferentes por causa das regras de acesso de cada papel).
+  const basePath = user?.role === 'SECRETARY' ? `/my/rooms/${room.id}` : `/rooms/${room.id}`
 
   const { data: waStatus, isLoading } = useQuery<RoomWhatsAppConnection>({
     queryKey: ['room-wa-status', room.id],
@@ -395,7 +399,7 @@ export function WhatsAppTab({ room }: { room: Room }) {
       if (awaitingSince && Date.now() - awaitingSince < FAST_POLL_WINDOW_MS) return 2000
       return 15000
     },
-    queryFn: () => api.get(`/rooms/${room.id}/whatsapp/status`).then(r => r.data),
+    queryFn: () => api.get(`${basePath}/whatsapp/status`).then(r => r.data),
   })
 
   useEffect(() => {
@@ -405,7 +409,7 @@ export function WhatsAppTab({ room }: { room: Room }) {
   }, [waStatus?.status])
 
   const connectMutation = useMutation({
-    mutationFn: () => api.post(`/rooms/${room.id}/whatsapp/connect`),
+    mutationFn: () => api.post(`${basePath}/whatsapp/connect`),
     onMutate: () => setAwaitingSince(Date.now()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['room-wa-status', room.id] })
@@ -417,17 +421,18 @@ export function WhatsAppTab({ room }: { room: Room }) {
   })
 
   const reconnectMutation = useMutation({
-    mutationFn: () => api.post(`/rooms/${room.id}/whatsapp/reconnect`),
+    mutationFn: () => api.post(`${basePath}/whatsapp/reconnect`),
     onMutate: () => setAwaitingSince(Date.now()),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['room-wa-status', room.id] })
       toast.success('Reconectando...')
     },
-    onError: () => toast.error('Erro ao reconectar'),
+    onError: (e: { response?: { data?: { message?: string } } }) =>
+      toast.error(e.response?.data?.message || 'Erro ao reconectar'),
   })
 
   const disconnectMutation = useMutation({
-    mutationFn: () => api.post(`/rooms/${room.id}/whatsapp/disconnect`),
+    mutationFn: () => api.post(`${basePath}/whatsapp/disconnect`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['room-wa-status', room.id] })
       qc.invalidateQueries({ queryKey: ['rooms'] })
@@ -435,6 +440,13 @@ export function WhatsAppTab({ room }: { room: Room }) {
     },
     onError: () => toast.error('Erro ao desconectar'),
   })
+
+  // Só oferece "Reconectar" quando não há handshake ativo com QR ainda
+  // válido — clicar durante uma leitura de QR em andamento derrubava a
+  // sessão no meio do processo e gerava um QR novo sem necessidade.
+  const qrStillValid = waStatus?.status === 'CONNECTING' && waStatus.qrCode &&
+    (!waStatus.qrCodeExpiresAt || new Date(waStatus.qrCodeExpiresAt) > new Date())
+  const canShowReconnect = !!waStatus && waStatus.status !== 'DISCONNECTED' && !qrStillValid
 
   if (isLoading) return <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>
 
@@ -502,7 +514,7 @@ export function WhatsAppTab({ room }: { room: Room }) {
           </button>
         )}
 
-        {waStatus && waStatus.status !== 'DISCONNECTED' && (
+        {canShowReconnect && (
           <button
             onClick={() => reconnectMutation.mutate()}
             disabled={reconnectMutation.isPending}
@@ -685,7 +697,7 @@ export default function Salas() {
       <div className="flex items-start justify-between">
         <div className="animate-stagger-1">
           <h1 className="page-title">Clínica</h1>
-          <p className="page-subtitle">Configure locais, equipe, permissões e WhatsApp por sala</p>
+          <p className="page-subtitle">Configure locais e equipe por sala</p>
         </div>
         <button onClick={() => setCreateModalOpen(true)} className="btn-primary animate-stagger-1">
           <Plus className="w-4 h-4" /> Nova Sala
@@ -711,7 +723,6 @@ export default function Salas() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-semibold text-slate-900">{room.name}</p>
                   {!room.active && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Inativa</span>}
-                  <WhatsAppBadge connection={room.whatsappConnection} />
                 </div>
                 <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-slate-500">
                   {addressLine(room) && (

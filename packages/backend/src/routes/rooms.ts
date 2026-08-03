@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId, requireSecretaryPermission, logAudit } from '../lib/secretaryAccess'
-import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive, waitForConnectionProgress } from '../lib/room-whatsapp'
+import { startRoomSession, stopRoomSession, resetRoomSessionFiles, isRoomSessionActive, isRoomSessionConnecting, waitForConnectionProgress } from '../lib/room-whatsapp'
 
 const router = Router()
 router.use(authenticate)
@@ -410,6 +410,14 @@ router.post('/:roomId/whatsapp/connect', requireRole('DOCTOR', 'ADMIN'), async (
       return res.status(409).json({ message: 'WhatsApp já está conectado ou em processo de conexão nesta sala' })
     }
 
+    // Segunda blindagem contra concorrência: mesmo que o status no banco
+    // ainda não tenha virado CONNECTING (janela entre a checagem acima e o
+    // handshake real do Baileys), não deixa resetar os arquivos de sessão se
+    // já existe uma tentativa em andamento em memória.
+    if (isRoomSessionConnecting(connection.instanceKey) || isRoomSessionActive(connection.instanceKey)) {
+      return res.status(409).json({ message: 'WhatsApp já está conectado ou em processo de conexão nesta sala' })
+    }
+
     resetRoomSessionFiles(connection.instanceKey)
     startRoomSession(connection.id, connection.instanceKey).catch(err =>
       console.error('[ROOM_WA] connect failed:', err)
@@ -457,6 +465,14 @@ router.post('/:roomId/whatsapp/reconnect', requireRole('DOCTOR', 'ADMIN'), async
     }
 
     const { instanceKey, id: connectionId } = room.whatsappConnection
+
+    // Não interrompe um handshake de QR já em andamento — evita derrubar a
+    // sessão no meio da leitura do QR e gerar um código novo sem necessidade
+    // (o Baileys já atualiza o QR sozinho periodicamente enquanto conecta).
+    if (isRoomSessionConnecting(instanceKey)) {
+      return res.status(409).json({ message: 'Já existe uma conexão em andamento — aguarde o QR Code ser escaneado ou expirar.' })
+    }
+
     await stopRoomSession(instanceKey, false)
     startRoomSession(connectionId, instanceKey).catch(console.error)
 

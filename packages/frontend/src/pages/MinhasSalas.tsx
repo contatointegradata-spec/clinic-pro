@@ -1,18 +1,16 @@
 /**
  * MinhasSalas.tsx — Visão operacional da secretária
  * Exibe apenas as salas nas quais a secretária foi vinculada.
- * Permite gerenciar WhatsApp da sala conforme permissões concedidas.
+ * A conexão WhatsApp não é mais gerenciada aqui — fica em Agente de IA → Conectar.
  */
-import { useState, useEffect } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
-  Building2, MapPin, Clock, Wifi, WifiOff, QrCode, RefreshCw,
-  Phone, History, Shield, MessageSquare, ChevronRight, ArrowLeft,
+  Building2, MapPin, Clock, History, Shield, MessageSquare, ChevronRight, ArrowLeft,
   Users, CheckCircle, XCircle,
 } from 'lucide-react'
-import toast from 'react-hot-toast'
 import api from '../lib/api'
-import type { Room, RoomWhatsAppConnection, RoomPermissions } from '../types'
+import type { Room, RoomPermissions } from '../types'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -42,214 +40,15 @@ function addressLine(room: Room) {
   return [parts, city].filter(Boolean).join(' — ') || null
 }
 
-// ─── WhatsApp Status ──────────────────────────────────────────────────────────
-
-function WaBadge({ status }: { status?: string }) {
-  if (!status || status === 'DISCONNECTED') {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs text-slate-400 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full">
-        <WifiOff className="w-3 h-3" /> Desconectado
-      </span>
-    )
-  }
-  const map: Record<string, { cls: string; label: string }> = {
-    CONNECTED: { cls: 'text-emerald-700 bg-emerald-50 border-emerald-200', label: 'Conectado' },
-    CONNECTING: { cls: 'text-amber-700 bg-amber-50 border-amber-200', label: 'Conectando...' },
-    RECONNECTING: { cls: 'text-blue-700 bg-blue-50 border-blue-200', label: 'Reconectando...' },
-    QUARANTINED: { cls: 'text-red-700 bg-red-50 border-red-200', label: 'Quarentena' },
-  }
-  const m = map[status] ?? map.CONNECTED
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border ${m.cls}`}>
-      <Wifi className="w-3 h-3" /> {m.label}
-    </span>
-  )
-}
-
-// ─── Painel de WhatsApp da sala ───────────────────────────────────────────────
-
-// Janela de polling rápido após clicar em Conectar/Reconectar — cobre o
-// intervalo entre o clique e o status realmente virar CONNECTING/CONNECTED,
-// pra não depender do que a primeira resposta trouxe (evita cair pro
-// polling de 15s só porque o refetch imediato ainda pegou "DISCONNECTED").
-const FAST_POLL_WINDOW_MS = 45_000
-
-function WhatsAppPanel({ room, perms }: { room: MyRoom; perms: RoomPermissions }) {
-  const qc = useQueryClient()
-  const [awaitingSince, setAwaitingSince] = useState<number | null>(null)
-
-  const { data: waStatus, isLoading } = useQuery<RoomWhatsAppConnection>({
-    queryKey: ['my-room-wa', room.id],
-    queryFn: () => api.get(`/my/rooms/${room.id}/whatsapp/status`).then(r => r.data),
-    // Fast poll while connecting/reconnecting, or right after a connect/reconnect
-    // click (awaitingSince), slow poll otherwise so the page stays live without
-    // hammering the server when idle or connected.
-    refetchInterval: (query) => {
-      const s = (query.state.data as RoomWhatsAppConnection | undefined)?.status
-      if (s === 'CONNECTING' || s === 'RECONNECTING') return 2000
-      if (awaitingSince && Date.now() - awaitingSince < FAST_POLL_WINDOW_MS) return 2000
-      return 15000
-    },
-  })
-
-  useEffect(() => {
-    if (waStatus?.status === 'CONNECTED' || waStatus?.status === 'CONNECTING') {
-      setAwaitingSince(null)
-    }
-  }, [waStatus?.status])
-
-  const connectMutation = useMutation({
-    mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/connect`),
-    onMutate: () => setAwaitingSince(Date.now()),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
-      toast.success('Aguardando QR Code...')
-    },
-    onError: (e: { response?: { data?: { message?: string } } }) =>
-      toast.error(e.response?.data?.message || 'Erro ao conectar'),
-  })
-
-  const reconnectMutation = useMutation({
-    mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/reconnect`),
-    onMutate: () => setAwaitingSince(Date.now()),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
-      toast.success('Reconectando...')
-    },
-    onError: () => toast.error('Erro ao reconectar'),
-  })
-
-  const disconnectMutation = useMutation({
-    mutationFn: () => api.post(`/my/rooms/${room.id}/whatsapp/disconnect`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['my-room-wa', room.id] })
-      toast.success('WhatsApp desconectado')
-    },
-    onError: () => toast.error('Erro ao desconectar'),
-  })
-
-  if (!perms.canManageWhatsapp) {
-    return (
-      <div className="flex items-center gap-2 py-4 text-slate-400 text-sm">
-        <Shield className="w-4 h-4" />
-        <span>Você não tem permissão para gerenciar o WhatsApp desta sala.</span>
-      </div>
-    )
-  }
-
-  if (isLoading) return <div className="py-4 text-center text-slate-400 text-sm">Carregando...</div>
-
-  return (
-    <div className="space-y-4">
-      {/* Status atual */}
-      <div className="bg-slate-50 rounded-xl p-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-semibold text-slate-700">Status WhatsApp</span>
-          <WaBadge status={waStatus?.status} />
-        </div>
-        {waStatus?.phoneNumber && (
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <Phone className="w-4 h-4 text-slate-400" />
-            {waStatus.displayName && <span className="font-medium">{waStatus.displayName}</span>}
-            <span className="text-slate-400">·</span>
-            <span>{waStatus.phoneNumber}</span>
-          </div>
-        )}
-        {waStatus?.connectedAt && (
-          <p className="text-xs text-slate-400">
-            Conectado em {new Date(waStatus.connectedAt).toLocaleString('pt-BR')}
-          </p>
-        )}
-        {waStatus?.lastSyncAt && (
-          <p className="text-xs text-slate-400">
-            Última sincronização: {new Date(waStatus.lastSyncAt).toLocaleString('pt-BR')}
-          </p>
-        )}
-      </div>
-
-      {/* Reconectando */}
-      {waStatus?.status === 'RECONNECTING' && (
-        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-          <RefreshCw className="w-5 h-5 text-blue-600 animate-spin flex-shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-blue-800">Reconectando WhatsApp...</p>
-            <p className="text-xs text-blue-600 mt-0.5">A sessão está sendo restaurada automaticamente. Aguarde alguns instantes.</p>
-          </div>
-        </div>
-      )}
-
-      {/* QR Code */}
-      {waStatus?.status === 'CONNECTING' && (
-        <div className="flex flex-col items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-          <QrCode className="w-5 h-5 text-amber-600" />
-          <p className="text-sm font-semibold text-amber-800">Escaneie o QR Code no WhatsApp</p>
-          {waStatus.qrCode && (!waStatus.qrCodeExpiresAt || new Date(waStatus.qrCodeExpiresAt) > new Date()) ? (
-            <img src={waStatus.qrCode} alt="QR Code WhatsApp" className="w-48 h-48 rounded-xl border-4 border-white shadow-md" />
-          ) : (
-            <div className="w-48 h-48 flex flex-col items-center justify-center bg-white rounded-xl border-4 border-white shadow-md gap-2">
-              <RefreshCw className="w-8 h-8 text-amber-400 animate-spin" />
-              <p className="text-xs text-amber-600 text-center">Gerando novo QR Code...</p>
-            </div>
-          )}
-          <p className="text-xs text-amber-600 text-center">Abra o WhatsApp → Menu → Dispositivos vinculados → Vincular dispositivo</p>
-        </div>
-      )}
-
-      {/* Ações */}
-      <div className="flex flex-wrap gap-2">
-        {perms.canConnectWhatsapp && (!waStatus || waStatus.status === 'DISCONNECTED') && (
-          <button
-            onClick={() => connectMutation.mutate()}
-            disabled={connectMutation.isPending}
-            className="btn-primary flex items-center gap-2 text-sm"
-          >
-            <Wifi className="w-4 h-4" />
-            {connectMutation.isPending ? 'Conectando...' : 'Conectar WhatsApp'}
-          </button>
-        )}
-
-        {perms.canReconnectWhatsapp && waStatus && waStatus.status !== 'DISCONNECTED' && (
-          <button
-            onClick={() => reconnectMutation.mutate()}
-            disabled={reconnectMutation.isPending}
-            className="btn-secondary flex items-center gap-2 text-sm"
-          >
-            <RefreshCw className={`w-4 h-4 ${reconnectMutation.isPending ? 'animate-spin' : ''}`} />
-            Reconectar
-          </button>
-        )}
-
-        {perms.canDisconnectWhatsapp && waStatus?.status === 'CONNECTED' && (
-          <button
-            onClick={() => disconnectMutation.mutate()}
-            disabled={disconnectMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors"
-          >
-            <WifiOff className="w-4 h-4" />
-            {disconnectMutation.isPending ? 'Desconectando...' : 'Desconectar'}
-          </button>
-        )}
-
-        {!perms.canConnectWhatsapp && !perms.canReconnectWhatsapp && !perms.canDisconnectWhatsapp && (
-          <p className="text-sm text-slate-400">Você pode visualizar o status, mas não tem permissão para alterar a conexão.</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ─── Detalhe da sala ──────────────────────────────────────────────────────────
 
-type DetailTab = 'whatsapp' | 'historico'
-
 function RoomDetail({ room, onBack }: { room: MyRoom; onBack: () => void }) {
-  const [tab, setTab] = useState<DetailTab>('whatsapp')
   const perms = room.myPermissions
 
   const { data: history } = useQuery<{ logs: { id: string; action: string; description?: string; createdAt: string }[] }>({
     queryKey: ['my-room-history', room.id],
     queryFn: () => api.get(`/my/rooms/${room.id}/history`).then(r => r.data),
-    enabled: tab === 'historico' && perms.canViewHistory,
+    enabled: perms.canViewHistory,
   })
 
   const actionLabels: Record<string, string> = {
@@ -277,7 +76,6 @@ function RoomDetail({ room, onBack }: { room: MyRoom; onBack: () => void }) {
             <span>{dayLabel(room.daysOfWeek)}</span>
           </div>
         </div>
-        <WaBadge status={room.whatsappConnection?.status} />
       </div>
 
       {/* Resumo de permissões */}
@@ -286,8 +84,6 @@ function RoomDetail({ room, onBack }: { room: MyRoom; onBack: () => void }) {
         <div className="flex flex-wrap gap-2">
           {[
             { key: 'canViewSchedule', label: 'Ver agenda' },
-            { key: 'canManageWhatsapp', label: 'Gerenciar WhatsApp' },
-            { key: 'canConnectWhatsapp', label: 'Conectar WhatsApp' },
             { key: 'canSendMessages', label: 'Enviar mensagens' },
             { key: 'canUseTemplates', label: 'Usar templates' },
             { key: 'canViewHistory', label: 'Ver histórico' },
@@ -305,31 +101,11 @@ function RoomDetail({ room, onBack }: { room: MyRoom; onBack: () => void }) {
         </div>
       </div>
 
-      {/* Abas */}
-      <div className="flex gap-1 border-b border-slate-100">
-        {[
-          { id: 'whatsapp' as DetailTab, label: 'WhatsApp', icon: Wifi, visible: perms.canManageWhatsapp },
-          { id: 'historico' as DetailTab, label: 'Histórico', icon: History, visible: perms.canViewHistory },
-        ].filter(t => t.visible).map(t => {
-          const Icon = t.icon
-          return (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
-                tab === t.id
-                  ? 'border-blue-600 text-blue-700 bg-blue-50'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Icon className="w-3.5 h-3.5" /> {t.label}
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Conteúdo das abas */}
-      {tab === 'whatsapp' && <WhatsAppPanel room={room} perms={perms} />}
-
-      {tab === 'historico' && (
+      {/* Histórico */}
+      <div>
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-700 mb-3">
+          <History className="w-4 h-4" /> Histórico
+        </p>
         <div className="space-y-2">
           {!perms.canViewHistory ? (
             <div className="py-6 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
@@ -352,7 +128,7 @@ function RoomDetail({ room, onBack }: { room: MyRoom; onBack: () => void }) {
             ))
           )}
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -403,7 +179,6 @@ export default function MinhasSalas() {
         <div className="space-y-3 animate-stagger-2">
           {rooms.map(room => {
             const perms = room.myPermissions
-            const waStatus = room.whatsappConnection?.status
 
             return (
               <div key={room.id}
@@ -418,7 +193,6 @@ export default function MinhasSalas() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-slate-900 group-hover:text-blue-700 transition-colors">{room.name}</p>
                       {!room.active && <span className="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Inativa</span>}
-                      <WaBadge status={waStatus} />
                     </div>
                     <div className="flex flex-wrap items-center gap-3 mt-1 text-xs text-slate-500">
                       {addressLine(room) && (
@@ -434,11 +208,6 @@ export default function MinhasSalas() {
 
                     {/* Mini badge de permissões */}
                     <div className="flex flex-wrap gap-1.5 mt-2">
-                      {perms.canManageWhatsapp && (
-                        <span className="flex items-center gap-0.5 text-xs text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-full">
-                          <MessageSquare className="w-2.5 h-2.5" /> WhatsApp
-                        </span>
-                      )}
                       {perms.canViewSchedule && (
                         <span className="flex items-center gap-0.5 text-xs text-slate-500 bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded-full">
                           <Users className="w-2.5 h-2.5" /> Agenda
@@ -450,16 +219,6 @@ export default function MinhasSalas() {
                         </span>
                       )}
                     </div>
-
-                    {/* Botão conectar WhatsApp no card (se tiver permissão e estiver desconectado) */}
-                    {perms.canConnectWhatsapp && (!waStatus || waStatus === 'DISCONNECTED') && (
-                      <button
-                        onClick={e => { e.stopPropagation(); setSelectedRoom(room) }}
-                        className="mt-2 flex items-center gap-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg hover:bg-emerald-100 transition-colors"
-                      >
-                        <Wifi className="w-3 h-3" /> Conectar WhatsApp
-                      </button>
-                    )}
                   </div>
                   <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-blue-500 flex-shrink-0 mt-1 transition-colors" />
                 </div>
@@ -472,7 +231,7 @@ export default function MinhasSalas() {
       <div className="card bg-blue-50 border-blue-200 text-sm text-blue-700 space-y-1 animate-stagger-3">
         <p className="font-semibold text-blue-900">Minhas Salas</p>
         <p>• Aqui você vê apenas as salas nas quais foi vinculada pelo médico responsável</p>
-        <p>• As ações disponíveis dependem das permissões configuradas para você</p>
+        <p>• A conexão do WhatsApp fica em Agente de IA → Conectar</p>
         <p>• Em caso de dúvidas, entre em contato com o responsável da clínica</p>
       </div>
     </div>

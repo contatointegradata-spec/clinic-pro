@@ -1,9 +1,10 @@
 import { Router, Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
-import { authenticate, AuthRequest } from '../middleware/auth'
+import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { generateSystemPrompt } from '../lib/ai-agent-engine'
+import { GroqApiError } from '../lib/groq-client'
 
 const router = Router()
 router.use(authenticate)
@@ -38,7 +39,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.post('/', async (req: AuthRequest, res: Response) => {
+router.post('/', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const existing = await prisma.lightChatbot.findFirst({ where: { doctorId, builderMode: 'ai_agent' } })
@@ -75,7 +76,7 @@ const promptConfigSchema = z.object({
   extraInfo: z.string().optional(),
 })
 
-router.put('/:id/prompt-config', async (req: AuthRequest, res: Response) => {
+router.put('/:id/prompt-config', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const agent = await ownedAgent(doctorId, req.params.id)
@@ -93,7 +94,7 @@ router.put('/:id/prompt-config', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.post('/:id/generate-prompt', async (req: AuthRequest, res: Response) => {
+router.post('/:id/generate-prompt', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const agent = await ownedAgent(doctorId, req.params.id)
@@ -118,6 +119,24 @@ router.post('/:id/generate-prompt', async (req: AuthRequest, res: Response) => {
     res.json(updated)
   } catch (err) {
     console.error('[ai-agent] generate-prompt error:', err)
+    if (err instanceof GroqApiError) {
+      if (err.status === 'missing_key') {
+        res.status(502).json({ message: 'A IA não está configurada no servidor (GROQ_API_KEY ausente). Contate o suporte.' })
+        return
+      }
+      if (err.status === 401 || err.status === 403) {
+        res.status(502).json({ message: 'A chave de acesso à IA está inválida ou expirada. Contate o suporte.' })
+        return
+      }
+      if (err.status === 429) {
+        res.status(502).json({ message: 'A IA está sobrecarregada no momento. Tente novamente em instantes.' })
+        return
+      }
+      if (err.status === 'timeout') {
+        res.status(502).json({ message: 'A IA demorou demais para responder. Tente novamente.' })
+        return
+      }
+    }
     res.status(502).json({ message: 'Erro ao gerar prompt com a IA' })
   }
 })
@@ -127,7 +146,7 @@ const systemPromptSchema = z.object({
   responseDelaySeconds: z.coerce.number().int().min(0).max(60).optional(),
 })
 
-router.put('/:id/system-prompt', async (req: AuthRequest, res: Response) => {
+router.put('/:id/system-prompt', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const agent = await ownedAgent(doctorId, req.params.id)
@@ -145,7 +164,7 @@ router.put('/:id/system-prompt', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.put('/:id/room', async (req: AuthRequest, res: Response) => {
+router.put('/:id/room', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const agent = await ownedAgent(doctorId, req.params.id)
@@ -204,7 +223,7 @@ router.get('/:id/ignored-numbers', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.post('/:id/ignored-numbers', async (req: AuthRequest, res: Response) => {
+router.post('/:id/ignored-numbers', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const agent = await ownedAgent(doctorId, req.params.id)
@@ -228,7 +247,7 @@ router.post('/:id/ignored-numbers', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.delete('/:id/ignored-numbers/:numberId', async (req: AuthRequest, res: Response) => {
+router.delete('/:id/ignored-numbers/:numberId', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const agent = await ownedAgent(doctorId, req.params.id)
