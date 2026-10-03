@@ -100,6 +100,7 @@ export interface Patient {
   createdByUserId?: string | null
   completedByUserId?: string | null
   completedAt?: string | null
+  anonymizedAt?: string | null
   createdAt: string
   _count?: { appointments: number }
   patientPlans?: PatientPlan[]

@@ -575,4 +575,140 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── LGPD ───────────────────────────────────────────────────────────────────
+
+const consentSchema = z.object({
+  channel: z.enum(['PRESENCIAL', 'TELEFONE', 'WHATSAPP', 'OUTRO']),
+  termsVersion: z.string().min(1, 'Versão dos termos obrigatória'),
+})
+
+// POST /api/patients/:id/consent — registra que o paciente consentiu com o
+// tratamento de dados. Capturado por quem atende (secretária/médico), não
+// pelo paciente — o sistema não tem login de paciente.
+router.post('/:id/consent', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const data = consentSchema.parse(req.body)
+
+    const { doctorIds } = await resolveScope(req)
+    const patient = await prisma.patient.findUnique({ where: { id } })
+    if (!patient) return res.status(404).json({ message: 'Paciente não encontrado' })
+    if (doctorIds !== null && (!patient.doctorId || !doctorIds.includes(patient.doctorId))) {
+      return res.status(403).json({ message: 'Acesso negado' })
+    }
+
+    const consent = await prisma.patientConsent.create({
+      data: {
+        patientId: id,
+        channel: data.channel,
+        termsVersion: data.termsVersion,
+        recordedByUserId: req.user!.userId,
+      },
+    })
+
+    await logAudit({
+      clinicId: patient.doctorId,
+      userId: req.user!.userId,
+      action: 'PATIENT_CONSENT_RECORDED',
+      description: `Consentimento registrado para ${patient.name} (canal: ${data.channel})`,
+      metadata: { patientId: id, channel: data.channel, termsVersion: data.termsVersion },
+    })
+
+    return res.status(201).json(consent)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// GET /api/patients/:id/export — exportação LGPD: todo dado do paciente que
+// este tenant possui, num único JSON pra download.
+router.get('/:id/export', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { doctorIds } = await resolveScope(req)
+
+    const patient = await prisma.patient.findUnique({
+      where: { id },
+      include: {
+        patientPlans: { include: { healthPlan: true } },
+        consents: { orderBy: { consentedAt: 'desc' } },
+        appointments: { orderBy: { date: 'desc' } },
+        medicalRecords: { include: { procedures: true } },
+        transactions: true,
+      },
+    })
+
+    if (!patient) return res.status(404).json({ message: 'Paciente não encontrado' })
+    if (doctorIds !== null && (!patient.doctorId || !doctorIds.includes(patient.doctorId))) {
+      return res.status(403).json({ message: 'Acesso negado' })
+    }
+
+    await logAudit({
+      clinicId: patient.doctorId,
+      userId: req.user!.userId,
+      action: 'PATIENT_DATA_EXPORTED',
+      description: `Dados de ${patient.name} exportados (LGPD)`,
+      metadata: { patientId: id },
+    })
+
+    res.setHeader('Content-Disposition', `attachment; filename="paciente-${id}.json"`)
+    return res.json({ exportedAt: new Date().toISOString(), patient })
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// POST /api/patients/:id/anonymize — "exclusão" LGPD. Não é um hard delete:
+// anonimiza os campos pessoais identificáveis e mantém agendamentos,
+// prontuário e financeiro intactos (guarda clínica tem prazo legal próprio,
+// que não é revogado pelo pedido de exclusão — ver docs/criptografia-em-repouso.md
+// e o histórico de decisão da Fase 2 no plano do projeto).
+router.post('/:id/anonymize', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { doctorIds } = await resolveScope(req)
+
+    const patient = await prisma.patient.findUnique({ where: { id } })
+    if (!patient) return res.status(404).json({ message: 'Paciente não encontrado' })
+    if (doctorIds !== null && (!patient.doctorId || !doctorIds.includes(patient.doctorId))) {
+      return res.status(403).json({ message: 'Acesso negado' })
+    }
+    if (patient.anonymizedAt) {
+      return res.status(409).json({ message: 'Este paciente já foi anonimizado' })
+    }
+
+    const anonymized = await prisma.patient.update({
+      where: { id },
+      data: {
+        name: 'Paciente anonimizado',
+        email: null,
+        phone: `anon-${id.slice(0, 8)}`,
+        cpf: null,
+        rg: null,
+        address: null,
+        responsibleName: null,
+        responsiblePhone: null,
+        notes: null,
+        active: false,
+        anonymizedAt: new Date(),
+      },
+    })
+
+    await logAudit({
+      clinicId: patient.doctorId,
+      userId: req.user!.userId,
+      action: 'PATIENT_ANONYMIZED',
+      description: `Dados pessoais de um paciente foram anonimizados a pedido (LGPD)`,
+      metadata: { patientId: id },
+    })
+
+    return res.json(anonymized)
+  } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 export default router

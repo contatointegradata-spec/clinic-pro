@@ -151,6 +151,7 @@ model User {
   bankAccounts         BankAccount[]               @relation("DoctorBankAccounts")
   lightNotifTemplates  LightNotificationTemplate[] @relation("DoctorLightNotifTemplates")
   refreshTokens        RefreshToken[]              @relation("UserRefreshTokens")
+  patientConsentsTaken PatientConsent[]             @relation("ConsentRecordedBy")
 
   @@map("TBLUSUARIO")
 }
@@ -213,6 +214,11 @@ model Patient {
   // (usado pelo resto do sistema). Só relevante quando origin: CHATBOT.
   // Valores: NOVO | EM_ANALISE | CONVERTIDO | DESCARTADO
   leadStatus        String?
+  // LGPD — preenchido quando os dados pessoais deste paciente foram
+  // anonimizados a pedido (ver POST /api/patients/:id/anonymize). O
+  // prontuário/histórico financeiro continua intacto, só deixa de estar
+  // vinculado a um paciente identificável.
+  anonymizedAt      DateTime?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
@@ -226,6 +232,7 @@ model Patient {
   medicalRecords  MedicalRecord[]
   assessments     Assessment[]
   transactions    Transaction[]
+  consents        PatientConsent[]
 
   @@index([doctorId])
   @@index([status])
@@ -233,6 +240,33 @@ model Patient {
   @@index([chatbotSessionId])
   @@index([leadStatus])
   @@map("TBLPACIENTE")
+}
+
+enum ConsentChannel {
+  PRESENCIAL
+  TELEFONE
+  WHATSAPP
+  OUTRO
+}
+
+// LGPD — registro de que o paciente consentiu com o tratamento de dados.
+// Capturado por quem atende (o paciente não tem login/conta própria no
+// sistema), não pelo paciente diretamente. Um paciente pode ter mais de um
+// registro ao longo do tempo (ex.: nova versão dos termos).
+model PatientConsent {
+  id              String         @id @default(uuid())
+  patientId       String
+  channel         ConsentChannel
+  termsVersion    String
+  consentedAt     DateTime       @default(now())
+  recordedByUserId String
+  createdAt       DateTime       @default(now())
+
+  patient        Patient @relation(fields: [patientId], references: [id])
+  recordedByUser User    @relation("ConsentRecordedBy", fields: [recordedByUserId], references: [id])
+
+  @@index([patientId])
+  @@map("TBLCONSENTIMENTOPACIENTE")
 }
 
 model HealthPlan {

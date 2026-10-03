@@ -5,6 +5,7 @@ import { ptBR } from 'date-fns/locale'
 import {
   Plus, Search, Phone, Mail, Edit2, Users, Calendar, UserCircle2,
   AlertTriangle, CheckCircle2, Clock, UserX, CheckCheck, ChevronRight,
+  Download, ShieldOff,
 } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
@@ -54,6 +55,24 @@ function initials(name: string): string {
 
 function ageOf(p: Patient): number | null {
   return p.birthDate ? differenceInYears(new Date(), parseISO(p.birthDate)) : null
+}
+
+// LGPD — mascarar CPF/telefone na listagem. O valor completo continua
+// disponível no cadastro/edição do paciente, pra quem precisa ligar ou
+// confirmar o documento — aqui é só pra não deixar exposto numa tela que
+// pode ficar aberta/visível pra quem passa pela recepção.
+function maskCpf(cpf?: string | null): string {
+  if (!cpf) return '–'
+  const digits = cpf.replace(/\D/g, '')
+  if (digits.length !== 11) return '***'
+  return `***.***.${digits.slice(6, 9)}-${digits.slice(9)}`
+}
+
+function maskPhone(phone?: string | null): string {
+  if (!phone) return '–'
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length < 4) return '****'
+  return `•••••${digits.slice(-4)}`
 }
 
 function isPreCad(p: Patient): boolean {
@@ -117,13 +136,66 @@ function closeModal() {
   editPatient.value = null
 }
 
+// ─── LGPD — exportar / anonimizar ──────────────────────────────────────────
+
+async function exportPatient(p: Patient) {
+  try {
+    const res = await api.get(`/patients/${p.id}/export`)
+    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `paciente-${p.id}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast.success('Dados exportados')
+  } catch {
+    toast.error('Erro ao exportar dados do paciente')
+  }
+}
+
+const anonymizeTarget = ref<Patient | null>(null)
+const anonymizing = ref(false)
+
+function confirmAnonymize(p: Patient) {
+  anonymizeTarget.value = p
+}
+
+async function doAnonymize() {
+  if (!anonymizeTarget.value) return
+  anonymizing.value = true
+  try {
+    await api.post(`/patients/${anonymizeTarget.value.id}/anonymize`)
+    toast.success('Dados pessoais do paciente foram anonimizados')
+    anonymizeTarget.value = null
+    await refetch()
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    toast.error(msg || 'Erro ao anonimizar paciente')
+  } finally {
+    anonymizing.value = false
+  }
+}
+
 async function handleFormSubmit(data: Record<string, unknown>) {
   saving.value = true
   try {
+    const { consent, ...patientData } = data as Record<string, unknown> & {
+      consent?: { channel: string; termsVersion: string }
+    }
+
     if (editPatient.value) {
-      await api.put(`/patients/${editPatient.value.id}`, data)
+      await api.put(`/patients/${editPatient.value.id}`, patientData)
     } else {
-      await api.post('/patients', data)
+      const res = await api.post('/patients', patientData)
+      // Consentimento é um registro à parte (histórico próprio) — só faz
+      // sentido no cadastro, quando a tela pergunta o canal.
+      if (consent) {
+        await api.post(`/patients/${res.data.id}/consent`, consent).catch(err => {
+          console.error('[consent] falha ao registrar consentimento:', err)
+          toast.error('Paciente salvo, mas houve um erro ao registrar o consentimento LGPD.')
+        })
+      }
     }
     toast.success(editPatient.value ? 'Paciente atualizado!' : 'Paciente cadastrado!')
     closeModal()
@@ -351,7 +423,7 @@ async function handleCompleteSubmit() {
                 <div class="space-y-1">
                   <div class="flex items-center gap-1.5 text-sm text-slate-600">
                     <Phone class="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
-                    {{ p.phone }}
+                    {{ maskPhone(p.phone) }}
                   </div>
                   <div v-if="p.email" class="flex items-center gap-1.5 text-xs text-slate-400">
                     <Mail class="w-3 h-3 text-slate-300 flex-shrink-0" />
@@ -369,7 +441,7 @@ async function handleCompleteSubmit() {
                 </span>
               </td>
               <td class="table-cell font-mono text-slate-500 text-xs hidden lg:table-cell">
-                {{ p.cpf || '–' }}
+                {{ maskCpf(p.cpf) }}
               </td>
               <td class="table-cell">
                 <span v-if="ageOf(p) !== null" class="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full text-xs font-semibold">
@@ -405,6 +477,21 @@ async function handleCompleteSubmit() {
                   >
                     <Edit2 class="w-3.5 h-3.5" />
                   </button>
+                  <button
+                    class="p-1.5 text-slate-300 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all duration-150 active:scale-90"
+                    title="Exportar dados (LGPD)"
+                    @click="exportPatient(p)"
+                  >
+                    <Download class="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    v-if="!p.anonymizedAt"
+                    class="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all duration-150 active:scale-90"
+                    title="Anonimizar dados (LGPD)"
+                    @click="confirmAnonymize(p)"
+                  >
+                    <ShieldOff class="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </td>
             </tr>
@@ -412,6 +499,31 @@ async function handleCompleteSubmit() {
         </table>
       </div>
     </div>
+
+    <!-- LGPD — confirmação de anonimização -->
+    <Modal
+      :is-open="!!anonymizeTarget"
+      title="Anonimizar dados do paciente"
+      subtitle="Essa ação não pode ser desfeita"
+      size="sm"
+      @close="anonymizeTarget = null"
+    >
+      <p class="text-sm text-slate-600 leading-relaxed">
+        Nome, CPF, telefone, RG, endereço e dados do responsável de
+        <strong>{{ anonymizeTarget?.name }}</strong> serão apagados e substituídos por
+        dados anônimos. Agendamentos, prontuário e histórico financeiro
+        <strong>continuam intactos</strong> (guarda clínica tem prazo legal próprio),
+        só deixam de estar vinculados a um paciente identificável.
+      </p>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button class="btn-secondary" :disabled="anonymizing" @click="anonymizeTarget = null">Cancelar</button>
+          <button class="btn-danger" :disabled="anonymizing" @click="doAnonymize">
+            {{ anonymizing ? 'Anonimizando...' : 'Confirmar anonimização' }}
+          </button>
+        </div>
+      </template>
+    </Modal>
 
     <!-- ── Mobile Cards ── -->
     <div class="sm:hidden space-y-3 animate-stagger-3">
@@ -461,7 +573,7 @@ async function handleCompleteSubmit() {
               </div>
               <p class="text-xs text-slate-400 flex items-center gap-1">
                 <Phone class="w-3 h-3" />
-                {{ p.phone }}
+                {{ maskPhone(p.phone) }}
                 <span v-if="ageOf(p) !== null" class="ml-1">· {{ ageOf(p) }} anos</span>
               </p>
               <div v-if="isPreCad(p)" class="mt-2 w-full">

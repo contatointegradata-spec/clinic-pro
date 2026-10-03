@@ -4,11 +4,24 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { createNotification } from './notifications'
+import { logAudit } from '../lib/secretaryAccess'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 
 const router = Router()
 router.use(authenticate)
+
+// Resolve o(s) doctorId(s) que o usuário atual pode enxergar — mesmo padrão
+// de patients.ts/appointments.ts. ADMIN não é filtrado (visão geral).
+async function resolveDoctorScope(req: AuthRequest): Promise<string[] | null> {
+  if (req.user!.role === 'ADMIN') return null
+  if (req.user!.role === 'DOCTOR') return [req.user!.userId]
+  const links = await prisma.doctorSecretary.findMany({
+    where: { secretaryId: req.user!.userId, active: true },
+    select: { doctorId: true },
+  })
+  return links.map(l => l.doctorId)
+}
 
 const procedureSchema = z.object({
   appointmentTypeId: z.string().optional(),
@@ -45,10 +58,18 @@ router.get('/', async (req: AuthRequest, res) => {
     const where: Record<string, unknown> = {}
 
     if (patientId) where.patientId = patientId as string
-    if (req.user!.role === 'DOCTOR') {
-      where.doctorId = req.user!.userId
-    } else if (doctorId) {
-      where.doctorId = doctorId as string
+
+    const scope = await resolveDoctorScope(req)
+    if (scope !== null) {
+      // SECRETARY/DOCTOR — restrito ao(s) médico(s) vinculado(s). Um
+      // doctorId pedido via query só é aceito se estiver dentro do escopo,
+      // nunca confiado "cru" (era assim antes — qualquer SECRETARY
+      // conseguia pedir o prontuário de um médico ao qual não tem vínculo).
+      if (doctorId && scope.includes(doctorId as string)) {
+        where.doctorId = doctorId as string
+      } else {
+        where.doctorId = scope.length === 1 ? scope[0] : { in: scope }
+      }
     }
 
     const records = await prisma.medicalRecord.findMany({
@@ -71,9 +92,22 @@ router.get('/', async (req: AuthRequest, res) => {
 router.get('/by-patient/:patientId', async (req: AuthRequest, res) => {
   try {
     const { patientId } = req.params
+    const where: Record<string, unknown> = { patientId }
+
+    // Sem isso, qualquer usuário autenticado (de qualquer clínica/médico)
+    // conseguia ler o prontuário completo de qualquer paciente só sabendo o
+    // id — era o maior vazamento cross-tenant do sistema.
+    const scope = await resolveDoctorScope(req)
+    if (scope !== null) {
+      if (scope.length === 0) {
+        res.json([])
+        return
+      }
+      where.doctorId = scope.length === 1 ? scope[0] : { in: scope }
+    }
 
     const records = await prisma.medicalRecord.findMany({
-      where: { patientId },
+      where,
       include: {
         doctor: { select: { id: true, name: true, specialty: true, crm: true } },
         procedures: true,
@@ -98,6 +132,15 @@ router.get('/by-patient/:patientId', async (req: AuthRequest, res) => {
       grouped[record.doctorId].records.push(record)
     }
 
+    if (records.length > 0) {
+      await logAudit({
+        userId: req.user!.userId,
+        action: 'MEDICAL_RECORD_VIEWED',
+        description: `Prontuário do paciente ${patientId} consultado`,
+        metadata: { patientId, recordCount: records.length },
+      })
+    }
+
     res.json(Object.values(grouped))
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -107,6 +150,13 @@ router.get('/by-patient/:patientId', async (req: AuthRequest, res) => {
 router.post('/', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), async (req: AuthRequest, res) => {
   try {
     const data = recordSchema.parse(req.body)
+
+    const scope = await resolveDoctorScope(req)
+    if (scope !== null && !scope.includes(data.doctorId)) {
+      res.status(403).json({ message: 'Acesso negado a este médico' })
+      return
+    }
+
     const { procedures, objetivoClinico, sintese, encaminhamento, ...rest } = data
 
     const record = await prisma.$transaction(async (tx) => {
@@ -150,6 +200,13 @@ router.post('/', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), async (req: AuthRe
       }).catch(err => console.error('[triggerLightAutomatedMessage SUMMARY error]', err))
     }
 
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'MEDICAL_RECORD_CREATED',
+      description: `Prontuário criado para ${record.patient?.name ?? record.patientId}`,
+      metadata: { recordId: record.id, patientId: record.patientId, type: record.type },
+    })
+
     res.status(201).json(record)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -171,6 +228,15 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
       res.status(404).json({ message: 'Registro não encontrado' })
       return
     }
+
+    // Sem isso, qualquer DOCTOR/ADMIN autenticado conseguia editar o
+    // prontuário de um paciente de outro médico só sabendo o id do registro.
+    const scope = await resolveDoctorScope(req)
+    if (scope !== null && !scope.includes(existing.doctorId)) {
+      res.status(403).json({ message: 'Acesso negado a este prontuário' })
+      return
+    }
+
     if (procedures && existing.billedAt) {
       res.status(409).json({ message: 'Este prontuário já foi lançado no financeiro — não é possível alterar os procedimentos.' })
       return
@@ -211,6 +277,13 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
           procedures: true,
         },
       })
+    })
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'MEDICAL_RECORD_UPDATED',
+      description: `Prontuário ${id} atualizado`,
+      metadata: { recordId: id, patientId: record.patientId },
     })
 
     res.json(record)
@@ -310,6 +383,13 @@ router.post('/:id/charge', requireRole('ADMIN', 'DOCTOR'), async (req: AuthReque
       'SUCCESS',
       '/financeiro',
     )
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'MEDICAL_RECORD_CHARGED',
+      description: `Prontuário ${record.id} cobrado — R$ ${amount.toFixed(2)}`,
+      metadata: { recordId: record.id, patientId: record.patientId, transactionId: transaction.id, amount },
+    })
 
     res.status(201).json({ transaction, medicalRecordId: record.id })
   } catch (error) {

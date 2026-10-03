@@ -459,4 +459,51 @@ router.post('/subscriptions/:doctorId/reset-trial', async (req: AuthRequest, res
   }
 })
 
+// ─── Trilha de auditoria (LGPD) ─────────────────────────────────────────────
+// GET /api/admin/audit-log?userId=&action=&startDate=&endDate=&page=&pageSize=
+router.get('/audit-log', async (req: AuthRequest, res) => {
+  try {
+    const { userId, action, startDate, endDate } = req.query
+    const page = Math.max(1, Number(req.query.page) || 1)
+    const pageSize = Math.min(100, Math.max(1, Number(req.query.pageSize) || 50))
+
+    const where: Record<string, unknown> = {}
+    if (userId) where.userId = userId as string
+    if (action) where.action = action as string
+    if (startDate || endDate) {
+      where.createdAt = {
+        ...(startDate ? { gte: new Date(startDate as string) } : {}),
+        ...(endDate ? { lte: new Date(endDate as string) } : {}),
+      }
+    }
+
+    const [entries, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.auditLog.count({ where }),
+    ])
+
+    const userIds = [...new Set(entries.map(e => e.userId))]
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, name: true, email: true, role: true },
+    })
+    const userById = new Map(users.map(u => [u.id, u]))
+
+    res.json({
+      entries: entries.map(e => ({ ...e, user: userById.get(e.userId) ?? null })),
+      total,
+      page,
+      pageSize,
+    })
+  } catch (error) {
+    console.error('[admin/audit-log] erro:', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 export default router

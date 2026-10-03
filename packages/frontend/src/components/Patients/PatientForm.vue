@@ -2,7 +2,7 @@
 import { reactive, ref, computed, watch } from 'vue'
 import { z } from 'zod'
 import { format, differenceInYears, parseISO } from 'date-fns'
-import { Plus, Trash2, CreditCard, ArrowRight, MapPin } from 'lucide-vue-next'
+import { Plus, Trash2, CreditCard, ArrowRight, MapPin, ShieldCheck } from 'lucide-vue-next'
 import api from '../../lib/api'
 import type { Patient, HealthPlan } from '../../types'
 import { useQuery } from '../../composables/useQuery'
@@ -33,8 +33,15 @@ const props = defineProps<{
   loading: boolean
 }>()
 
+// LGPD — versão atual do termo exibido no checkbox de consentimento.
+// Mudou o texto do termo? Sobe este valor (fica registrado por consentimento
+// qual versão a pessoa aceitou).
+const CURRENT_TERMS_VERSION = 'v1'
+
+type ConsentChannel = 'PRESENCIAL' | 'TELEFONE' | 'WHATSAPP' | 'OUTRO'
+
 const emit = defineEmits<{
-  submit: [data: FormData & { plans: PlanEntry[] }]
+  submit: [data: FormData & { plans: PlanEntry[]; consent?: { channel: ConsentChannel; termsVersion: string } }]
 }>()
 
 const typeLabel: Record<string, string> = {
@@ -68,6 +75,9 @@ const form = reactive<FormData>({
 const errors = reactive<Partial<Record<keyof FormData, string>>>({})
 const phoneDisplay = ref('')
 const plans = ref<PlanEntry[]>([])
+const consentGiven = ref(false)
+const consentChannel = ref<ConsentChannel>('PRESENCIAL')
+const consentError = ref('')
 
 const { data: healthPlansData } = useQuery<HealthPlan[]>({
   key: 'health-plans',
@@ -157,6 +167,7 @@ function handleSubmit() {
   for (const key of Object.keys(errors) as (keyof FormData)[]) {
     errors[key] = undefined
   }
+  consentError.value = ''
 
   const result = schema.safeParse(form)
   if (!result.success) {
@@ -167,8 +178,18 @@ function handleSubmit() {
     return
   }
 
+  // Consentimento só é obrigatório no cadastro — editar um paciente já
+  // cadastrado não reabre a pergunta aqui.
+  if (!props.patient && !consentGiven.value) {
+    consentError.value = 'Confirme que o paciente consentiu com o tratamento de dados antes de salvar.'
+    return
+  }
+
   const validPlans = plans.value.filter(p => p.healthPlanId)
-  emit('submit', { ...result.data, plans: validPlans })
+  const consent = !props.patient
+    ? { channel: consentChannel.value, termsVersion: CURRENT_TERMS_VERSION }
+    : undefined
+  emit('submit', { ...result.data, plans: validPlans, consent })
 }
 </script>
 
@@ -343,6 +364,32 @@ function handleSubmit() {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- LGPD — consentimento (só no cadastro) -->
+    <div v-if="!patient" class="border border-slate-200 rounded-xl p-4 bg-slate-50/60">
+      <label class="flex items-start gap-2.5 cursor-pointer">
+        <input v-model="consentGiven" type="checkbox" class="mt-0.5 w-4 h-4 rounded border-slate-300 text-primary-600 focus:ring-primary-500" />
+        <span class="text-sm text-slate-700">
+          <span class="flex items-center gap-1.5 font-medium text-slate-900">
+            <ShieldCheck class="w-3.5 h-3.5 text-primary-600" />
+            Paciente consentiu com o tratamento de dados (LGPD)
+          </span>
+          <span class="text-xs text-slate-500">Confirme que o paciente foi informado e concordou antes de salvar o cadastro.</span>
+        </span>
+      </label>
+
+      <div v-if="consentGiven" class="mt-3">
+        <label class="label text-xs">Canal do consentimento</label>
+        <select v-model="consentChannel" class="input-field text-sm">
+          <option value="PRESENCIAL">Presencial</option>
+          <option value="TELEFONE">Telefone</option>
+          <option value="WHATSAPP">WhatsApp</option>
+          <option value="OUTRO">Outro</option>
+        </select>
+      </div>
+
+      <p v-if="consentError" class="text-xs text-red-500 mt-2">{{ consentError }}</p>
     </div>
 
     <button type="submit" :disabled="loading" class="btn-primary w-full mt-2">
