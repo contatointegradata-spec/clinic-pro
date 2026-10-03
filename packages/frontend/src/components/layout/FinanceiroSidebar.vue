@@ -61,7 +61,7 @@ function isActive(to: string) {
 <template>
   <aside
     class="bg-white border-r border-slate-200 flex flex-col h-screen flex-shrink-0 select-none overflow-hidden"
-    :style="{ width: props.collapsed ? 68 : 256, transition: 'width 0.32s cubic-bezier(.22,1,.36,1)' }"
+    :style="{ width: `${props.collapsed ? 68 : 256}px`, transition: 'width 0.32s cubic-bezier(.22,1,.36,1)' }"
   >
     <div class="px-2.5 py-3.5 border-b border-slate-100 flex-shrink-0">
       <div v-if="!props.collapsed" class="flex items-center justify-between min-w-0">

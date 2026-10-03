@@ -85,7 +85,7 @@ const secretaryPermission = computed(() => route.meta.secretaryPermission as Sec
   <div class="flex h-screen bg-transparent overflow-hidden">
     <div v-if="mobileOpen" class="overlay lg:hidden" @click="mobileOpen = false" />
 
-    <div class="relative hidden lg:block flex-shrink-0" :style="{ width: sidebarCollapsed ? 68 : 256, transition: 'width 0.3s cubic-bezier(.22,1,.36,1)' }">
+    <div class="relative hidden lg:block flex-shrink-0" :style="{ width: `${sidebarCollapsed ? 68 : 256}px`, transition: 'width 0.3s cubic-bezier(.22,1,.36,1)' }">
       <div :class="['absolute inset-0 transition-all duration-300', (isSettings || isFinanceiro) ? 'opacity-0 pointer-events-none -translate-x-2' : 'opacity-100 translate-x-0']">
         <Sidebar :collapsed="sidebarCollapsed" @toggle-collapse="toggleSidebar" />
       </div>
