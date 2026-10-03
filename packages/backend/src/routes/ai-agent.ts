@@ -331,4 +331,52 @@ router.get('/:id/conversations/:phone', async (req: AuthRequest, res: Response) 
   }
 })
 
+// ─── CRM — métricas agregadas (novos leads, conversão, cancelamentos) ────────
+
+const PERIOD_DAYS: Record<string, number | null> = { '7d': 7, '30d': 30, all: null }
+
+router.get('/:id/crm-metrics', async (req: AuthRequest, res: Response) => {
+  try {
+    const doctorId = await getTargetDoctorId(req)
+    const agent = await ownedAgent(doctorId, req.params.id)
+    if (!agent) { res.status(404).json({ message: 'Agente não encontrado' }); return }
+
+    const periodParam = typeof req.query.period === 'string' ? req.query.period : '30d'
+    const periodDays = periodParam in PERIOD_DAYS ? PERIOD_DAYS[periodParam] : 30
+    const since = periodDays != null ? new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000) : undefined
+
+    const leadWhere = { doctorId, origin: 'CHATBOT' as const, ...(since ? { createdAt: { gte: since } } : {}) }
+
+    const [totalLeads, convertedLeads, cancellations, recentMessages] = await Promise.all([
+      prisma.patient.count({ where: leadWhere }),
+      prisma.patient.count({ where: { ...leadWhere, leadStatus: 'CONVERTIDO' } }),
+      prisma.appointment.count({
+        where: {
+          doctorId,
+          status: { in: ['CANCELLED', 'NO_SHOW'] },
+          ...(since ? { date: { gte: since } } : {}),
+          patient: { origin: 'CHATBOT' },
+        },
+      }),
+      prisma.aiAgentMessage.findMany({
+        where: { chatbotId: agent.id, createdAt: { gte: new Date(Date.now() - 48 * 60 * 60 * 1000) } },
+        select: { contactPhone: true },
+        distinct: ['contactPhone'],
+      }),
+    ])
+
+    res.json({
+      period: periodParam,
+      newLeads: totalLeads,
+      conversionRate: totalLeads > 0 ? Math.round((convertedLeads / totalLeads) * 1000) / 10 : 0,
+      convertedLeads,
+      cancellations,
+      ongoingConversations: recentMessages.length,
+    })
+  } catch (err) {
+    console.error('[ai-agent/crm-metrics] erro:', err)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 export default router

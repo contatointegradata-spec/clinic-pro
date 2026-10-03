@@ -22,6 +22,7 @@ import pino from 'pino'
 import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
 import { resolveWhatsAppContactIdentity } from './whatsapp'
 import { handleIncomingLightMessage } from './chatbot-light-engine'
+import { createNotification } from '../routes/notifications'
 
 const SESSIONS_DIR = path.resolve(process.env.SESSIONS_DIR ?? path.join(process.cwd(), 'sessions'))
 const logger = pino({ level: process.env.WA_LOG_LEVEL || 'warn' })
@@ -71,6 +72,13 @@ const SIM_WORDS = new Set(['sim', 's', '1', 'confirmar', 'confirmo', 'ok', 'quer
 const NAO_WORDS = new Set(['nao', 'n', '2', 'nao quero', 'cancelar', 'recusar', 'nao confirmo', 'nao!', 'nao.'])
 
 const MAX_ROOM_RECONNECT_ATTEMPTS = 5
+// Quantos ciclos de "esgotou MAX_ROOM_RECONNECT_ATTEMPTS, watchdog tentou de
+// novo" o watchdog aceita antes de desistir de reconectar com a sessão
+// atual e colocar em quarentena (limpa sessão, pede novo QR code). Sem
+// isso, uma sessão corrompida (erro de decriptação tipo "Bad MAC") entra
+// num loop infinito — nunca reconecta de verdade, só consome CPU/log pra
+// sempre.
+const MAX_QUARANTINE_CYCLES = 3
 
 function toLong(v: unknown): number {
   if (!v) return 0
@@ -408,6 +416,7 @@ export async function startRoomSession(connectionId: string, instanceKey: string
               connectedAt: new Date(),
               lastSyncAt: new Date(),
               reconnectAttempts: 0,
+              failureCycles: 0,
             },
           })
           logRoom('info', instanceKey, 'session.connected', { phone })
@@ -800,29 +809,56 @@ export function startRoomHealthWatchdog(): void {
         }
       }
 
-      // 2. DISCONNECTED with session files and reconnect cap exhausted → reset and retry
+      // 2. DISCONNECTED with session files and reconnect cap exhausted →
+      //    retry a limited number of full cycles; past that, the session is
+      //    almost certainly corrupted (not a transient network blip) —
+      //    quarantine it instead of retrying forever.
       const disconnectedConns = await prisma.roomWhatsAppConnection.findMany({
         where: {
           status: 'DISCONNECTED',
           disconnectedAt: { lt: new Date(Date.now() - 120_000) },
           reconnectAttempts: { gt: MAX_ROOM_RECONNECT_ATTEMPTS },
         },
-        select: { id: true, instanceKey: true },
-      }).catch(() => [] as { id: string; instanceKey: string }[])
+        select: {
+          id: true,
+          instanceKey: true,
+          doctorId: true,
+          failureCycles: true,
+          room: { select: { name: true } },
+        },
+      }).catch(() => [] as Array<{ id: string; instanceKey: string; doctorId: string; failureCycles: number; room: { name: string } | null }>)
 
       for (const conn of disconnectedConns) {
         if (roomSockets.has(conn.instanceKey) || roomConnecting.has(conn.instanceKey)) continue
         const sessDir = path.join(SESSIONS_DIR, 'room_' + conn.instanceKey)
-        if (fs.existsSync(sessDir)) {
-          logRoom('info', conn.instanceKey, 'watchdog.retrying_after_cap')
+        if (!fs.existsSync(sessDir)) continue
+
+        const nextCycle = conn.failureCycles + 1
+        if (nextCycle > MAX_QUARANTINE_CYCLES) {
+          logRoom('warn', conn.instanceKey, 'watchdog.quarantined', { failureCycles: nextCycle })
+          resetRoomSessionFiles(conn.instanceKey)
           await prisma.roomWhatsAppConnection.update({
             where: { id: conn.id },
-            data: { reconnectAttempts: 0 },
+            data: { status: 'QUARANTINED', failureCycles: nextCycle, reconnectAttempts: 0 },
           }).catch(() => {})
-          startRoomSession(conn.id, conn.instanceKey).catch(err =>
-            logRoom('error', conn.instanceKey, 'watchdog.retry_failed', { error: String(err) })
-          )
+          await createNotification(
+            conn.doctorId,
+            'WhatsApp desconectado',
+            `A conexão do WhatsApp${conn.room ? ` da sala "${conn.room.name}"` : ''} não conseguiu se recuperar sozinha e foi colocada em quarentena. Escaneie o QR code novamente para reconectar.`,
+            'ALERT',
+            '/configuracoes/salas',
+          ).catch(() => {})
+          continue
         }
+
+        logRoom('info', conn.instanceKey, 'watchdog.retrying_after_cap', { cycle: nextCycle })
+        await prisma.roomWhatsAppConnection.update({
+          where: { id: conn.id },
+          data: { reconnectAttempts: 0, failureCycles: nextCycle },
+        }).catch(() => {})
+        startRoomSession(conn.id, conn.instanceKey).catch(err =>
+          logRoom('error', conn.instanceKey, 'watchdog.retry_failed', { error: String(err) })
+        )
       }
     } catch (e) {
       logRoom('error', 'global', 'room_watchdog.error', { error: String(e) })

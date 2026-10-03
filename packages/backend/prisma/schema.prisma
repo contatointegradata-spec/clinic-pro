@@ -639,6 +639,11 @@ model RoomWhatsAppConnection {
   disconnectedAt    DateTime?
   lastSyncAt        DateTime?
   reconnectAttempts Int            @default(0)
+  // Quantos ciclos completos de "esgotou reconnectAttempts, watchdog
+  // resetou e tentou de novo" aconteceram em sequência sem a conexão nunca
+  // abrir de verdade. Zera ao conectar. Passou do limite → QUARANTINED em
+  // vez de continuar tentando pra sempre com a mesma sessão corrompida.
+  failureCycles     Int            @default(0)
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
 

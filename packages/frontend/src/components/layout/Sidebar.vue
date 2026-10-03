@@ -4,13 +4,14 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard, Calendar, Users, DollarSign, UserCog, LogOut, ChevronRight,
   Settings, ClipboardList, MessageSquare, Database, PanelLeftClose, PanelLeft,
-  ShieldCheck, Building2, CreditCard, Webhook,
+  ShieldCheck, Building2, CreditCard, Webhook, Kanban,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
 import { useSecretaryPermissions } from '../../composables/useSecretaryPermissions'
 import { useQuery } from '../../composables/useQuery'
 import api from '../../lib/api'
 import ClinicLogo from '../ui/ClinicLogo.vue'
+import NotificationBell from '../NotificationBell.vue'
 
 const props = defineProps<{ collapsed?: boolean }>()
 const emit = defineEmits<{ toggleCollapse: [] }>()
@@ -21,6 +22,7 @@ const route = useRoute()
 const router = useRouter()
 
 const isChatbotRoute = computed(() => route.path.startsWith('/agente/chatbot'))
+const isCrmRoute = computed(() => route.path.startsWith('/agente/crm'))
 
 const { data: preRegistrations } = useQuery<unknown[]>({
   key: 'pre-registrations-count',
@@ -112,6 +114,11 @@ function handleLogout() {
           <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">Agente de IA</span>
           <span v-else class="tooltip">Agente de IA</span>
         </router-link>
+        <router-link to="/agente/crm" :class="['sidebar-link group tooltip-trigger mt-0.5', isCrmRoute ? 'active' : '']">
+          <Kanban :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isCrmRoute ? 'text-white' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-110']" />
+          <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">CRM</span>
+          <span v-else class="tooltip">CRM</span>
+        </router-link>
       </div>
 
       <div v-if="authStore.user?.role === 'SECRETARY'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-4', 'border-t border-slate-100']">
@@ -158,6 +165,8 @@ function handleLogout() {
           </span>
         </div>
       </div>
+
+      <NotificationBell :collapsed="props.collapsed" />
 
       <button
         v-if="!props.collapsed"

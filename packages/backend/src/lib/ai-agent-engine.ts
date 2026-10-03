@@ -159,45 +159,87 @@ async function createAppointmentTool(
     return { success: false, message: 'Esse dia não tem atendimento — sugira ao paciente outro dia dentro do horário de funcionamento.' }
   }
 
-  const { appointments, blocks } = await getConflicts(doctorId, args.date)
-  if (!isSlotFree(slotStart, slotEnd, appointments, blocks)) {
-    return { success: false, message: 'Esse horário acabou de ficar indisponível — peça pro paciente escolher outro horário (use check_availability de novo).' }
-  }
-
   if (await checkLunchOverlap(doctorId, slotStart, duration)) {
     return { success: false, message: 'Esse horário cai no intervalo de almoço do profissional — sugira outro horário.' }
   }
 
   const normalizedPhone = args.phone.replace(/\D/g, '')
-  let patient = await prisma.patient.findFirst({ where: { doctorId, phone: normalizedPhone } })
-  if (!patient) {
-    patient = await prisma.patient.create({
-      data: {
-        name: args.patientName,
-        phone: normalizedPhone,
-        doctorId,
-        roomId: room.id,
-        status: 'PRE_CADASTRO',
-        origin: 'CHATBOT',
-      },
-    })
+
+  // A checagem de conflito + criação da consulta rodam na mesma transação
+  // (isolation Serializable) pra fechar a janela de corrida entre "confirmei
+  // que tá livre" e "criei a consulta" — sem isso, duas mensagens quase
+  // simultâneas de pacientes diferentes pedindo o mesmo horário podiam
+  // resultar em dois agendamentos sobrepostos.
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const [dayStart, dayEnd] = [
+        parseLocalDateToUtcDate(y, m, d, 0, 0),
+        parseLocalDateToUtcDate(y, m, d, 23, 59),
+      ]
+      const [conflictingAppointments, conflictingBlocks] = await Promise.all([
+        tx.appointment.findMany({
+          where: { doctorId, status: { not: 'CANCELLED' }, date: { gte: dayStart, lte: dayEnd } },
+          select: { date: true, duration: true },
+        }),
+        tx.appointmentBlock.findMany({
+          where: { doctorId, date: { lte: dayEnd }, endDate: { gte: dayStart } },
+          select: { date: true, endDate: true },
+        }),
+      ])
+
+      if (!isSlotFree(slotStart, slotEnd, conflictingAppointments, conflictingBlocks)) {
+        return { success: false as const, message: 'Esse horário acabou de ficar indisponível — peça pro paciente escolher outro horário (use check_availability de novo).' }
+      }
+
+      // Normalmente já existe um Patient aqui — handleAiAgentMessage cria um
+      // lead (leadStatus NOVO) desde a primeira mensagem, com nome
+      // placeholder. Agendar é a conversão de verdade: atualiza o nome real
+      // e avança o card pro "Convertido" no kanban do CRM automaticamente.
+      let patient = await tx.patient.findFirst({ where: { doctorId, phone: normalizedPhone } })
+      if (!patient) {
+        patient = await tx.patient.create({
+          data: {
+            name: args.patientName,
+            phone: normalizedPhone,
+            doctorId,
+            roomId: room.id,
+            status: 'PRE_CADASTRO',
+            origin: 'CHATBOT',
+            leadStatus: 'CONVERTIDO',
+          },
+        })
+      } else {
+        patient = await tx.patient.update({
+          where: { id: patient.id },
+          data: {
+            name: args.patientName,
+            ...(patient.leadStatus && patient.leadStatus !== 'CONVERTIDO' ? { leadStatus: 'CONVERTIDO' as const } : {}),
+          },
+        })
+      }
+
+      await tx.appointment.create({
+        data: {
+          patientId: patient.id,
+          doctorId,
+          createdById: doctorId,
+          roomId: room.id,
+          title: `Consulta - ${patient.name}`,
+          date: slotStart,
+          duration,
+          status: 'SCHEDULED',
+          notes: args.notes || null,
+        },
+      })
+
+      return { success: true as const, message: `Consulta marcada com sucesso para ${args.date} às ${args.time}. Confirme isso pro paciente de forma natural.` }
+    }, { isolationLevel: 'Serializable' })
+
+    return result
+  } catch (err) {
+    console.error('[ai-agent-engine] createAppointmentTool transaction error:', err)
+    return { success: false, message: 'Não consegui confirmar o agendamento agora — peça pro paciente tentar de novo em instantes.' }
   }
-
-  await prisma.appointment.create({
-    data: {
-      patientId: patient.id,
-      doctorId,
-      createdById: doctorId,
-      roomId: room.id,
-      title: `Consulta - ${patient.name}`,
-      date: slotStart,
-      duration,
-      status: 'SCHEDULED',
-      notes: args.notes || null,
-    },
-  })
-
-  return { success: true, message: `Consulta marcada com sucesso para ${args.date} às ${args.time}. Confirme isso pro paciente de forma natural.` }
 }
 
 function buildTools(): GroqTool[] {
@@ -255,6 +297,26 @@ export async function handleAiAgentMessage(params: {
 
   const room = chatbot.boundRoom as RoomForSchedule | null
 
+  // CRM — garante que todo contato novo vira um lead rastreável desde a
+  // primeira mensagem, não só quando agenda (ver createAppointmentTool,
+  // que atualiza o nome real e marca CONVERTIDO quando o agendamento
+  // acontece de fato). Quem nunca evolui fica disponível pra ser marcado
+  // "Descartado" manualmente no kanban do CRM.
+  const existingPatient = await prisma.patient.findFirst({ where: { doctorId, phone: normalizedPhone } })
+  if (!existingPatient) {
+    await prisma.patient.create({
+      data: {
+        name: `Novo contato (${contactPhone})`,
+        phone: normalizedPhone,
+        doctorId,
+        roomId: room?.id ?? null,
+        status: 'PRE_CADASTRO',
+        origin: 'CHATBOT',
+        leadStatus: 'NOVO',
+      },
+    }).catch(err => console.error('[ai-agent-engine] falha ao criar lead no primeiro contato:', err))
+  }
+
   let systemContent = chatbot.systemPrompt
   systemContent += `\n\n---\n# REGRAS DE CONVERSA (sempre válidas, independente do restante do prompt)\n- Leia o histórico da conversa antes de responder. Nunca repita uma pergunta, oferta ou instrução que o paciente já respondeu ou que já foi concluída (ex: depois de confirmar um agendamento, não volte a perguntar sobre horários).\n- Se a última mensagem do paciente for só um agradecimento ou encerramento (ex: "obrigado", "ok", "valeu"), responda de forma breve e natural, sem reabrir assuntos já resolvidos.\n- Mensagens curtas, no estilo de WhatsApp — evite blocos de texto longos. Uma pergunta por vez.`
   if (room) {
@@ -273,6 +335,10 @@ export async function handleAiAgentMessage(params: {
   const messages: GroqMessage[] = [{ role: 'system', content: systemContent }, ...historyMessages, { role: 'user', content: messageText }]
   const tools = room ? buildTools() : undefined
 
+  // Se a Groq falhar ou o loop de ferramentas esgotar sem produzir uma
+  // resposta final, o paciente não pode simplesmente ficar sem resposta
+  // nenhuma — manda um fallback em vez de deixar a conversa morta no ar.
+  const FALLBACK_MESSAGE = 'Desculpe, tive um problema técnico aqui. Pode repetir sua mensagem, por favor?'
   let finalText: string | null = null
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
@@ -301,15 +367,18 @@ export async function handleAiAgentMessage(params: {
         continue
       }
 
-      finalText = result.content
+      finalText = result.content || null
       break
     }
   } catch (err) {
     console.error('[ai-agent-engine] Groq error:', err)
-    return
+    finalText = FALLBACK_MESSAGE
   }
 
-  if (!finalText) return
+  if (!finalText) {
+    console.warn('[ai-agent-engine] Loop de ferramentas esgotou sem resposta final — enviando fallback.', { chatbotId, contactPhone: normalizedPhone })
+    finalText = FALLBACK_MESSAGE
+  }
 
   await prisma.aiAgentMessage.create({ data: { chatbotId, contactPhone: normalizedPhone, role: 'assistant', content: finalText } })
 

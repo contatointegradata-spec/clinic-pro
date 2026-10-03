@@ -81,6 +81,8 @@ export interface PatientPlan {
   healthPlan: HealthPlan
 }
 
+export type LeadStatus = 'NOVO' | 'EM_ANALISE' | 'CONVERTIDO' | 'DESCARTADO'
+
 export interface Patient {
   id: string
   name: string
@@ -96,6 +98,7 @@ export interface Patient {
   active: boolean
   status: PatientStatus
   origin: PatientOrigin
+  leadStatus?: LeadStatus | null
   roomId?: string | null
   createdByUserId?: string | null
   completedByUserId?: string | null
@@ -377,6 +380,37 @@ export interface AiAgent {
   updatedAt: string
   boundRoom?: Room | null
   _count?: { ignoredNumbers: number }
+}
+
+// ─── CRM do Agente de IA ──────────────────────────────────────────────────
+
+export interface CrmLead {
+  id: string
+  doctorId: string
+  name: string
+  phone: string
+  notes?: string | null
+  status: PatientStatus
+  leadStatus: LeadStatus | null
+  createdAt: string
+  chatbotSession?: { id: string; completedAt: string | null; contactPhone: string } | null
+}
+
+export interface CrmMetrics {
+  period: string
+  newLeads: number
+  conversionRate: number
+  convertedLeads: number
+  cancellations: number
+  ongoingConversations: number
+}
+
+export interface AiAgentConversation {
+  phone: string
+  name: string | null
+  lastMessage: string
+  lastMessageAt: string
+  count: number
 }
 
 export interface DocumentTemplate {

@@ -4,9 +4,10 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Home, ChevronRight, DollarSign, LayoutDashboard, ArrowLeftRight, Receipt,
   TrendingUp, TrendingDown, BarChart3, PieChart, LineChart, Wallet, Building2,
-  FolderTree, PanelLeftClose, PanelLeft,
+  FolderTree, PanelLeftClose, PanelLeft, LogOut,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
+import NotificationBell from '../NotificationBell.vue'
 
 const props = defineProps<{ collapsed?: boolean }>()
 const emit = defineEmits<{ toggleCollapse: [] }>()
@@ -55,6 +56,11 @@ const initials = computed(() => authStore.user?.name?.split(' ').slice(0, 2).map
 
 function isActive(to: string) {
   return route.path === to
+}
+
+function handleLogout() {
+  authStore.logout()
+  router.push('/login')
 }
 </script>
 
@@ -127,6 +133,20 @@ function isActive(to: string) {
           <p class="text-slate-400 text-xs truncate">{{ authStore.user?.email }}</p>
         </div>
       </div>
+
+      <NotificationBell :collapsed="props.collapsed" />
+
+      <button
+        v-if="!props.collapsed"
+        class="w-full flex items-center gap-2.5 px-3 py-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all duration-200 text-sm group"
+        @click="handleLogout"
+      >
+        <LogOut class="w-4 h-4 flex-shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
+        <span>Sair do sistema</span>
+      </button>
+      <button v-else class="w-full flex items-center justify-center p-2 mt-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all duration-200" title="Sair" @click="handleLogout">
+        <LogOut class="w-4 h-4" />
+      </button>
     </div>
   </aside>
 </template>

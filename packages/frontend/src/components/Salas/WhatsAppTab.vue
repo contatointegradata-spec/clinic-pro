@@ -118,7 +118,12 @@ const qrStillValid = computed(() => {
   return s?.status === 'CONNECTING' && !!s.qrCode &&
     (!s.qrCodeExpiresAt || new Date(s.qrCodeExpiresAt) > new Date())
 })
-const canShowReconnect = computed(() => !!waStatus.value && waStatus.value.status !== 'DISCONNECTED' && !qrStillValid.value)
+// QUARANTINED se comporta como "sem sessão" pro botão — a sessão em disco já
+// foi apagada automaticamente (ver watchdog no backend), então não há nada
+// pra "reconectar" de verdade, só pareamento novo via "Conectar WhatsApp".
+const canShowReconnect = computed(() =>
+  !!waStatus.value && waStatus.value.status !== 'DISCONNECTED' && waStatus.value.status !== 'QUARANTINED' && !qrStillValid.value
+)
 
 const badgeColors: Record<RoomWhatsAppStatus, string> = {
   CONNECTED: 'text-emerald-600 bg-emerald-50 border-emerald-200',
@@ -194,10 +199,22 @@ const badgeLabels: Record<RoomWhatsAppStatus, string> = {
       <p class="text-xs text-amber-600">Abra o WhatsApp → Menu → Dispositivos vinculados → Vincular dispositivo</p>
     </div>
 
+    <!-- Quarentena: sessão corrompida foi resetada automaticamente -->
+    <div v-if="waStatus?.status === 'QUARANTINED'" class="flex items-center gap-3 p-4 bg-red-50 border border-red-200 rounded-xl">
+      <WifiOff class="w-5 h-5 text-red-600 flex-shrink-0" />
+      <div>
+        <p class="text-sm font-semibold text-red-800">Conexão em quarentena</p>
+        <p class="text-xs text-red-600 mt-0.5">
+          Não foi possível recuperar a sessão automaticamente e ela foi reiniciada por segurança.
+          Clique em "Conectar WhatsApp" e escaneie o QR Code novamente.
+        </p>
+      </div>
+    </div>
+
     <!-- Ações -->
     <div class="flex flex-wrap gap-2">
       <button
-        v-if="!waStatus || waStatus.status === 'DISCONNECTED'"
+        v-if="!waStatus || waStatus.status === 'DISCONNECTED' || waStatus.status === 'QUARANTINED'"
         :disabled="connecting"
         class="btn-primary flex items-center gap-2"
         @click="handleConnect"

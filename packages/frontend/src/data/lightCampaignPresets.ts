@@ -74,6 +74,13 @@ export const LIGHT_CAMPAIGN_PRESETS: CampaignPreset[] = [
     category: 'documentos',
     content: 'Olá {nome}, o documento "{documento}" já está disponível. Você pode acessá-lo pelo prontuário: {prontuario}',
   },
+  {
+    module: 'pacientes',
+    triggerEvent: 'PATIENT_INACTIVE_FOLLOWUP',
+    name: 'Reativação de paciente inativo',
+    category: 'pacientes',
+    content: 'Olá {nome}! Faz um tempo que você não vem aqui com {medico}. Gostaria de agendar um retorno? É só responder por aqui.',
+  },
 ]
 
 export function findCampaignPreset(module: string, triggerEvent: string): CampaignPreset | undefined {

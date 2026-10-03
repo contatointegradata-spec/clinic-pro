@@ -959,4 +959,58 @@ export async function checkScheduledReminders() {
       })
     }
   }
+
+  // 4. Reativação de paciente inativo (PATIENT_INACTIVE_FOLLOWUP) — paciente
+  // ativo cuja última consulta concluída foi há mais de N dias (default 180,
+  // configurável via PATIENT_INACTIVE_FOLLOWUP_DAYS) recebe uma mensagem de
+  // reengajamento, no máximo uma vez a cada N dias (checado via
+  // LightMessageLog, mesmo princípio do reminder24hSent/reminder2hSent, só
+  // que sem campo dedicado no Patient — o próprio log de envio já serve de
+  // registro de idempotência).
+  const inactiveDays = Number(process.env.PATIENT_INACTIVE_FOLLOWUP_DAYS) || 180
+  const inactiveCutoff = new Date(now - inactiveDays * 24 * 60 * 60 * 1000)
+
+  const candidatePatients = await prisma.patient.findMany({
+    where: { status: 'ATIVO', anonymizedAt: null, doctorId: { not: null } },
+    include: {
+      appointments: {
+        where: { status: 'COMPLETED' },
+        orderBy: { date: 'desc' },
+        take: 1,
+      },
+      doctor: true,
+    },
+  })
+
+  const duePatients = candidatePatients.filter(p => {
+    const lastVisit = p.appointments[0]?.date
+    return lastVisit && lastVisit < inactiveCutoff
+  })
+
+  if (duePatients.length > 0) {
+    const recentlyNotified = await prisma.lightMessageLog.findMany({
+      where: {
+        triggerEvent: 'PATIENT_INACTIVE_FOLLOWUP',
+        phone: { in: duePatients.map(p => p.phone.replace(/\D/g, '')) },
+        createdAt: { gte: inactiveCutoff },
+      },
+      select: { phone: true },
+    })
+    const notifiedPhones = new Set(recentlyNotified.map(l => l.phone))
+
+    for (const patient of duePatients) {
+      const normalizedPhone = patient.phone.replace(/\D/g, '')
+      if (notifiedPhones.has(normalizedPhone)) continue
+      if (!patient.doctorId || !patient.doctor) continue
+
+      await triggerLightAutomatedMessage(patient.doctorId, 'PATIENT_INACTIVE_FOLLOWUP', {
+        patientName: patient.name,
+        patientPhone: patient.phone,
+        patientCpf: patient.cpf ?? undefined,
+        doctorName: patient.doctor.name,
+        doctorSpecialty: patient.doctor.specialty ?? undefined,
+        doctorCrm: patient.doctor.crm ?? undefined,
+      })
+    }
+  }
 }
