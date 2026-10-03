@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
   Webhook, Copy, Eye, EyeOff, RotateCcw, CheckCircle2,
-  XCircle, Clock, AlertTriangle, Save, ChevronDown, ChevronUp, Bot,
+  XCircle, Clock, AlertTriangle, Save, ChevronDown, ChevronUp, Bot, Zap,
 } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
@@ -76,10 +76,11 @@ const { data: config, isLoading, refetch: refetchConfig } = useQuery<KiwifyConfi
   queryFn: () => api.get('/admin/integrations/kiwify').then(r => r.data),
 })
 
-const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
+const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 
 const aiForm = reactive({ apiKey: '', model: '' })
 const savingAi = ref(false)
+const testingAi = ref(false)
 
 const { data: aiConfig, refetch: refetchAiConfig } = useQuery<AiConfigView>({
   key: 'admin-integrations-ai',
@@ -107,6 +108,28 @@ async function handleSaveAi() {
     toast.error(msg || 'Não foi possível salvar')
   } finally {
     savingAi.value = false
+  }
+}
+
+async function handleTestAi() {
+  testingAi.value = true
+  try {
+    // Salva o que estiver no formulário antes de testar — senão o teste
+    // valida a config antiga do banco, não o que a pessoa acabou de digitar.
+    await api.put('/admin/integrations/ai', {
+      model: aiForm.model || null,
+      ...(aiForm.apiKey ? { apiKey: aiForm.apiKey } : {}),
+    })
+    aiForm.apiKey = ''
+    await refetchAiConfig()
+
+    const { data } = await api.post<{ success: boolean; message: string }>('/admin/integrations/ai/test')
+    if (data.success) toast.success(data.message)
+    else toast.error(data.message)
+  } catch {
+    toast.error('Não foi possível testar a conexão')
+  } finally {
+    testingAi.value = false
   }
 }
 
@@ -218,6 +241,11 @@ function eventStatusInfo(status: string) {
         </div>
       </div>
 
+      <div class="bg-primary-50 border border-primary-200 rounded-xl p-3 text-xs text-primary-800">
+        Gere a chave em <strong>aistudio.google.com/apikey</strong> (Google AI Studio) — não é a mesma coisa
+        que uma conta ou sessão do app Gemini (gemini.google.com). A chave da API Studio começa com "AIza".
+      </div>
+
       <div>
         <label class="label">
           Chave de API (Google AI Studio / Gemini)
@@ -232,7 +260,11 @@ function eventStatusInfo(status: string) {
         <p class="text-xs text-slate-400 mt-1">Padrão: {{ DEFAULT_GEMINI_MODEL }}. Só altere se souber o nome exato de outro modelo da Gemini.</p>
       </div>
 
-      <div class="flex justify-end">
+      <div class="flex justify-end gap-2">
+        <button class="btn-secondary flex items-center gap-1.5" :disabled="testingAi" @click="handleTestAi">
+          <Zap class="w-4 h-4" />
+          {{ testingAi ? 'Testando...' : 'Testar conexão' }}
+        </button>
         <button class="btn-primary flex items-center gap-1.5" :disabled="savingAi" @click="handleSaveAi">
           <Save class="w-4 h-4" />
           Salvar configuração da IA

@@ -9,6 +9,8 @@ import {
   getWebhookSecretPlain,
 } from '../lib/kiwify-config'
 import { getAiConfigView, updateAiConfig } from '../lib/ai-integration-config'
+import { geminiChatCompletion } from '../lib/gemini-client'
+import { AiProviderError } from '../lib/ai-client-types'
 
 const router = Router()
 router.use(authenticate)
@@ -134,6 +136,26 @@ router.put('/ai', async (req: AuthRequest, res) => {
     }
     console.error('[admin/integrations/ai PUT] erro:', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// POST /api/admin/integrations/ai/test — chama a IA de verdade com a config
+// salva (chave/modelo) e devolve sucesso ou o erro real, pra quem configura
+// não precisar ir até o Agente de IA só pra descobrir se a chave funciona.
+router.post('/ai/test', async (_req: AuthRequest, res) => {
+  try {
+    const result = await geminiChatCompletion([
+      { role: 'user', content: 'Responda apenas "ok".' },
+    ])
+    res.json({ success: true, message: result.content ? `Conexão OK — a IA respondeu: "${result.content.trim()}"` : 'Conexão OK, mas a IA não devolveu texto.' })
+  } catch (error) {
+    if (error instanceof AiProviderError) {
+      const detail = error.status === 'missing_key' ? 'Nenhuma chave configurada.' : error.message
+      res.json({ success: false, message: detail })
+      return
+    }
+    console.error('[admin/integrations/ai/test] erro:', error)
+    res.json({ success: false, message: 'Erro inesperado ao testar a conexão.' })
   }
 })
 

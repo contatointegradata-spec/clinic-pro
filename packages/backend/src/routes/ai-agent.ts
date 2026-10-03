@@ -140,6 +140,14 @@ router.post('/:id/generate-prompt', requireRole('ADMIN', 'DOCTOR'), async (req: 
         res.status(502).json({ message: 'A IA demorou demais para responder. Tente novamente.' })
         return
       }
+      if (err.status === 404) {
+        res.status(502).json({ message: `O modelo de IA configurado não foi encontrado (${err.message}). Verifique o nome do modelo em Admin > Integrações.` })
+        return
+      }
+      // Status não mapeado (400 etc.) — devolve a mensagem real da Gemini em
+      // vez de um erro genérico, já que não dá pra prever todo caso aqui.
+      res.status(502).json({ message: `Erro ao gerar prompt com a IA: ${err.message}` })
+      return
     }
     res.status(502).json({ message: 'Erro ao gerar prompt com a IA' })
   }

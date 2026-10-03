@@ -125,8 +125,13 @@ export async function geminiChatCompletion(
       } catch {
         // corpo de erro não era JSON — mantém a mensagem genérica
       }
+      // A Gemini devolve chave inválida como 400/INVALID_ARGUMENT (não 401),
+      // então sem checar o texto da mensagem esse caso caía no status bruto
+      // (400) e virava um erro genérico pra quem usa — em vez de "chave
+      // inválida", a mensagem real da Gemini de qualquer forma.
+      const looksLikeInvalidKey = /api key/i.test(message)
       const status: number | 'missing_key' | 'timeout' =
-        reason === 'PERMISSION_DENIED' || reason === 'UNAUTHENTICATED' ? 401
+        reason === 'PERMISSION_DENIED' || reason === 'UNAUTHENTICATED' || looksLikeInvalidKey ? 401
         : reason === 'RESOURCE_EXHAUSTED' ? 429
         : res.status
       throw new AiProviderError(message, status)
@@ -134,6 +139,10 @@ export async function geminiChatCompletion(
 
     const data = await res.json() as {
       candidates?: Array<{ content?: { parts?: GeminiPart[] } }>
+      promptFeedback?: { blockReason?: string }
+    }
+    if (data.promptFeedback?.blockReason) {
+      console.warn('[gemini-client] resposta bloqueada pela IA:', data.promptFeedback.blockReason)
     }
     const parts = data.candidates?.[0]?.content?.parts ?? []
 

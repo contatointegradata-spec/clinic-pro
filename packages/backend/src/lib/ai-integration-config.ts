@@ -2,7 +2,10 @@ import { prisma } from './prisma'
 import { logAudit } from './secretaryAccess'
 
 const SINGLETON_ID = 'ai-agent'
-export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
+// gemini-2.5-flash foi descontinuado pra projetos novos — gemini-3.5-flash-lite
+// é hoje o modelo mais rápido/barato da linha Gemini com suporte a
+// function-calling, adequado pro atendimento curto via WhatsApp deste agente.
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.5-flash-lite'
 
 export interface ResolvedAiConfig {
   provider: string

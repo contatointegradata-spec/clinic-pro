@@ -286,6 +286,13 @@ export async function handleAiAgentMessage(params: {
   messageText: string
 }): Promise<void> {
   const { chatbotId, doctorId, contactPhone, deliveryJid, messageText } = params
+  // contactPhone normalmente já é o telefone real (resolveWhatsAppContactIdentity
+  // prioriza isso) — só cai pra "@lid" bruto quando a WhatsApp não mandou o
+  // telefone junto da mensagem (raro, ver lib/whatsapp.ts). Nesse caso os
+  // dígitos do lid não são um telefone de verdade; tratamos como identificador
+  // interno só pra não quebrar o fluxo, mas sem fingir que é o telefone do
+  // paciente na exibição (CRM, nome do lead).
+  const isUnresolvedLid = contactPhone.endsWith('@lid')
   const normalizedPhone = contactPhone.replace(/\D/g, '')
 
   const ignored = await prisma.lightIgnoredNumber.findUnique({
@@ -303,11 +310,15 @@ export async function handleAiAgentMessage(params: {
   // que atualiza o nome real e marca CONVERTIDO quando o agendamento
   // acontece de fato). Quem nunca evolui fica disponível pra ser marcado
   // "Descartado" manualmente no kanban do CRM.
+  if (isUnresolvedLid) {
+    console.warn('[ai-agent-engine] telefone real não resolvido pra este contato (lid sem senderPn) — lead criado sem telefone de verdade.', { chatbotId, contactPhone })
+  }
+
   const existingPatient = await prisma.patient.findFirst({ where: { doctorId, phone: normalizedPhone } })
   if (!existingPatient) {
     await prisma.patient.create({
       data: {
-        name: `Novo contato (${contactPhone})`,
+        name: isUnresolvedLid ? 'Novo contato (WhatsApp)' : `Novo contato (${contactPhone})`,
         phone: normalizedPhone,
         doctorId,
         roomId: room?.id ?? null,

@@ -85,8 +85,13 @@ export async function resolveWhatsAppContactIdentity(
     normalizedPhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
   }
 
-  // Se veio participantPn da mensagem raw
-  let phoneFromPn = msgRaw?.key?.participantPn || msgRaw?.participantPn
+  // Se a WhatsApp mandou o telefone real junto da mensagem: em conversa 1:1
+  // onde o remoteJid já vem como @lid, o campo é msg.key.senderPn; em grupo,
+  // onde quem fala é identificado por @lid no participant, é participantPn.
+  // Sem checar senderPn aqui, toda conversa direta via @lid ficava sem
+  // telefone resolvido (mesmo com o contato já tendo mandado mensagem antes),
+  // o que gerava "Novo contato (NNNN@lid)" e paciente duplicado no CRM.
+  let phoneFromPn = msgRaw?.key?.senderPn || msgRaw?.key?.participantPn || msgRaw?.participantPn
   if (phoneFromPn && typeof phoneFromPn === 'string') {
     phoneFromPn = phoneFromPn.replace('@s.whatsapp.net', '').replace(/\D/g, '')
     if (phoneFromPn.length >= 10) {
