@@ -573,6 +573,11 @@ function handlePatientCreated() {
   refetchPatients()
 }
 
+function handleCharged() {
+  refetchAppointments()
+  toast.success('Consulta cobrada com sucesso!')
+}
+
 function openNewAppointment() {
   selectedAppt.value = null
   selectedSlot.value = null
@@ -1129,6 +1134,7 @@ const listRows = computed<{ day: Date; rows: ListRow[] }[]>(() => {
         @submit="handleFormSubmit"
         @delete="handleFormDelete"
         @patient-created="handlePatientCreated"
+        @charged="handleCharged"
       />
     </Modal>
 

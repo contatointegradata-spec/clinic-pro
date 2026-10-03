@@ -9,8 +9,40 @@ const Dashboard = () => import('../pages/Dashboard.vue')
 const Agenda = () => import('../pages/Agenda.vue')
 const Pacientes = () => import('../pages/Pacientes.vue')
 const Prontuario = () => import('../pages/Prontuario.vue')
+const Usuarios = () => import('../pages/Usuarios.vue')
+const MinhasSalas = () => import('../pages/MinhasSalas.vue')
+const WhatsappChatbot = () => import('../pages/WhatsappChatbot.vue')
+
 const FinanceiroResumo = () => import('../pages/financeiro/Resumo.vue')
-const ComingSoon = () => import('../pages/ComingSoon.vue')
+const FluxoCaixa = () => import('../pages/financeiro/FluxoCaixa.vue')
+const Extrato = () => import('../pages/financeiro/Extrato.vue')
+const Receitas = () => import('../pages/financeiro/Receitas.vue')
+const Despesas = () => import('../pages/financeiro/Despesas.vue')
+const AnaliseReceitas = () => import('../pages/financeiro/AnaliseReceitas.vue')
+const AnaliseDespesas = () => import('../pages/financeiro/AnaliseDespesas.vue')
+const AnaliseAvancada = () => import('../pages/financeiro/AnaliseAvancada.vue')
+const FormasPagamento = () => import('../pages/configuracoes/FormasPagamento.vue')
+const ContasBancarias = () => import('../pages/financeiro/ContasBancarias.vue')
+const CentrosCusto = () => import('../pages/financeiro/CentrosCusto.vue')
+
+const AdminGestao = () => import('../pages/AdminGestao.vue')
+const AdminPlanos = () => import('../pages/AdminPlanos.vue')
+const AdminSQL = () => import('../pages/AdminSQL.vue')
+const AdminIntegracoes = () => import('../pages/AdminIntegracoes.vue')
+const AdminDesenvolvedor = () => import('../pages/AdminDesenvolvedor.vue')
+
+const Perfil = () => import('../pages/configuracoes/Perfil.vue')
+const PlanoFinanceiro = () => import('../pages/configuracoes/PlanoFinanceiro.vue')
+const Equipe = () => import('../pages/configuracoes/Equipe.vue')
+const Ajuda = () => import('../pages/configuracoes/Ajuda.vue')
+const Documentacao = () => import('../pages/configuracoes/Documentacao.vue')
+const TiposAtendimento = () => import('../pages/configuracoes/TiposAtendimento.vue')
+const Salas = () => import('../pages/configuracoes/Salas.vue')
+const Documentos = () => import('../pages/configuracoes/Documentos.vue')
+const Integracoes = () => import('../pages/configuracoes/Integracoes.vue')
+const Assinatura = () => import('../pages/configuracoes/Assinatura.vue')
+const AssinaturaPendente = () => import('../pages/configuracoes/AssinaturaPendente.vue')
+const ConfigNotificacoes = () => import('../pages/configuracoes/ConfigNotificacoes.vue')
 
 interface RouteMeta {
   requiresAuth?: boolean
@@ -19,16 +51,6 @@ interface RouteMeta {
   secretaryPermission?: string | string[]
   platformAccess?: 'notifications' | 'integrations'
   label?: string
-  comingSoon?: { description: string }
-}
-
-function comingSoonRoute(path: string, label: string, description: string, meta: RouteMeta = {}): RouteRecordRaw {
-  return {
-    path,
-    component: ComingSoon,
-    props: { title: label, description },
-    meta: { requiresAuth: true, label, comingSoon: { description }, ...meta },
-  }
 }
 
 const routes: RouteRecordRaw[] = [
@@ -59,41 +81,41 @@ const routes: RouteRecordRaw[] = [
 
       { path: 'financeiro', redirect: '/financeiro/resumo' },
       { path: 'financeiro/resumo', component: FinanceiroResumo, meta: { label: 'Resumo', secretaryPermission: 'financeiro' } },
-      comingSoonRoute('financeiro/fluxo-caixa', 'Fluxo de Caixa', 'A visão completa de fluxo de caixa está sendo migrada para o novo design.', { secretaryPermission: 'financeiro' }),
-      comingSoonRoute('financeiro/extrato', 'Extrato', 'O extrato financeiro está sendo migrado para o novo design.', { secretaryPermission: 'financeiro' }),
-      comingSoonRoute('financeiro/receitas', 'Receitas', 'O módulo de receitas está sendo migrado para o novo design.', { secretaryPermission: 'financeiro' }),
-      comingSoonRoute('financeiro/despesas', 'Despesas', 'O módulo de despesas está sendo migrado para o novo design.', { secretaryPermission: 'financeiro' }),
-      comingSoonRoute('financeiro/analise-receitas', 'Análise de Receitas', 'A análise de receitas está sendo migrada para o novo design.', { secretaryPermission: 'financeiro' }),
-      comingSoonRoute('financeiro/analise-despesas', 'Análise de Despesas', 'A análise de despesas está sendo migrada para o novo design.', { secretaryPermission: 'financeiro' }),
-      comingSoonRoute('financeiro/analise-avancada', 'Análise Avançada', 'A análise avançada está sendo migrada para o novo design.', { roles: ['ADMIN', 'DOCTOR'] }),
-      comingSoonRoute('financeiro/formas-pagamento', 'Formas de Pagamento', 'O cadastro de formas de pagamento está sendo migrado para o novo design.', { roles: ['ADMIN', 'DOCTOR'] }),
-      comingSoonRoute('financeiro/contas-bancarias', 'Contas Bancárias', 'O cadastro de contas bancárias está sendo migrado para o novo design.', { roles: ['ADMIN', 'DOCTOR'] }),
-      comingSoonRoute('financeiro/centros-custo', 'Centros de Custo', 'O cadastro de centros de custo está sendo migrado para o novo design.', { roles: ['ADMIN', 'DOCTOR'] }),
+      { path: 'financeiro/fluxo-caixa', component: FluxoCaixa, meta: { label: 'Fluxo de Caixa', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/extrato', component: Extrato, meta: { label: 'Extrato', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/receitas', component: Receitas, meta: { label: 'Receitas', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/despesas', component: Despesas, meta: { label: 'Despesas', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/analise-receitas', component: AnaliseReceitas, meta: { label: 'Análise de Receitas', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/analise-despesas', component: AnaliseDespesas, meta: { label: 'Análise de Despesas', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/analise-avancada', component: AnaliseAvancada, meta: { label: 'Análise Avançada', roles: ['ADMIN', 'DOCTOR'] } },
+      { path: 'financeiro/formas-pagamento', component: FormasPagamento, meta: { label: 'Formas de Pagamento', roles: ['ADMIN', 'DOCTOR'] } },
+      { path: 'financeiro/contas-bancarias', component: ContasBancarias, meta: { label: 'Contas Bancárias', roles: ['ADMIN', 'DOCTOR'] } },
+      { path: 'financeiro/centros-custo', component: CentrosCusto, meta: { label: 'Centros de Custo', roles: ['ADMIN', 'DOCTOR'] } },
 
-      comingSoonRoute('usuarios', 'Usuários', 'A gestão de usuários está sendo migrada para o novo design.', { roles: ['ADMIN'] }),
-      comingSoonRoute('admin/gestao', 'Gestão', 'O painel de gestão administrativa está sendo migrado para o novo design.', { roles: ['ADMIN'] }),
-      comingSoonRoute('admin/planos', 'Planos', 'O painel de planos está sendo migrado para o novo design.', { roles: ['ADMIN'] }),
-      comingSoonRoute('admin/sql', 'SQL Admin', 'O console SQL administrativo está sendo migrado para o novo design.', { roles: ['ADMIN'] }),
-      comingSoonRoute('admin/integracoes', 'Integrações (Admin)', 'O painel de integrações administrativas está sendo migrado para o novo design.', { roles: ['ADMIN'] }),
-      comingSoonRoute('admin/desenvolvedor', 'Admin Desenvolvedor', 'O painel do desenvolvedor da plataforma está sendo migrado para o novo design.', { roles: ['ADMIN'] }),
+      { path: 'usuarios', component: Usuarios, meta: { label: 'Usuários', roles: ['ADMIN'] } },
+      { path: 'admin/gestao', component: AdminGestao, meta: { label: 'Gestão', roles: ['ADMIN'] } },
+      { path: 'admin/planos', component: AdminPlanos, meta: { label: 'Planos', roles: ['ADMIN'] } },
+      { path: 'admin/sql', component: AdminSQL, meta: { label: 'SQL Admin', roles: ['ADMIN'] } },
+      { path: 'admin/integracoes', component: AdminIntegracoes, meta: { label: 'Integrações (Admin)', roles: ['ADMIN'] } },
+      { path: 'admin/desenvolvedor', component: AdminDesenvolvedor, meta: { label: 'Admin Desenvolvedor', roles: ['ADMIN'] } },
 
-      comingSoonRoute('minhas-salas', 'Minhas Salas', 'A tela de salas está sendo migrada para o novo design.', { roles: ['SECRETARY'] }),
-      comingSoonRoute('agente/chatbot', 'Agente de IA', 'O construtor de fluxos do Agente de IA está sendo migrado para o novo design.', { roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] }),
+      { path: 'minhas-salas', component: MinhasSalas, meta: { label: 'Minhas Salas', roles: ['SECRETARY'] } },
+      { path: 'agente/chatbot', component: WhatsappChatbot, meta: { label: 'Agente de IA', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
 
       { path: 'configuracoes', redirect: '/configuracoes/perfil' },
-      comingSoonRoute('configuracoes/perfil', 'Perfil', 'A tela de perfil está sendo migrada para o novo design.'),
-      comingSoonRoute('configuracoes/plano-financeiro', 'Plano', 'A tela de plano e assinatura está sendo migrada para o novo design.'),
-      comingSoonRoute('configuracoes/equipe', 'Equipe', 'A gestão de equipe está sendo migrada para o novo design.', { roles: ['DOCTOR', 'ADMIN'] }),
-      comingSoonRoute('configuracoes/ajuda', 'Ajuda', 'A central de ajuda está sendo migrada para o novo design.'),
-      comingSoonRoute('configuracoes/documentacao', 'Documentação', 'A documentação está sendo migrada para o novo design.'),
-      comingSoonRoute('configuracoes/tipos-atendimento', 'Tipos de Atendimento', 'Os tipos de atendimento estão sendo migrados para o novo design.', { roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] }),
-      comingSoonRoute('configuracoes/salas', 'Salas', 'A gestão de salas está sendo migrada para o novo design.', { roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' }),
-      comingSoonRoute('configuracoes/documentos', 'Documentos', 'A gestão de documentos está sendo migrada para o novo design.', { roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' }),
-      comingSoonRoute('configuracoes/formas-pagamento', 'Formas de Pagamento', 'O cadastro de formas de pagamento está sendo migrado para o novo design.', { roles: ['ADMIN', 'DOCTOR'] }),
-      comingSoonRoute('configuracoes/notificacoes', 'Notificações', 'As configurações de notificações estão sendo migradas para o novo design.', { roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'notifications' }),
-      comingSoonRoute('configuracoes/integracoes', 'Integrações', 'As integrações estão sendo migradas para o novo design.', { roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'integrations', secretaryPermission: INTEGRATION_PERMISSION_KEYS }),
-      comingSoonRoute('configuracoes/assinatura', 'Assinatura', 'A tela de assinatura está sendo migrada para o novo design.'),
-      comingSoonRoute('configuracoes/assinatura/pendente', 'Pagamento Pendente', 'A tela de pagamento pendente está sendo migrada para o novo design.'),
+      { path: 'configuracoes/perfil', component: Perfil, meta: { label: 'Perfil' } },
+      { path: 'configuracoes/plano-financeiro', component: PlanoFinanceiro, meta: { label: 'Plano' } },
+      { path: 'configuracoes/equipe', component: Equipe, meta: { label: 'Equipe', roles: ['DOCTOR', 'ADMIN'] } },
+      { path: 'configuracoes/ajuda', component: Ajuda, meta: { label: 'Ajuda' } },
+      { path: 'configuracoes/documentacao', component: Documentacao, meta: { label: 'Documentação' } },
+      { path: 'configuracoes/tipos-atendimento', component: TiposAtendimento, meta: { label: 'Tipos de Atendimento', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
+      { path: 'configuracoes/salas', component: Salas, meta: { label: 'Salas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' } },
+      { path: 'configuracoes/documentos', component: Documentos, meta: { label: 'Documentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' } },
+      { path: 'configuracoes/formas-pagamento', component: FormasPagamento, meta: { label: 'Formas de Pagamento', roles: ['ADMIN', 'DOCTOR'] } },
+      { path: 'configuracoes/notificacoes', component: ConfigNotificacoes, meta: { label: 'Notificações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'notifications' } },
+      { path: 'configuracoes/integracoes', component: Integracoes, meta: { label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'integrations', secretaryPermission: INTEGRATION_PERMISSION_KEYS } },
+      { path: 'configuracoes/assinatura', component: Assinatura, meta: { label: 'Assinatura' } },
+      { path: 'configuracoes/assinatura/pendente', component: AssinaturaPendente, meta: { label: 'Pagamento Pendente' } },
     ],
   },
 

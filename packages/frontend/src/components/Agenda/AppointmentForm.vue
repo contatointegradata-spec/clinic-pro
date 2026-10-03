@@ -2,10 +2,11 @@
 import { reactive, ref, computed, watch } from 'vue'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, Info, RefreshCw, Check, X, Search, Bell } from 'lucide-vue-next'
+import { Trash2, Info, RefreshCw, Check, X, Search, Bell, DollarSign } from 'lucide-vue-next'
 import type { Appointment, User, Patient, AppointmentType, Room, AuthUser, AppointmentStatus } from '../../types'
 import PreRegisterModal from './PreRegisterModal.vue'
 import NotificarPacienteModal from './NotificarPacienteModal.vue'
+import CobrancaModal from '../Financial/CobrancaModal.vue'
 
 const DURATIONS = [
   { value: 30, label: '30 min' },
@@ -46,6 +47,7 @@ const emit = defineEmits<{
   submit: [data: AppointmentFormData]
   delete: []
   patientCreated: [patient: Patient]
+  charged: []
 }>()
 
 const formData = reactive<{
@@ -73,6 +75,7 @@ const formData = reactive<{
 const errors = ref<Partial<Record<keyof AppointmentFormData, string>>>({})
 
 const showNotifyModal = ref(false)
+const showCobrancaModal = ref(false)
 
 // Returns flow state
 const wantsReturns = ref<boolean | null>(null)
@@ -125,6 +128,7 @@ function handlePatientCreated(p: Patient) {
 }
 
 const selectedPatientFull = computed(() => allPatients.value.find(p => p.id === formData.patientId))
+const primaryPlan = computed(() => selectedPatientFull.value?.patientPlans?.[0] ?? null)
 
 // ── Sync form with appointment / defaultDate ──
 watch(
@@ -404,6 +408,15 @@ function handleSubmit(e: Event) {
           <Bell class="w-4 h-4" />
           Notificar
         </button>
+        <button
+          v-if="appointment && !appointment.billedAt && !appointment.transaction"
+          type="button"
+          class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-medium flex items-center gap-2"
+          @click="showCobrancaModal = true"
+        >
+          <DollarSign class="w-4 h-4" />
+          Cobrar
+        </button>
         <button type="submit" :disabled="loading" class="btn-primary flex-1">
           <span v-if="loading" class="flex items-center gap-2">
             <div class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -436,6 +449,16 @@ function handleSubmit(e: Event) {
       :patient-name="appointment.patient.name"
       :patient-phone="appointment.patient.phone ?? undefined"
       @close="showNotifyModal = false"
+    />
+
+    <CobrancaModal
+      v-if="appointment && showCobrancaModal"
+      :is-open="showCobrancaModal"
+      :appointment="appointment"
+      :patient-plan="primaryPlan"
+      :discount-percent="primaryPlan?.healthPlan?.discountPercent ?? 0"
+      @close="showCobrancaModal = false"
+      @charged="() => { showCobrancaModal = false; emit('charged') }"
     />
   </div>
 </template>
