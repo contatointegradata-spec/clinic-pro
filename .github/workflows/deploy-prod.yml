@@ -1,12 +1,11 @@
 name: Deploy — Produção
 
 on:
+  push:
+    branches: [main]
+  # Mantido como fallback manual (ex.: re-rodar um deploy sem precisar de um
+  # novo commit).
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Digite "deploy" para confirmar o envio para produção'
-        required: true
-        default: ''
 
 concurrency:
   group: deploy-prod
