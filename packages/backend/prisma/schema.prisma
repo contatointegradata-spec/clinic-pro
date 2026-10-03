@@ -1021,7 +1021,7 @@ model LightChatbot {
   fallbackQueue String?
   // "legacy" (padrão antigo) = motor por keywords (LightFluxo/LightSystemActionConfig).
   // "visual_builder" (Fase 3, antigo) = motor de blocos genéricos.
-  // "ai_agent" (atual) = agente de IA real via Groq — handleIncomingLightMessage
+  // "ai_agent" (atual) = agente de IA real via Gemini — handleIncomingLightMessage
   // desvia pra handleAiAgentMessage() e ignora os motores antigos por completo.
   builderMode   String   @default("ai_agent")
   // ── Campos do Agente de IA ("Personalizar seu Prompt") ──

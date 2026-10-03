@@ -142,21 +142,59 @@ router.put('/ai', async (req: AuthRequest, res) => {
 // POST /api/admin/integrations/ai/test — chama a IA de verdade com a config
 // salva (chave/modelo) e devolve sucesso ou o erro real, pra quem configura
 // não precisar ir até o Agente de IA só pra descobrir se a chave funciona.
-router.post('/ai/test', async (_req: AuthRequest, res) => {
-  try {
-    const result = await geminiChatCompletion([
-      { role: 'user', content: 'Responda apenas "ok".' },
-    ])
-    res.json({ success: true, message: result.content ? `Conexão OK — a IA respondeu: "${result.content.trim()}"` : 'Conexão OK, mas a IA não devolveu texto.' })
-  } catch (error) {
-    if (error instanceof AiProviderError) {
-      const detail = error.status === 'missing_key' ? 'Nenhuma chave configurada.' : error.message
-      res.json({ success: false, message: detail })
-      return
-    }
-    console.error('[admin/integrations/ai/test] erro:', error)
-    res.json({ success: false, message: 'Erro inesperado ao testar a conexão.' })
+function describeAiTestError(error: unknown): string {
+  if (error instanceof AiProviderError) {
+    return error.status === 'missing_key' ? 'Nenhuma chave configurada.' : error.message
   }
+  return error instanceof Error ? error.message : 'Erro inesperado'
+}
+
+// Testa os dois formatos de chamada que o Agente de IA realmente usa:
+// 1) simples (sem prompt de sistema/tools) — igual "Gerar e Ativar Prompt
+//    Personalizado"; 2) com prompt de sistema + tools — igual o atendimento
+// de verdade no WhatsApp (check_availability/create_appointment). Testar só
+// o formato (1) não pega problema que só aparece no formato (2).
+router.post('/ai/test', async (_req: AuthRequest, res) => {
+  const result: { basic?: string; withToolsAndSystem?: string } = {}
+  let success = true
+
+  try {
+    const basic = await geminiChatCompletion([{ role: 'user', content: 'Responda apenas "ok".' }])
+    result.basic = basic.content?.trim() || '(sem texto)'
+  } catch (error) {
+    success = false
+    result.basic = `ERRO: ${describeAiTestError(error)}`
+  }
+
+  try {
+    const withTools = await geminiChatCompletion(
+      [
+        { role: 'system', content: 'Você é um assistente de teste. Nunca chame nenhuma ferramenta — apenas responda com texto.' },
+        { role: 'user', content: 'Responda apenas "ok".' },
+      ],
+      [{
+        type: 'function',
+        function: {
+          name: 'ferramenta_de_teste',
+          description: 'Ferramenta só pra validar que a IA aceita o formato de tools — não deve ser chamada.',
+          parameters: { type: 'object', properties: { x: { type: 'string' } }, required: [] },
+        },
+      }],
+      0.4,
+    )
+    result.withToolsAndSystem = withTools.content?.trim() || (withTools.tool_calls ? '(a IA chamou a ferramenta de teste)' : '(sem texto)')
+  } catch (error) {
+    success = false
+    result.withToolsAndSystem = `ERRO: ${describeAiTestError(error)}`
+  }
+
+  if (!success) console.error('[admin/integrations/ai/test] falha:', result)
+
+  const message = success
+    ? `Conexão OK nos dois formatos — chamada simples: "${result.basic}" · com prompt de sistema e tools: "${result.withToolsAndSystem}"`
+    : `Chamada simples: ${result.basic} · Com prompt de sistema e tools: ${result.withToolsAndSystem}`
+
+  res.json({ success, message })
 })
 
 export default router
