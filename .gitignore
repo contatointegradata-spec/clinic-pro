@@ -6,3 +6,6 @@ dist/
 .DS_Store
 coverage/
 .turbo/
+*.tsbuildinfo
+packages/frontend/vite.config.js
+packages/frontend/vite.config.d.ts

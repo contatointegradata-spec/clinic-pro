@@ -1,4 +1,4 @@
-import type { SecretaryPermissions } from '../hooks/useSecretaryPermissions'
+import type { SecretaryPermissions } from '../composables/useSecretaryPermissions'
 
 export type Role = 'ADMIN' | 'DOCTOR' | 'SECRETARY'
 export type AppointmentStatus = 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'

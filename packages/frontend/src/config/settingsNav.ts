@@ -1,4 +1,4 @@
-import type { LucideIcon } from 'lucide-react'
+import type { Component } from 'vue'
 import {
   User,
   CreditCard,
@@ -15,8 +15,8 @@ import {
   Shield,
   Sparkles,
   Code2,
-} from 'lucide-react'
-import { INTEGRATION_PERMISSION_KEYS } from '../hooks/useSecretaryPermissions'
+} from 'lucide-vue-next'
+import { INTEGRATION_PERMISSION_KEYS } from '../composables/useSecretaryPermissions'
 
 export interface SettingsNavUser {
   role?: string
@@ -27,22 +27,11 @@ export interface SettingsNavUser {
 
 export interface SettingsNavItem {
   to: string
-  icon: LucideIcon
+  icon: Component
   label: string
   shortLabel?: string
   roles: string[]
-  /**
-   * Para SECRETARY, exige além do role que o médico tenha liberado esta
-   * permissão em "Gestão de Acessos". Um array significa "pelo menos uma
-   * das chaves" (ex.: Integrações, liberada por tipo individual).
-   */
   secretaryPermission?: string | string[]
-  /**
-   * Item restrito ao desenvolvedor da plataforma: só aparece se
-   * `user.isPlatformDeveloper` ou se o desenvolvedor liberou o acesso
-   * individualmente para este usuário (`user[platformGate + 'Access']`).
-   * Ver painel Admin Desenvolvedor (routes/platform-admin.ts).
-   */
   platformGate?: 'notifications' | 'integrations'
 }
 
@@ -71,8 +60,6 @@ export function getVisibleSettingsNav(user?: SettingsNavUser, secretaryPermissio
   return SETTINGS_NAV_ITEMS.filter(item => {
     if (!item.roles.includes(role)) return false
 
-    // "Admin Desenvolvedor" só aparece pro desenvolvedor da plataforma —
-    // mesmo entre ADMINs (donos de clínica não têm acesso).
     if (item.to === '/admin/desenvolvedor') {
       return !!user?.isPlatformDeveloper
     }

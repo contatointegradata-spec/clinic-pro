@@ -1,7 +1,7 @@
 import type { Config } from 'tailwindcss'
 
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: ['./index.html', './src/**/*.{vue,js,ts}'],
   theme: {
     extend: {
       fontFamily: {
@@ -9,16 +9,16 @@ export default {
       },
       colors: {
         primary: {
-          50: '#eff6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6',
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
+          50: '#f0f7ff',
+          100: '#e0eefe',
+          200: '#bbdcfd',
+          300: '#7fc1fb',
+          400: '#3aa3f5',
+          500: '#1186e3',
+          600: '#0569c2',
+          700: '#06549d',
+          800: '#0a4781',
+          900: '#0d3c6b',
         },
       },
       animation: {
@@ -171,7 +171,7 @@ export default {
       },
       boxShadow: {
         'card-hover': '0 8px 24px -4px rgba(0,0,0,0.08)',
-        'blue-glow': '0 4px 20px -4px rgba(37,99,235,0.35)',
+        'blue-glow': '0 4px 20px -4px rgba(17,134,227,0.35)',
         'cyan-glow': '0 4px 20px -4px rgba(6,182,212,0.35)',
         'emerald-glow': '0 4px 20px -4px rgba(16,185,129,0.3)',
         'inner-sm': 'inset 0 1px 3px rgba(0,0,0,0.06)',
