@@ -32,11 +32,18 @@ router.get('/unread-count', async (req: AuthRequest, res) => {
 
 router.patch('/:id/read', async (req: AuthRequest, res) => {
   try {
-    const notif = await prisma.notification.update({
-      where: { id: req.params.id },
+    // updateMany + where composto (id + userId) em vez de update({where:{id}})
+    // — sem isso, qualquer usuário autenticado conseguiria marcar como lida
+    // uma notificação de outra conta só sabendo o id.
+    const { count } = await prisma.notification.updateMany({
+      where: { id: req.params.id, userId: req.user!.userId },
       data: { read: true },
     })
-    res.json(notif)
+    if (count === 0) {
+      res.status(404).json({ message: 'Notificação não encontrada' })
+      return
+    }
+    res.json({ message: 'Notificação marcada como lida' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -56,7 +63,15 @@ router.patch('/read-all', async (req: AuthRequest, res) => {
 
 router.delete('/:id', async (req: AuthRequest, res) => {
   try {
-    await prisma.notification.delete({ where: { id: req.params.id } })
+    // Mesmo motivo do /:id/read acima: where composto pra não deixar
+    // apagar notificação de outro usuário.
+    const { count } = await prisma.notification.deleteMany({
+      where: { id: req.params.id, userId: req.user!.userId },
+    })
+    if (count === 0) {
+      res.status(404).json({ message: 'Notificação não encontrada' })
+      return
+    }
     res.json({ message: 'Notificação removida' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })

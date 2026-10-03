@@ -72,8 +72,8 @@ async function onLogin() {
     loginPhase.value = 'preparing'
 
     const res = await api.post('/auth/login', form)
-    const { token, user } = res.data
-    authStore.setAuth(user, token)
+    const { token, refreshToken, user } = res.data
+    authStore.setAuth(user, token, refreshToken)
 
     await new Promise(r => setTimeout(r, 1200))
 

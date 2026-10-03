@@ -36,20 +36,54 @@ import { getAppVersion } from './lib/app-version'
 import { authenticate } from './middleware/auth'
 import { requireActiveSubscription } from './middleware/subscription'
 import { startSubscriptionExpiryWatchdog } from './lib/subscription-access'
+import { authRateLimiter, generalRateLimiter } from './middleware/rate-limit'
 
 dotenv.config()
+
+// ─── Boot-time guard: recusa subir em produção com segredos de exemplo ──────
+// Evita o cenário "esqueci de trocar o .env" virar uma instância de produção
+// rodando com JWT_SECRET/senha do banco previsíveis.
+if (process.env.NODE_ENV === 'production') {
+  const insecureJwtSecrets = ['change-this-secret-in-production', 'agenda-clinica-secret-fallback']
+  if (!process.env.JWT_SECRET || insecureJwtSecrets.includes(process.env.JWT_SECRET)) {
+    throw new Error(
+      'JWT_SECRET não definido (ou usando o valor de exemplo). Configure um segredo forte no .env antes de subir em produção.'
+    )
+  }
+  if (process.env.DATABASE_URL?.includes('clinicpass123')) {
+    throw new Error(
+      'DATABASE_URL está usando a senha de exemplo do Postgres. Configure POSTGRES_PASSWORD no .env antes de subir em produção.'
+    )
+  }
+}
 
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// ─── CORS — allowlist explícita em vez de refletir qualquer Origin ─────────
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.DOMAIN ? `https://${process.env.DOMAIN}` : undefined,
+  process.env.DOMAIN ? `http://${process.env.DOMAIN}` : undefined,
+  process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : undefined,
+].filter((origin): origin is string => Boolean(origin))
+
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow same-origin requests (no origin header) and any browser origin.
-    // Auth is enforced by JWT tokens, not by origin allow-list.
-    callback(null, origin || true)
+    // Requisições sem header Origin (ex: chamadas server-to-server, curl,
+    // health checks) continuam permitidas — não há cookie de sessão pra
+    // proteger aqui, a autenticação é via Bearer token.
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+      return
+    }
+    callback(new Error('Origem não permitida pelo CORS'))
   },
   credentials: true,
 }))
+
+// Rede de proteção geral contra abuso/flood em toda a API.
+app.use('/api', generalRateLimiter)
 
 // Captura o corpo bruto da requisição (necessário pra validar a assinatura
 // HMAC do webhook da Kiwify, que precisa dos bytes originais, não do JSON já
@@ -61,7 +95,7 @@ app.use(express.json({
 }))
 app.use(express.urlencoded({ extended: true }))
 
-app.use('/api/auth', authRoutes)
+app.use('/api/auth', authRateLimiter, authRoutes)
 app.use('/api/users', userRoutes)
 app.use('/api/appointments', authenticate, requireActiveSubscription, appointmentRoutes)
 app.use('/api/patients', authenticate, requireActiveSubscription, patientRoutes)

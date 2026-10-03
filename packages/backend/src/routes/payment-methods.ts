@@ -41,19 +41,30 @@ router.post('/', async (req: AuthRequest, res) => {
   }
 })
 
-router.put('/:id', async (req, res) => {
+// where composto (id + doctorId quando o papel é DOCTOR) em todo mutator
+// abaixo — sem isso, qualquer DOCTOR autenticado conseguia editar/desativar
+// forma de pagamento de outro médico só sabendo o id. ADMIN mantém acesso
+// irrestrito, consistente com os outros painéis administrativos.
+router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const data = methodSchema.partial().parse(req.body)
-    const method = await prisma.paymentMethod.update({ where: { id: req.params.id }, data })
+    const { count } = await prisma.paymentMethod.updateMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+      data,
+    })
+    if (count === 0) { res.status(404).json({ message: 'Forma de pagamento não encontrada' }); return }
+    const method = await prisma.paymentMethod.findUnique({ where: { id: req.params.id } })
     res.json(method)
-  } catch {
+  } catch (error) {
+    if (error instanceof z.ZodError) { res.status(400).json({ message: 'Dados inválidos', errors: error.errors }); return }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
-router.patch('/:id/toggle', async (req, res) => {
+router.patch('/:id/toggle', async (req: AuthRequest, res) => {
   try {
-    const current = await prisma.paymentMethod.findUnique({ where: { id: req.params.id } })
+    const scope = { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) }
+    const current = await prisma.paymentMethod.findFirst({ where: scope })
     if (!current) { res.status(404).json({ message: 'Forma de pagamento não encontrada' }); return }
     const method = await prisma.paymentMethod.update({
       where: { id: req.params.id },
@@ -65,9 +76,12 @@ router.patch('/:id/toggle', async (req, res) => {
   }
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: AuthRequest, res) => {
   try {
-    await prisma.paymentMethod.delete({ where: { id: req.params.id } })
+    const { count } = await prisma.paymentMethod.deleteMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+    })
+    if (count === 0) { res.status(404).json({ message: 'Forma de pagamento não encontrada' }); return }
     res.json({ message: 'Forma de pagamento removida' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })

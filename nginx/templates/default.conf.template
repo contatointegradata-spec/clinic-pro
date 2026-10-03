@@ -1,0 +1,53 @@
+server {
+    listen 80;
+    # "_" = catch-all — aceita tanto o acesso direto por IP quanto, no
+    # futuro, pelo domínio, sem precisar editar isto quando o domínio for
+    # configurado (ver DOMAIN em .env e docs/ativar-https.md).
+    server_name _;
+
+    client_max_body_size 10M;
+
+    # Challenge do Let's Encrypt (certbot, método webroot) — inofensivo
+    # enquanto HTTPS não é ativado, o diretório só existe quando o certbot
+    # roda. Ver docs/ativar-https.md.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    # ── Ativação do HTTPS (docs/ativar-https.md) ──
+    # Depois de emitir o certificado, descomente as 2 linhas abaixo para
+    # redirecionar todo tráfego HTTP para HTTPS, e renomeie
+    # nginx/templates/https.conf.template.disabled para
+    # nginx/templates/https.conf.template.
+    #
+    # location / {
+    #     return 301 https://$host$request_uri;
+    # }
+
+    # API routes
+    location /api/ {
+        set $backend_upstream http://backend:3001;
+        proxy_pass $backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # Frontend
+    location / {
+        set $frontend_upstream http://frontend:80;
+        proxy_pass $frontend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

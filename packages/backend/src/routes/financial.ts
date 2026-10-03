@@ -736,16 +736,28 @@ router.post('/categories', async (req: AuthRequest, res) => {
 router.put('/categories/:id', async (req: AuthRequest, res) => {
   try {
     const data = categorySchema.partial().parse(req.body)
-    const category = await prisma.financialCategory.update({ where: { id: req.params.id }, data })
+    // where composto — sem o filtro de doctorId, qualquer DOCTOR autenticado
+    // conseguia editar a categoria financeira de outro médico só sabendo o id.
+    const { count } = await prisma.financialCategory.updateMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+      data,
+    })
+    if (count === 0) { res.status(404).json({ message: 'Categoria não encontrada' }); return }
+    const category = await prisma.financialCategory.findUnique({ where: { id: req.params.id } })
     res.json(category)
-  } catch {
+  } catch (error) {
+    if (error instanceof z.ZodError) { res.status(400).json({ message: 'Dados inválidos', errors: error.errors }); return }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
 router.delete('/categories/:id', async (req: AuthRequest, res) => {
   try {
-    await prisma.financialCategory.update({ where: { id: req.params.id }, data: { active: false } })
+    const { count } = await prisma.financialCategory.updateMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+      data: { active: false },
+    })
+    if (count === 0) { res.status(404).json({ message: 'Categoria não encontrada' }); return }
     res.json({ message: 'Categoria desativada' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -782,16 +794,26 @@ router.post('/cost-centers', async (req: AuthRequest, res) => {
 router.put('/cost-centers/:id', async (req: AuthRequest, res) => {
   try {
     const data = costCenterSchema.partial().parse(req.body)
-    const center = await prisma.costCenter.update({ where: { id: req.params.id }, data })
+    const { count } = await prisma.costCenter.updateMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+      data,
+    })
+    if (count === 0) { res.status(404).json({ message: 'Centro de custo não encontrado' }); return }
+    const center = await prisma.costCenter.findUnique({ where: { id: req.params.id } })
     res.json(center)
-  } catch {
+  } catch (error) {
+    if (error instanceof z.ZodError) { res.status(400).json({ message: 'Dados inválidos', errors: error.errors }); return }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
 router.delete('/cost-centers/:id', async (req: AuthRequest, res) => {
   try {
-    await prisma.costCenter.update({ where: { id: req.params.id }, data: { active: false } })
+    const { count } = await prisma.costCenter.updateMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+      data: { active: false },
+    })
+    if (count === 0) { res.status(404).json({ message: 'Centro de custo não encontrado' }); return }
     res.json({ message: 'Centro de custo desativado' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })
@@ -828,16 +850,26 @@ router.post('/bank-accounts', async (req: AuthRequest, res) => {
 router.put('/bank-accounts/:id', async (req: AuthRequest, res) => {
   try {
     const data = bankAccountSchema.partial().parse(req.body)
-    const account = await prisma.bankAccount.update({ where: { id: req.params.id }, data })
+    const { count } = await prisma.bankAccount.updateMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+      data,
+    })
+    if (count === 0) { res.status(404).json({ message: 'Conta bancária não encontrada' }); return }
+    const account = await prisma.bankAccount.findUnique({ where: { id: req.params.id } })
     res.json(account)
-  } catch {
+  } catch (error) {
+    if (error instanceof z.ZodError) { res.status(400).json({ message: 'Dados inválidos', errors: error.errors }); return }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
 router.delete('/bank-accounts/:id', async (req: AuthRequest, res) => {
   try {
-    await prisma.bankAccount.update({ where: { id: req.params.id }, data: { active: false } })
+    const { count } = await prisma.bankAccount.updateMany({
+      where: { id: req.params.id, ...(req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}) },
+      data: { active: false },
+    })
+    if (count === 0) { res.status(404).json({ message: 'Conta bancária não encontrada' }); return }
     res.json({ message: 'Conta bancária desativada' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })

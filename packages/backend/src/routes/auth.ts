@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma'
 import { signToken } from '../utils/jwt'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { ensureTrialSubscription } from '../lib/subscription-access'
+import { issueRefreshToken, verifyRefreshToken, rotateRefreshToken, revokeRefreshToken, revokeAllUserRefreshTokens } from '../utils/refresh-token'
 
 const router = Router()
 
@@ -48,9 +49,11 @@ router.post('/login', async (req, res) => {
       role: user.role,
       name: user.name,
     })
+    const refreshToken = await issueRefreshToken(user.id)
 
     res.json({
       token,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -120,9 +123,11 @@ router.post('/register', async (req, res) => {
       role: user.role,
       name: user.name,
     })
+    const refreshToken = await issueRefreshToken(user.id)
 
     res.status(201).json({
       token,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -181,7 +186,10 @@ router.post('/forgot-password', async (req, res) => {
       },
     })
 
-    console.log('🔑 Reset token for', email, ':', token)
+    // TODO: enviar `token` por e-mail de verdade quando o serviço de envio
+    // estiver integrado. Até lá, o fluxo de recuperação não é funcional para
+    // usuários reais — propositalmente não logamos o token (vazaria nos
+    // logs do servidor, que não são um canal seguro para esse segredo).
 
     res.json({ message: 'Se este e-mail existir, você receberá as instruções em breve.' })
   } catch (error) {
@@ -221,6 +229,10 @@ router.post('/reset-password', async (req, res) => {
         resetTokenExpiry: null,
       },
     })
+
+    // Troca de senha derruba todas as sessões ativas — inclusive a de quem
+    // eventualmente tiver roubado o token antigo.
+    await revokeAllUserRefreshTokens(user.id)
 
     res.json({ message: 'Senha redefinida com sucesso!' })
   } catch (error) {
@@ -264,6 +276,61 @@ router.get('/me', authenticate, async (req: AuthRequest, res) => {
 
     res.json(user)
   } catch {
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const refreshSchema = z.object({
+  refreshToken: z.string().min(1, 'Refresh token obrigatório'),
+})
+
+// POST /api/auth/refresh — troca um refresh token válido por um novo access
+// token (e rotaciona o refresh token: o antigo é revogado e um novo é
+// emitido, limitando o uso de um refresh token vazado a uma única troca).
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = refreshSchema.parse(req.body)
+
+    const record = await verifyRefreshToken(refreshToken)
+    if (!record) {
+      res.status(401).json({ message: 'Sessão expirada. Faça login novamente.' })
+      return
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: record.userId } })
+    if (!user || !user.active) {
+      res.status(401).json({ message: 'Sessão expirada. Faça login novamente.' })
+      return
+    }
+
+    const token = signToken({ userId: user.id, email: user.email, role: user.role, name: user.name })
+    const newRefreshToken = await rotateRefreshToken(record.id, user.id)
+
+    res.json({ token, refreshToken: newRefreshToken })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    console.error('[auth/refresh] erro:', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// POST /api/auth/logout — revoga o refresh token no servidor. Sem isso, um
+// token roubado continuaria válido até expirar sozinho (antes: 7 dias de
+// JWT sem revogação possível).
+router.post('/logout', async (req, res) => {
+  try {
+    const { refreshToken } = refreshSchema.parse(req.body)
+    await revokeRefreshToken(refreshToken)
+    res.json({ message: 'Sessão encerrada' })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    console.error('[auth/logout] erro:', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

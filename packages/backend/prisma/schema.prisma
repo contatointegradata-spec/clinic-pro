@@ -150,8 +150,27 @@ model User {
   costCenters          CostCenter[]                @relation("DoctorCostCenters")
   bankAccounts         BankAccount[]               @relation("DoctorBankAccounts")
   lightNotifTemplates  LightNotificationTemplate[] @relation("DoctorLightNotifTemplates")
+  refreshTokens        RefreshToken[]              @relation("UserRefreshTokens")
 
   @@map("TBLUSUARIO")
+}
+
+// Refresh tokens de sessão — o access token (JWT) tem vida curta (ver
+// JWT_EXPIRES_IN) e não é revogável; este token é o que efetivamente mantém
+// a sessão viva, é revogável no logout (ou manualmente) e nunca armazenado
+// em texto puro (só o hash, mesmo padrão do resetToken de senha).
+model RefreshToken {
+  id         String    @id @default(uuid())
+  userId     String
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  user User @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("TBLREFRESHTOKEN")
 }
 
 model DoctorSecretary {

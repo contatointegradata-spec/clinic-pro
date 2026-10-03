@@ -1,7 +1,9 @@
 import jwt from 'jsonwebtoken'
 
 const JWT_SECRET = process.env.JWT_SECRET || 'agenda-clinica-secret-fallback'
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d'
+// Access token de vida curta — a sessão de fato é mantida pelo refresh token
+// (revogável, ver utils/refresh-token.ts), não pelo JWT em si.
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '2h'
 
 export interface JwtPayload {
   userId: string

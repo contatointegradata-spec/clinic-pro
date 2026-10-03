@@ -62,6 +62,8 @@ function isActive(to: string) {
 function handleLogout() {
   authStore.logout()
   router.push('/login')
+  // Revogação no backend roda em paralelo à navegação — não precisa
+  // bloquear a saída do usuário esperando a resposta da API.
 }
 </script>
 

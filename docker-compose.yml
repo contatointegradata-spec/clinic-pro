@@ -96,8 +96,18 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    environment:
+      # Restringe o envsubst automático do entrypoint do nginx só à
+      # variável DOMAIN — sem isso, ele tentaria substituir qualquer coisa
+      # parecida com $variavel no config, incluindo variáveis do próprio
+      # nginx (ex: $host, $remote_addr), quebrando o proxy.
+      NGINX_ENVSUBST_FILTER_VARS: DOMAIN
+      DOMAIN: ${DOMAIN:-}
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - certbot_webroot:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt:ro
     networks:
       - clinicmedia_network
     depends_on:
@@ -106,9 +116,51 @@ services:
       frontend:
         condition: service_started
 
+  # Backup diário do Postgres (pg_dump + gzip, retenção configurável) — ver
+  # scripts/backup-db.sh e docs/backup-restore.md.
+  backup:
+    image: postgres:16-alpine
+    container_name: clinicmedia_backup
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-clinicuser}:${POSTGRES_PASSWORD:-clinicpass123}@postgres:5432/${POSTGRES_DB:-clinicmedia}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        while true; do
+          /scripts/backup-db.sh
+          sleep 86400
+        done
+    volumes:
+      - ./scripts/backup-db.sh:/scripts/backup-db.sh:ro
+      - postgres_backups:/backups
+    networks:
+      - clinicmedia_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Emissão/renovação de certificado Let's Encrypt — não roda nada sozinho
+  # (fica parado em `sleep infinity`); os comandos de emissão/renovação são
+  # disparados manualmente via `docker compose run --rm certbot ...`, ver
+  # docs/ativar-https.md.
+  certbot:
+    image: certbot/certbot:latest
+    container_name: clinicmedia_certbot
+    entrypoint: ["sh", "-c", "trap exit TERM; sleep infinity & wait"]
+    volumes:
+      - certbot_webroot:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    networks:
+      - clinicmedia_network
+
 volumes:
   postgres_data:
   whatsapp_sessions:
+  postgres_backups:
+  certbot_webroot:
+  certbot_certs:
 
 networks:
   clinicmedia_network:
