@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
   Webhook, Copy, Eye, EyeOff, RotateCcw, CheckCircle2,
-  XCircle, Clock, AlertTriangle, Save, ChevronDown, ChevronUp,
+  XCircle, Clock, AlertTriangle, Save, ChevronDown, ChevronUp, Bot,
 } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
@@ -21,6 +21,14 @@ interface KiwifyConfigView {
   hasWebhookSecret: boolean
   webhookSecretPreview: string | null
   webhookUrl: string
+  updatedAt: string | null
+}
+
+interface AiConfigView {
+  provider: string
+  model: string
+  hasApiKey: boolean
+  apiKeyPreview: string | null
   updatedAt: string | null
 }
 
@@ -67,6 +75,40 @@ const { data: config, isLoading, refetch: refetchConfig } = useQuery<KiwifyConfi
   key: 'admin-integrations-kiwify',
   queryFn: () => api.get('/admin/integrations/kiwify').then(r => r.data),
 })
+
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
+
+const aiForm = reactive({ apiKey: '', model: '' })
+const savingAi = ref(false)
+
+const { data: aiConfig, refetch: refetchAiConfig } = useQuery<AiConfigView>({
+  key: 'admin-integrations-ai',
+  queryFn: () => api.get('/admin/integrations/ai').then(r => r.data),
+})
+
+watch(aiConfig, (c) => {
+  if (!c) return
+  aiForm.apiKey = ''
+  aiForm.model = c.model || DEFAULT_GEMINI_MODEL
+}, { immediate: true })
+
+async function handleSaveAi() {
+  savingAi.value = true
+  try {
+    await api.put('/admin/integrations/ai', {
+      model: aiForm.model || null,
+      ...(aiForm.apiKey ? { apiKey: aiForm.apiKey } : {}),
+    })
+    toast.success('Configuração do Agente de IA salva')
+    aiForm.apiKey = ''
+    await refetchAiConfig()
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    toast.error(msg || 'Não foi possível salvar')
+  } finally {
+    savingAi.value = false
+  }
+}
 
 const { data: eventsData, refetch: refetchEvents } = useQuery<KiwifyEvent[]>({
   key: 'admin-integrations-kiwify-events',
@@ -153,11 +195,49 @@ function eventStatusInfo(status: string) {
   <div v-if="isLoading || !config" class="py-12 text-center text-slate-400">Carregando...</div>
   <div v-else class="space-y-4 animate-fade-in">
     <div>
-      <h1 class="page-title">Integrações — Kiwify</h1>
+      <h1 class="page-title">Integrações</h1>
       <p class="page-subtitle">
-        Configure o webhook que a Kiwify usa para avisar a Clinic Pro sobre pagamentos, renovações e cancelamentos.
-        Isso libera automaticamente o acesso de cada médico/especialista após o pagamento ou os 7 dias de teste grátis.
+        Configure o motor de IA do Agente de IA e o webhook que a Kiwify usa para avisar a Clinic Pro sobre
+        pagamentos, renovações e cancelamentos (libera automaticamente o acesso de cada médico/especialista
+        após o pagamento ou os 7 dias de teste grátis).
       </p>
+    </div>
+
+    <!-- Agente de IA (Gemini) -->
+    <div class="card p-4 space-y-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl flex items-center justify-center" :class="aiConfig?.hasApiKey ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'">
+          <Bot class="w-4.5 h-4.5" />
+        </div>
+        <div>
+          <p class="text-sm font-medium text-slate-900">Agente de IA (Gemini) {{ aiConfig?.hasApiKey ? 'configurado' : 'sem chave configurada' }}</p>
+          <p class="text-xs text-slate-400">
+            Usado pra gerar o prompt personalizado e responder pacientes pelo WhatsApp.
+            <template v-if="aiConfig?.updatedAt"> · atualizado {{ format(new Date(aiConfig.updatedAt), "d MMM yyyy 'às' HH:mm", { locale: ptBR }) }}</template>
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <label class="label">
+          Chave de API (Google AI Studio / Gemini)
+          <span v-if="aiConfig?.hasApiKey" class="text-slate-400">(já configurada — deixe em branco pra manter: {{ aiConfig.apiKeyPreview }})</span>
+        </label>
+        <input v-model="aiForm.apiKey" type="password" class="input-field w-full" placeholder="Cole a chave aqui" autocomplete="off" />
+      </div>
+
+      <div>
+        <label class="label">Modelo</label>
+        <input v-model="aiForm.model" class="input-field w-full" :placeholder="DEFAULT_GEMINI_MODEL" />
+        <p class="text-xs text-slate-400 mt-1">Padrão: {{ DEFAULT_GEMINI_MODEL }}. Só altere se souber o nome exato de outro modelo da Gemini.</p>
+      </div>
+
+      <div class="flex justify-end">
+        <button class="btn-primary flex items-center gap-1.5" :disabled="savingAi" @click="handleSaveAi">
+          <Save class="w-4 h-4" />
+          Salvar configuração da IA
+        </button>
+      </div>
     </div>
 
     <!-- Status -->

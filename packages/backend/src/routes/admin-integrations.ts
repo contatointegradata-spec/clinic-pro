@@ -8,6 +8,7 @@ import {
   regenerateWebhookSecret,
   getWebhookSecretPlain,
 } from '../lib/kiwify-config'
+import { getAiConfigView, updateAiConfig } from '../lib/ai-integration-config'
 
 const router = Router()
 router.use(authenticate)
@@ -100,6 +101,38 @@ router.get('/kiwify/events', async (req: AuthRequest, res) => {
     res.json(events)
   } catch (error) {
     console.error('[admin/integrations/kiwify events] erro:', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// GET /api/admin/integrations/ai — status atual do motor do Agente de IA (chave mascarada)
+router.get('/ai', async (_req: AuthRequest, res) => {
+  try {
+    const view = await getAiConfigView()
+    res.json(view)
+  } catch (error) {
+    console.error('[admin/integrations/ai] erro:', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const updateAiSchema = z.object({
+  apiKey: z.string().trim().max(500).nullable().optional(),
+  model: z.string().trim().max(100).nullable().optional(),
+})
+
+// PUT /api/admin/integrations/ai — atualiza a chave/modelo da IA (hoje Gemini)
+router.put('/ai', async (req: AuthRequest, res) => {
+  try {
+    const input = updateAiSchema.parse(req.body)
+    const view = await updateAiConfig(input, req.user!.userId)
+    res.json(view)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    console.error('[admin/integrations/ai PUT] erro:', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

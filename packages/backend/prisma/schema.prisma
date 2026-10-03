@@ -98,6 +98,10 @@ model User {
   isPlatformDeveloper  Boolean   @default(false)
   notificationsAccess  Boolean   @default(false)
   integrationsAccess   Boolean   @default(false)
+  // Quantos Agentes de IA este médico pode ter simultaneamente — todo médico
+  // cadastrado começa com 1 grátis; o Admin Desenvolvedor libera mais por
+  // conta, via painel. Ver routes/ai-agent.ts (POST /) e platform-admin.ts.
+  aiAgentLimit     Int       @default(1)
   specialty        String?
   certType         String?
   certNumber       String?
@@ -890,6 +894,24 @@ model KiwifyIntegrationConfig {
   createdAt       DateTime @default(now())
 
   @@map("TBLCONFIGKIWIFY")
+}
+
+// Configuração administrável do motor do Agente de IA (linha única, id fixo
+// "ai-agent") — permite ao ADMIN da plataforma trocar a chave/modelo da IA
+// (hoje Gemini) pelo menu Admin > Integrações, sem depender de variável de
+// ambiente/redeploy. Ver src/lib/ai-integration-config.ts: valores em
+// branco aqui caem de volta pras env vars (GEMINI_*) como fallback.
+model AiIntegrationConfig {
+  id       String  @id
+  provider String  @default("gemini")
+  apiKey   String?
+  model    String?
+
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@map("TBLCONFIGAGENTEIA")
 }
 
 // Rastreia cada tentativa de checkout aberta pelo médico, pra relacionar o

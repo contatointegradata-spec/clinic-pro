@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { generateSystemPrompt } from '../lib/ai-agent-engine'
-import { GroqApiError } from '../lib/groq-client'
+import { AiProviderError } from '../lib/ai-client-types'
 
 const router = Router()
 router.use(authenticate)
@@ -42,10 +42,14 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 router.post('/', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: Response) => {
   try {
     const doctorId = await getTargetDoctorId(req)
-    const existing = await prisma.lightChatbot.findFirst({ where: { doctorId, builderMode: 'ai_agent' } })
-    if (existing) {
+    const [doctorUser, agentCount] = await Promise.all([
+      prisma.user.findUnique({ where: { id: doctorId }, select: { aiAgentLimit: true } }),
+      prisma.lightChatbot.count({ where: { doctorId, builderMode: 'ai_agent' } }),
+    ])
+    const limit = doctorUser?.aiAgentLimit ?? 1
+    if (agentCount >= limit) {
       res.status(409).json({
-        message: `Você já tem um agente de IA. Pra ter mais de um, fale com a gente pelo WhatsApp ${UPSELL_PHONE}.`,
+        message: `Você já atingiu o limite de ${limit} agente(s) de IA da sua conta. Pra liberar mais, fale com a gente pelo WhatsApp ${UPSELL_PHONE}.`,
         upsellPhone: UPSELL_PHONE,
       })
       return
@@ -119,9 +123,9 @@ router.post('/:id/generate-prompt', requireRole('ADMIN', 'DOCTOR'), async (req: 
     res.json(updated)
   } catch (err) {
     console.error('[ai-agent] generate-prompt error:', err)
-    if (err instanceof GroqApiError) {
+    if (err instanceof AiProviderError) {
       if (err.status === 'missing_key') {
-        res.status(502).json({ message: 'A IA não está configurada no servidor (GROQ_API_KEY ausente). Contate o suporte.' })
+        res.status(502).json({ message: 'A IA não está configurada no servidor. Contate o suporte.' })
         return
       }
       if (err.status === 401 || err.status === 403) {

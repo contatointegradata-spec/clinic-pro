@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
-import { groqChatCompletion, GroqMessage, GroqTool } from './groq-client'
+import { geminiChatCompletion } from './gemini-client'
+import { AiMessage, AiTool } from './ai-client-types'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid, checkPhoneOnWhatsApp } from './room-whatsapp'
 import { checkLunchOverlap } from '../routes/appointments'
 import { getLocalDateInTz } from './chatbot-light-guided-engine'
@@ -242,7 +243,7 @@ async function createAppointmentTool(
   }
 }
 
-function buildTools(): GroqTool[] {
+function buildTools(): AiTool[] {
   return [
     {
       type: 'function',
@@ -328,21 +329,21 @@ export async function handleAiAgentMessage(params: {
     orderBy: { createdAt: 'desc' },
     take: CONTEXT_MESSAGE_LIMIT,
   })
-  const historyMessages: GroqMessage[] = history.reverse().map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+  const historyMessages: AiMessage[] = history.reverse().map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
   await prisma.aiAgentMessage.create({ data: { chatbotId, contactPhone: normalizedPhone, role: 'user', content: messageText } })
 
-  const messages: GroqMessage[] = [{ role: 'system', content: systemContent }, ...historyMessages, { role: 'user', content: messageText }]
+  const messages: AiMessage[] = [{ role: 'system', content: systemContent }, ...historyMessages, { role: 'user', content: messageText }]
   const tools = room ? buildTools() : undefined
 
-  // Se a Groq falhar ou o loop de ferramentas esgotar sem produzir uma
+  // Se a IA falhar ou o loop de ferramentas esgotar sem produzir uma
   // resposta final, o paciente não pode simplesmente ficar sem resposta
   // nenhuma — manda um fallback em vez de deixar a conversa morta no ar.
   const FALLBACK_MESSAGE = 'Desculpe, tive um problema técnico aqui. Pode repetir sua mensagem, por favor?'
   let finalText: string | null = null
   try {
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-      const result = await groqChatCompletion(messages, tools, 0.4)
+      const result = await geminiChatCompletion(messages, tools, 0.4)
 
       if (result.tool_calls && result.tool_calls.length > 0) {
         messages.push({ role: 'assistant', content: result.content ?? '', tool_calls: result.tool_calls })
@@ -371,7 +372,7 @@ export async function handleAiAgentMessage(params: {
       break
     }
   } catch (err) {
-    console.error('[ai-agent-engine] Groq error:', err)
+    console.error('[ai-agent-engine] erro da IA:', err)
     finalText = FALLBACK_MESSAGE
   }
 
@@ -436,7 +437,7 @@ Na seção de regras/comunicação, sempre inclua estas diretrizes de qualidade 
     fields.extraInfo ? `Informações complementares: ${fields.extraInfo}` : null,
   ].filter(Boolean).join('\n')
 
-  const result = await groqChatCompletion([
+  const result = await geminiChatCompletion([
     { role: 'system', content: metaPrompt },
     { role: 'user', content: userPrompt },
   ])

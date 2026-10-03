@@ -22,6 +22,7 @@ router.get('/users', async (_req: AuthRequest, res: Response) => {
         isPlatformDeveloper: true,
         notificationsAccess: true,
         integrationsAccess: true,
+        aiAgentLimit: true,
       },
       orderBy: { name: 'asc' },
     })
@@ -34,6 +35,7 @@ router.get('/users', async (_req: AuthRequest, res: Response) => {
 const accessSchema = z.object({
   notificationsAccess: z.boolean().optional(),
   integrationsAccess: z.boolean().optional(),
+  aiAgentLimit: z.coerce.number().int().min(0).max(20).optional(),
 })
 
 // ─── PATCH /api/platform-admin/users/:id/access ───────────────────────────────
@@ -60,6 +62,7 @@ router.patch('/users/:id/access', async (req: AuthRequest, res: Response) => {
         isPlatformDeveloper: true,
         notificationsAccess: true,
         integrationsAccess: true,
+        aiAgentLimit: true,
       },
     })
     res.json(updated)

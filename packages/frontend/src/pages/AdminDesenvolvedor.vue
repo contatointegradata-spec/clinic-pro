@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Code2, Search, Bell, Webhook } from 'lucide-vue-next'
+import { Code2, Search, Bell, Webhook, Bot, Minus, Plus } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
 import { useQuery } from '../composables/useQuery'
@@ -14,6 +14,7 @@ interface PlatformUserRow {
   isPlatformDeveloper: boolean
   notificationsAccess: boolean
   integrationsAccess: boolean
+  aiAgentLimit: number
 }
 
 const roleLabel: Record<string, string> = {
@@ -48,6 +49,21 @@ async function updateAccess(user: PlatformUserRow, data: Partial<Pick<PlatformUs
     updatingId.value = null
   }
 }
+
+async function updateAiAgentLimit(user: PlatformUserRow, delta: number) {
+  const next = user.aiAgentLimit + delta
+  if (next < 0 || next > 20) return
+  updatingId.value = user.id
+  try {
+    await api.patch(`/platform-admin/users/${user.id}/access`, { aiAgentLimit: next })
+    toast.success('Limite de agentes atualizado')
+    await refetch()
+  } catch {
+    toast.error('Não foi possível atualizar o limite')
+  } finally {
+    updatingId.value = null
+  }
+}
 </script>
 
 <template>
@@ -59,6 +75,7 @@ async function updateAccess(user: PlatformUserRow, data: Partial<Pick<PlatformUs
       </h1>
       <p class="page-subtitle">
         Libere Notificações e Integrações individualmente, por usuário, em qualquer clínica da plataforma.
+        Ajuste também quantos Agentes de IA cada médico pode ter (padrão: 1 grátis).
       </p>
     </div>
 
@@ -119,6 +136,28 @@ async function updateAccess(user: PlatformUserRow, data: Partial<Pick<PlatformUs
                 class="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all"
                 :class="(u.isPlatformDeveloper || u.integrationsAccess) ? 'left-4' : 'left-0.5'"
               />
+            </button>
+          </div>
+
+          <!-- Limite de Agentes de IA (só pra médicos) -->
+          <div v-if="u.role === 'DOCTOR'" class="flex items-center gap-1.5" title="Agentes de IA liberados">
+            <Bot class="w-4 h-4 text-slate-400" />
+            <button
+              type="button"
+              class="w-6 h-6 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-slate-700 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
+              :disabled="updatingId === u.id || u.aiAgentLimit <= 0"
+              @click="updateAiAgentLimit(u, -1)"
+            >
+              <Minus class="w-3 h-3" />
+            </button>
+            <span class="w-5 text-center text-sm font-semibold text-slate-700">{{ u.aiAgentLimit }}</span>
+            <button
+              type="button"
+              class="w-6 h-6 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-slate-700 hover:border-slate-300 disabled:opacity-40 disabled:cursor-not-allowed"
+              :disabled="updatingId === u.id || u.aiAgentLimit >= 20"
+              @click="updateAiAgentLimit(u, 1)"
+            >
+              <Plus class="w-3 h-3" />
             </button>
           </div>
         </div>
