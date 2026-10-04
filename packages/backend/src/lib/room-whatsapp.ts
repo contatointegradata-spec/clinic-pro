@@ -39,8 +39,16 @@ const roomConnecting = new Set<string>()
 // because Baileys can't answer the server's retry requests for the original ciphertext.
 const roomMsgRetryCounterCache = new NodeCache({ stdTTL: 60, checkperiod: 10 })
 const roomUserDevicesCache     = new NodeCache({ stdTTL: 300, checkperiod: 60 })
-// messageId → proto.IMessage stored for up to 5 minutes so retry requests can be served
-const roomSentMsgCache         = new NodeCache({ stdTTL: 300, checkperiod: 60 })
+// messageId → proto.IMessage. Precisa sobreviver bem além de alguns minutos:
+// o retry de decriptação do WhatsApp (que pede de novo o conteúdo original
+// quando o aparelho do destinatário não consegue decifrar na hora) pode
+// chegar bem depois do envio — celular bloqueado/em economia de bateria,
+// sem internet por um tempo, etc. Com TTL curto (era 300s/5min), esse pedido
+// chega depois do cache já ter expirado, getMessage devolve undefined, e o
+// destinatário fica preso em "Aguardando mensagem" pra sempre, mesmo com
+// toda a infraestrutura de retry correta. 24h cobre a esmagadora maioria
+// dos casos reais sem pesar na memória (poucas centenas de msgs/dia).
+const roomSentMsgCache         = new NodeCache({ stdTTL: 86400, checkperiod: 600 })
 
 // ─── Pending Confirmations (SIM/NÃO interactive flow) ────────────────────────
 

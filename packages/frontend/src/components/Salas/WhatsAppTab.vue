@@ -250,5 +250,20 @@ const badgeLabels: Record<RoomWhatsAppStatus, string> = {
       <p>• Mensagens automáticas serão enviadas pelo número desta sala</p>
       <p>• Gerencie na aba Permissões quem pode conectar/desconectar</p>
     </div>
+
+    <!-- Mensagem aparece como enviada aqui mas não chega no celular do contato:
+         a sessão de criptografia deste número ficou fora de sincronia com o
+         aparelho dele (acontece ocasionalmente no protocolo do WhatsApp,
+         mais depois de várias reconexões). A única forma de corrigir é
+         recomeçar a sessão do zero — não é algo que reenviar resolve. -->
+    <div v-if="waStatus?.status === 'CONNECTED'" class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 space-y-1">
+      <p class="font-semibold text-amber-900">Mensagem aparece como enviada mas não chega no WhatsApp?</p>
+      <p>
+        Às vezes a sessão de criptografia com um número específico fica fora de sincronia — a mensagem é marcada
+        como enviada aqui, mas o aparelho do contato fica preso em "Aguardando mensagem". Isso não se resolve
+        reenviando. Clique em <strong>Desconectar</strong> e depois <strong>Conectar WhatsApp</strong> de novo
+        (escaneie o QR) para recomeçar a sessão — novas mensagens voltam a chegar normalmente.
+      </p>
+    </div>
   </div>
 </template>
