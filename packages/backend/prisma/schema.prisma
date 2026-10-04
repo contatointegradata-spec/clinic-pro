@@ -132,6 +132,8 @@ model User {
   paymentMethods       PaymentMethod[]             @relation("DoctorPaymentMethods")
   products             Product[]                   @relation("DoctorProducts")
   stockMovements       StockMovement[]              @relation("UserStockMovements")
+  generatedDocuments      GeneratedDocument[]       @relation("DoctorGeneratedDocuments")
+  generatedDocumentsMade  GeneratedDocument[]       @relation("UserGeneratedDocuments")
   subscription         DoctorSubscription?         @relation("DoctorSubscription")
   subscriptionPayments SubscriptionPayment[]       @relation("DoctorPayments")
   checkoutAttempts     SubscriptionCheckoutAttempt[] @relation("DoctorCheckoutAttempts")
@@ -239,6 +241,7 @@ model Patient {
   assessments     Assessment[]
   transactions    Transaction[]
   consents        PatientConsent[]
+  generatedDocuments GeneratedDocument[]
 
   @@index([doctorId])
   @@index([status])
@@ -692,8 +695,36 @@ model DocumentTemplate {
   updatedAt DateTime @updatedAt
 
   doctor User @relation("DoctorDocuments", fields: [doctorId], references: [id])
+  generatedDocuments GeneratedDocument[]
 
   @@map("TBLMODELODOCUMENTO")
+}
+
+// Documento já preenchido e "congelado" por um humano (médico/secretária),
+// deixado pronto pra ser entregue depois — hoje só consumido pelo Agente de
+// IA (ver send_ready_document em lib/ai-agent-engine.ts): ele nunca gera ou
+// edita o conteúdo, só entrega o que já está aqui. `content` é uma cópia
+// independente do template no momento da geração — mudar o template depois
+// não afeta documentos já gerados.
+model GeneratedDocument {
+  id              String    @id @default(uuid())
+  doctorId        String
+  patientId       String
+  templateId      String?
+  name            String
+  content         String
+  status          String    @default("READY") // READY | SENT
+  createdByUserId String
+  createdAt       DateTime  @default(now())
+  sentAt          DateTime?
+
+  doctor    User              @relation("DoctorGeneratedDocuments", fields: [doctorId], references: [id])
+  patient   Patient           @relation(fields: [patientId], references: [id])
+  template  DocumentTemplate? @relation(fields: [templateId], references: [id])
+  createdBy User              @relation("UserGeneratedDocuments", fields: [createdByUserId], references: [id])
+
+  @@index([patientId, status])
+  @@map("TBLDOCUMENTOGERADO")
 }
 
 model Notification {

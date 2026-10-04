@@ -3,7 +3,7 @@ import { ref, reactive, computed, watch } from 'vue'
 import { z } from 'zod'
 import {
   Plus, Edit2, FileText, Upload, CheckCircle, XCircle, Download,
-  Send, Search, User, Info, ChevronRight, Loader2,
+  Send, Search, User, Info, ChevronRight, Loader2, Bot,
 } from 'lucide-vue-next'
 import toast from '../../lib/toast'
 import api from '../../lib/api'
@@ -199,6 +199,7 @@ const { data: varsData, isLoading: varsFetching } = useQuery<VarsData>({
 })
 
 const canSend = computed(() => !!selectedPatient.value?.phone && !emitting.value)
+const canGenerate = computed(() => !!selectedPatient.value && !generating.value)
 
 async function handleSendDoc() {
   if (!emitDoc.value || !selectedPatient.value) return
@@ -215,6 +216,28 @@ async function handleSendDoc() {
     toast.error(msg ?? 'Erro ao enviar documento')
   } finally {
     emitting.value = false
+  }
+}
+
+// Deixa o documento pronto pra o Agente de IA entregar depois, sob pedido do
+// paciente pelo WhatsApp — não envia agora. Ver POST /documents/:id/generate.
+const generating = ref(false)
+
+async function handleGenerateForAgent() {
+  if (!emitDoc.value || !selectedPatient.value) return
+  generating.value = true
+  try {
+    await api.post(`/documents/${emitDoc.value.id}/generate`, {
+      patientId: selectedPatient.value.id,
+      variables: { ...customVarValues },
+    })
+    toast.success('Documento pronto — o paciente pode pedir pelo WhatsApp quando quiser.')
+    closeEmitModal()
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+    toast.error(msg ?? 'Erro ao preparar documento')
+  } finally {
+    generating.value = false
   }
 }
 </script>
@@ -514,6 +537,19 @@ Exemplo: Atesto que {{paciente}} esteve em consulta em {{data_hoje}}."
             Cancelar
           </button>
           <button
+            :disabled="!canGenerate"
+            title="Prepara o documento e deixa disponível pro Agente de IA mandar quando o paciente pedir pelo WhatsApp — não envia agora"
+            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm border border-primary-200 text-primary-700 hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            @click="handleGenerateForAgent"
+          >
+            <template v-if="generating">
+              <Loader2 class="w-4 h-4 animate-spin" />Preparando...
+            </template>
+            <template v-else>
+              <Bot class="w-4 h-4" />Deixar pronto pro Agente
+            </template>
+          </button>
+          <button
             :disabled="!canSend"
             class="btn-primary flex-1 flex items-center justify-center gap-2"
             @click="handleSendDoc"
@@ -522,7 +558,7 @@ Exemplo: Atesto que {{paciente}} esteve em consulta em {{data_hoje}}."
               <Loader2 class="w-4 h-4 animate-spin" />Enviando...
             </template>
             <template v-else>
-              <Send class="w-4 h-4" />Enviar documento
+              <Send class="w-4 h-4" />Enviar agora
             </template>
           </button>
         </div>

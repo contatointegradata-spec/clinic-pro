@@ -5,6 +5,8 @@ import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhat
 import { checkLunchOverlap } from '../routes/appointments'
 import { getLocalDateInTz } from './chatbot-light-guided-engine'
 import { findPatientByPhone, normalizePatientPhone } from './phone'
+import { createNotification } from '../routes/notifications'
+import { logAudit } from './secretaryAccess'
 
 const MAX_TOOL_ITERATIONS = 3
 const CONTEXT_MESSAGE_LIMIT = 20
@@ -244,8 +246,244 @@ async function createAppointmentTool(
   }
 }
 
-function buildTools(): AiTool[] {
+// ─── Listar/remarcar/cancelar consulta existente ───────────────────────────
+// Antes só existia create_appointment — pedir pra "mudar" a consulta fazia
+// o modelo criar uma SEGUNDA consulta em vez de atualizar a primeira (bug
+// real encontrado em produção: duas consultas pro mesmo paciente). Essas
+// ferramentas sempre operam sobre o `patientId` já resolvido pelo telefone
+// de quem está mandando mensagem — nunca confiam num id vindo "cru" da
+// conversa sem confirmar que pertence a esse paciente+médico.
+
+async function findUpcomingAppointments(doctorId: string, patientId: string) {
+  return prisma.appointment.findMany({
+    where: { doctorId, patientId, status: { notIn: ['CANCELLED', 'COMPLETED'] }, date: { gte: new Date() } },
+    orderBy: { date: 'asc' },
+  })
+}
+
+function formatAppointmentList(appts: { id: string; date: Date }[]): string {
+  return appts.map(a => {
+    const d = new Date(a.date)
+    const dateStr = d.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+    const timeStr = d.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
+    return `- id: ${a.id} | ${dateStr} às ${timeStr}`
+  }).join('\n')
+}
+
+async function listAppointmentsTool(doctorId: string, patientId: string): Promise<string> {
+  const appts = await findUpcomingAppointments(doctorId, patientId)
+  if (appts.length === 0) return 'O paciente não tem nenhuma consulta futura agendada.'
+  return `Consultas futuras do paciente:\n${formatAppointmentList(appts)}`
+}
+
+type ResolvedAppointment = { id: string; date: Date; duration: number }
+type ResolveApptResult =
+  | { kind: 'found'; appointment: ResolvedAppointment }
+  | { kind: 'none' }
+  | { kind: 'ambiguous'; message: string }
+  | { kind: 'not_owned' }
+
+// id opcional: se o modelo já chamou list_my_appointments e tem o id, usa
+// direto (mas sempre reconfirma doctorId+patientId — nunca confia cego). Sem
+// id: 0 consultas → avisa, 1 → usa, >1 → devolve a lista e pede pro modelo
+// perguntar ao paciente antes de agir.
+async function resolveTargetAppointment(doctorId: string, patientId: string, appointmentId?: string): Promise<ResolveApptResult> {
+  if (appointmentId) {
+    const appt = await prisma.appointment.findUnique({ where: { id: appointmentId } })
+    if (!appt || appt.doctorId !== doctorId || appt.patientId !== patientId) return { kind: 'not_owned' }
+    return { kind: 'found', appointment: appt }
+  }
+  const appts = await findUpcomingAppointments(doctorId, patientId)
+  if (appts.length === 0) return { kind: 'none' }
+  if (appts.length === 1) return { kind: 'found', appointment: appts[0] }
+  return { kind: 'ambiguous', message: `O paciente tem mais de uma consulta futura — pergunte qual ele quer alterar antes de continuar:\n${formatAppointmentList(appts)}` }
+}
+
+interface RescheduleArgs { newDate: string; newTime: string; appointmentId?: string }
+
+async function rescheduleAppointmentTool(
+  doctorId: string,
+  room: RoomForSchedule,
+  patientId: string,
+  args: RescheduleArgs,
+): Promise<{ success: boolean; message: string }> {
+  const resolved = await resolveTargetAppointment(doctorId, patientId, args.appointmentId)
+  if (resolved.kind === 'none') return { success: false, message: 'Não encontrei nenhuma consulta futura desse paciente pra alterar.' }
+  if (resolved.kind === 'not_owned') return { success: false, message: 'Não encontrei essa consulta — use list_my_appointments pra confirmar qual o paciente quer alterar.' }
+  if (resolved.kind === 'ambiguous') return { success: false, message: resolved.message }
+
+  const [y, m, d] = args.newDate.split('-').map(Number)
+  const [h, min] = args.newTime.split(':').map(Number)
+  if (!y || !m || !d || isNaN(h) || isNaN(min)) {
+    return { success: false, message: 'Data ou horário em formato inválido — peça pro paciente confirmar dia e hora novamente.' }
+  }
+
+  const duration = resolved.appointment.duration || room.slotDurationMinutes || 30
+  const slotStart = parseLocalDateToUtcDate(y, m, d, h, min)
+  const slotEnd = new Date(slotStart.getTime() + duration * 60_000)
+
+  const dayNum = dayOfWeekFromDateStr(args.newDate)
+  if (!getDayScheduleForRoom(room, dayNum)) {
+    return { success: false, message: 'Esse dia não tem atendimento — sugira ao paciente outro dia dentro do horário de funcionamento.' }
+  }
+  if (await checkLunchOverlap(doctorId, slotStart, duration)) {
+    return { success: false, message: 'Esse horário cai no intervalo de almoço do profissional — sugira outro horário.' }
+  }
+
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const [dayStart, dayEnd] = [parseLocalDateToUtcDate(y, m, d, 0, 0), parseLocalDateToUtcDate(y, m, d, 23, 59)]
+      const [conflictingAppointments, conflictingBlocks] = await Promise.all([
+        tx.appointment.findMany({
+          where: { doctorId, status: { not: 'CANCELLED' }, date: { gte: dayStart, lte: dayEnd }, id: { not: resolved.appointment.id } },
+          select: { date: true, duration: true },
+        }),
+        tx.appointmentBlock.findMany({
+          where: { doctorId, date: { lte: dayEnd }, endDate: { gte: dayStart } },
+          select: { date: true, endDate: true },
+        }),
+      ])
+      if (!isSlotFree(slotStart, slotEnd, conflictingAppointments, conflictingBlocks)) {
+        return { success: false as const, message: 'Esse horário acabou de ficar indisponível — peça pro paciente escolher outro horário (use check_availability de novo).' }
+      }
+      const updated = await tx.appointment.update({
+        where: { id: resolved.appointment.id },
+        data: { date: slotStart },
+        include: { patient: { select: { name: true } } },
+      })
+      return { success: true as const, message: `Consulta remarcada com sucesso para ${args.newDate} às ${args.newTime}. Confirme isso pro paciente de forma natural.`, patientName: updated.patient.name }
+    }, { isolationLevel: 'Serializable' })
+
+    if (result.success) {
+      await createNotification(doctorId, 'Consulta remarcada pelo Agente de IA', `O agente remarcou a consulta de ${result.patientName} para ${args.newDate} às ${args.newTime}.`).catch(() => {})
+      await logAudit({
+        userId: doctorId,
+        action: 'AI_AGENT_APPOINTMENT_RESCHEDULED',
+        description: `Agente de IA remarcou consulta de ${result.patientName}`,
+        metadata: { appointmentId: resolved.appointment.id, newDate: args.newDate, newTime: args.newTime },
+      }).catch(() => {})
+    }
+    return result
+  } catch (err) {
+    console.error('[ai-agent-engine] rescheduleAppointmentTool error:', err)
+    return { success: false, message: 'Não consegui remarcar agora — peça pro paciente tentar de novo em instantes.' }
+  }
+}
+
+interface CancelArgs { appointmentId?: string; reason?: string }
+
+async function cancelAppointmentTool(doctorId: string, patientId: string, args: CancelArgs): Promise<{ success: boolean; message: string }> {
+  const resolved = await resolveTargetAppointment(doctorId, patientId, args.appointmentId)
+  if (resolved.kind === 'none') return { success: false, message: 'Não encontrei nenhuma consulta futura desse paciente pra cancelar.' }
+  if (resolved.kind === 'not_owned') return { success: false, message: 'Não encontrei essa consulta — use list_my_appointments pra confirmar qual o paciente quer cancelar.' }
+  if (resolved.kind === 'ambiguous') return { success: false, message: resolved.message }
+
+  try {
+    const updated = await prisma.appointment.update({
+      where: { id: resolved.appointment.id },
+      data: { status: 'CANCELLED' },
+      include: { patient: { select: { name: true } } },
+    })
+    await createNotification(doctorId, 'Consulta cancelada pelo Agente de IA', `${updated.patient.name} cancelou a consulta pelo WhatsApp${args.reason ? ` (motivo: ${args.reason})` : ''}.`).catch(() => {})
+    await logAudit({
+      userId: doctorId,
+      action: 'AI_AGENT_APPOINTMENT_CANCELLED',
+      description: `Agente de IA cancelou consulta de ${updated.patient.name}`,
+      metadata: { appointmentId: resolved.appointment.id, reason: args.reason },
+    }).catch(() => {})
+    return { success: true, message: 'Consulta cancelada com sucesso. Confirme isso pro paciente de forma natural.' }
+  } catch (err) {
+    console.error('[ai-agent-engine] cancelAppointmentTool error:', err)
+    return { success: false, message: 'Não consegui cancelar agora — peça pro paciente tentar de novo em instantes.' }
+  }
+}
+
+// ─── Entregar documento pré-gerado (nunca gera/edita conteúdo) ─────────────
+
+async function findReadyDocuments(doctorId: string, patientId: string, documentId?: string, documentName?: string) {
+  if (documentId) {
+    const doc = await prisma.generatedDocument.findUnique({ where: { id: documentId } })
+    if (!doc || doc.doctorId !== doctorId || doc.patientId !== patientId || doc.status !== 'READY') return []
+    return [doc]
+  }
+  return prisma.generatedDocument.findMany({
+    where: {
+      doctorId, patientId, status: 'READY',
+      ...(documentName ? { name: { contains: documentName, mode: 'insensitive' as const } } : {}),
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+}
+
+async function listReadyDocumentsTool(doctorId: string, patientId: string): Promise<string> {
+  const docs = await findReadyDocuments(doctorId, patientId)
+  if (docs.length === 0) return 'Não há nenhum documento pronto pra esse paciente no momento — informe que ele precisa solicitar ao consultório.'
+  return `Documentos disponíveis pra esse paciente:\n${docs.map(d => `- id: ${d.id} | ${d.name} (gerado em ${new Date(d.createdAt).toLocaleDateString('pt-BR')})`).join('\n')}`
+}
+
+interface SendDocArgs { documentId?: string; documentName?: string }
+
+async function sendReadyDocumentTool(
+  doctorId: string,
+  patientId: string,
+  chatbotId: string,
+  contactPhone: string,
+  deliveryJid: string,
+  args: SendDocArgs,
+): Promise<{ success: boolean; message: string }> {
+  const docs = await findReadyDocuments(doctorId, patientId, args.documentId, args.documentName)
+  if (docs.length === 0) return { success: false, message: 'Não encontrei nenhum documento pronto com esse nome pra esse paciente — use list_ready_documents pra ver o que está disponível.' }
+  if (docs.length > 1) {
+    return { success: false, message: `Tem mais de um documento disponível, pergunte qual o paciente quer antes de enviar:\n${docs.map(d => `- id: ${d.id} | ${d.name}`).join('\n')}` }
+  }
+  const doc = docs[0]
+
+  const target = await resolveChatbotLightSendTarget(chatbotId)
+  if (!target) return { success: false, message: 'Não consegui enviar o documento agora (WhatsApp desconectado) — avise que a equipe vai mandar manualmente.' }
+
+  try {
+    const phoneCheck = await checkPhoneOnWhatsApp(target.instanceKey, contactPhone).catch(() => null)
+    const sendJid = phoneCheck?.jid ?? normalizeToWhatsAppJid(deliveryJid)
+    await sendRoomWhatsAppMessage(target.instanceKey, sendJid, doc.content)
+    await prisma.generatedDocument.update({ where: { id: doc.id }, data: { status: 'SENT', sentAt: new Date() } })
+    return { success: true, message: `Documento "${doc.name}" enviado com sucesso. Confirme isso pro paciente de forma natural, sem repetir o conteúdo do documento.` }
+  } catch (err) {
+    console.error('[ai-agent-engine] sendReadyDocumentTool error:', err)
+    return { success: false, message: 'Não consegui enviar o documento agora — avise que a equipe vai mandar manualmente.' }
+  }
+}
+
+function buildTools(includeScheduling: boolean): AiTool[] {
+  const documentTools: AiTool[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'list_ready_documents',
+        description: 'Lista documentos (atestado, declaração, recibo etc) já preparados e prontos pra enviar a esse paciente.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'send_ready_document',
+        description: 'Envia um documento já pronto ao paciente. NUNCA invente ou escreva conteúdo de documento você mesmo — só use essa ferramenta pra entregar o que já foi preparado. Use list_ready_documents antes se não souber o id.',
+        parameters: {
+          type: 'object',
+          properties: {
+            documentId: { type: 'string', description: 'id do documento, se já souber (de list_ready_documents)' },
+            documentName: { type: 'string', description: 'nome/tipo do documento pedido (ex: "atestado"), se não souber o id' },
+          },
+          required: [],
+        },
+      },
+    },
+  ]
+
+  if (!includeScheduling) return documentTools
+
   return [
+    ...documentTools,
     {
       type: 'function',
       function: {
@@ -262,7 +500,7 @@ function buildTools(): AiTool[] {
       type: 'function',
       function: {
         name: 'create_appointment',
-        description: 'Cria de fato o agendamento da consulta depois que o paciente confirmou nome, data e horário.',
+        description: 'Cria de fato o agendamento de uma consulta NOVA, depois que o paciente confirmou nome, data e horário. Pra alterar ou cancelar uma consulta que já existe, use reschedule_appointment ou cancel_appointment — nunca crie uma nova no lugar.',
         parameters: {
           type: 'object',
           properties: {
@@ -273,6 +511,45 @@ function buildTools(): AiTool[] {
             notes: { type: 'string', description: 'Observações adicionais (opcional)' },
           },
           required: ['patientName', 'phone', 'date', 'time'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_my_appointments',
+        description: 'Lista as consultas futuras já agendadas desse paciente — use antes de reagendar/cancelar se não tiver certeza de qual consulta o paciente quer alterar.',
+        parameters: { type: 'object', properties: {}, required: [] },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'reschedule_appointment',
+        description: 'Altera a data/horário de uma consulta JÁ EXISTENTE desse paciente (nunca cria uma nova). Se o paciente tiver mais de uma consulta futura, pergunte qual antes de chamar — ou chame sem appointmentId pra ferramenta te dizer se precisa perguntar.',
+        parameters: {
+          type: 'object',
+          properties: {
+            newDate: { type: 'string', description: 'Nova data no formato YYYY-MM-DD' },
+            newTime: { type: 'string', description: 'Novo horário no formato HH:MM' },
+            appointmentId: { type: 'string', description: 'id da consulta a alterar, se já souber (de list_my_appointments)' },
+          },
+          required: ['newDate', 'newTime'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'cancel_appointment',
+        description: 'Cancela uma consulta JÁ EXISTENTE desse paciente. Se o paciente tiver mais de uma consulta futura, pergunte qual antes.',
+        parameters: {
+          type: 'object',
+          properties: {
+            appointmentId: { type: 'string', description: 'id da consulta a cancelar, se já souber (de list_my_appointments)' },
+            reason: { type: 'string', description: 'Motivo do cancelamento, se o paciente informar (opcional)' },
+          },
+          required: [],
         },
       },
     },
@@ -316,24 +593,33 @@ export async function handleAiAgentMessage(params: {
   }
 
   const existingPatient = await findPatientByPhone(prisma, doctorId, normalizedPhone)
+  // Resolvido UMA vez aqui e reusado por todas as ferramentas de agenda/
+  // documento abaixo — nenhuma delas re-resolve paciente por conta própria,
+  // então nenhuma corre o risco de agir sobre o cadastro de outra pessoa.
+  let patientId: string | null = existingPatient?.id ?? null
   if (!existingPatient) {
-    await prisma.patient.create({
-      data: {
-        name: isUnresolvedLid ? 'Novo contato (WhatsApp)' : `Novo contato (${contactPhone})`,
-        phone: normalizePatientPhone(normalizedPhone),
-        doctorId,
-        roomId: room?.id ?? null,
-        status: 'PRE_CADASTRO',
-        origin: 'CHATBOT',
-        leadStatus: 'NOVO',
-      },
-    }).catch(err => console.error('[ai-agent-engine] falha ao criar lead no primeiro contato:', err))
+    try {
+      const created = await prisma.patient.create({
+        data: {
+          name: isUnresolvedLid ? 'Novo contato (WhatsApp)' : `Novo contato (${contactPhone})`,
+          phone: normalizePatientPhone(normalizedPhone),
+          doctorId,
+          roomId: room?.id ?? null,
+          status: 'PRE_CADASTRO',
+          origin: 'CHATBOT',
+          leadStatus: 'NOVO',
+        },
+      })
+      patientId = created.id
+    } catch (err) {
+      console.error('[ai-agent-engine] falha ao criar lead no primeiro contato:', err)
+    }
   }
 
   let systemContent = chatbot.systemPrompt
-  systemContent += `\n\n---\n# REGRAS DE CONVERSA (sempre válidas, independente do restante do prompt)\n- Leia o histórico da conversa antes de responder. Nunca repita uma pergunta, oferta ou instrução que o paciente já respondeu ou que já foi concluída (ex: depois de confirmar um agendamento, não volte a perguntar sobre horários).\n- Se a última mensagem do paciente for só um agradecimento ou encerramento (ex: "obrigado", "ok", "valeu"), responda de forma breve e natural, sem reabrir assuntos já resolvidos.\n- Mensagens curtas, no estilo de WhatsApp — evite blocos de texto longos. Uma pergunta por vez.`
+  systemContent += `\n\n---\n# REGRAS DE CONVERSA (sempre válidas, independente do restante do prompt)\n- Leia o histórico da conversa antes de responder. Nunca repita uma pergunta, oferta ou instrução que o paciente já respondeu ou que já foi concluída (ex: depois de confirmar um agendamento, não volte a perguntar sobre horários).\n- Se a última mensagem do paciente for só um agradecimento ou encerramento (ex: "obrigado", "ok", "valeu"), responda de forma breve e natural, sem reabrir assuntos já resolvidos.\n- Mensagens curtas, no estilo de WhatsApp — evite blocos de texto longos. Uma pergunta por vez.\n- Pra entregar um documento (atestado, declaração etc), use só send_ready_document — nunca escreva ou invente o conteúdo de um documento você mesmo.`
   if (room) {
-    systemContent += `\n\n---\n# HORÁRIO DE FUNCIONAMENTO DA CLÍNICA\n${describeRoomSchedule(room)}\nData e hora atual: ${getLocalDateInTz().toLocaleString('pt-BR')}\nUse a ferramenta check_availability antes de propor um horário, e create_appointment só depois que o paciente confirmar nome, data e horário. Nunca invente horários — use sempre o resultado da ferramenta.`
+    systemContent += `\n\n---\n# HORÁRIO DE FUNCIONAMENTO DA CLÍNICA\n${describeRoomSchedule(room)}\nData e hora atual: ${getLocalDateInTz().toLocaleString('pt-BR')}\nUse a ferramenta check_availability antes de propor um horário, e create_appointment só depois que o paciente confirmar nome, data e horário. Nunca invente horários — use sempre o resultado da ferramenta.\nSe o paciente quer ALTERAR ou CANCELAR uma consulta que já existe, use reschedule_appointment ou cancel_appointment — nunca create_appointment de novo (isso cria uma segunda consulta em vez de mudar a primeira). Se não tiver certeza de qual consulta ele quer mexer, use list_my_appointments primeiro.`
   }
 
   const history = await prisma.aiAgentMessage.findMany({
@@ -346,7 +632,9 @@ export async function handleAiAgentMessage(params: {
   await prisma.aiAgentMessage.create({ data: { chatbotId, contactPhone: normalizedPhone, role: 'user', content: messageText } })
 
   const messages: AiMessage[] = [{ role: 'system', content: systemContent }, ...historyMessages, { role: 'user', content: messageText }]
-  const tools = room ? buildTools() : undefined
+  // Ferramentas de documento ficam disponíveis mesmo sem sala vinculada —
+  // não dependem de agenda. As de agenda continuam exigindo `room`.
+  const tools = buildTools(!!room)
 
   // Se a IA falhar ou o loop de ferramentas esgotar sem produzir uma
   // resposta final, o paciente não pode simplesmente ficar sem resposta
@@ -363,17 +651,35 @@ export async function handleAiAgentMessage(params: {
           let args: Record<string, unknown> = {}
           try { args = JSON.parse(call.function.arguments || '{}') } catch { /* ignore */ }
 
-          let toolResult = 'Ferramenta indisponível — sem sala vinculada a este agente.'
-          if (room) {
-            if (call.function.name === 'check_availability') {
-              const slots = await checkAvailability(doctorId, room, String(args.date))
-              toolResult = slots.length > 0
-                ? `Horários disponíveis em ${args.date}: ${slots.join(', ')}`
-                : `Nenhum horário disponível em ${args.date}. Sugira outra data ao paciente.`
-            } else if (call.function.name === 'create_appointment') {
-              const outcome = await createAppointmentTool(doctorId, room, args as unknown as CreateAppointmentArgs)
-              toolResult = outcome.message
-            }
+          const noPatientMsg = 'Não consegui localizar o cadastro do paciente ainda — peça pra ele mandar outra mensagem em instantes.'
+          let toolResult = 'Ferramenta desconhecida.'
+
+          if (call.function.name === 'list_ready_documents') {
+            toolResult = patientId ? await listReadyDocumentsTool(doctorId, patientId) : noPatientMsg
+          } else if (call.function.name === 'send_ready_document') {
+            toolResult = !patientId
+              ? noPatientMsg
+              : (await sendReadyDocumentTool(doctorId, patientId, chatbotId, contactPhone, deliveryJid, args as SendDocArgs)).message
+          } else if (!room) {
+            toolResult = 'Ferramenta indisponível — sem sala vinculada a este agente.'
+          } else if (call.function.name === 'check_availability') {
+            const slots = await checkAvailability(doctorId, room, String(args.date))
+            toolResult = slots.length > 0
+              ? `Horários disponíveis em ${args.date}: ${slots.join(', ')}`
+              : `Nenhum horário disponível em ${args.date}. Sugira outra data ao paciente.`
+          } else if (call.function.name === 'create_appointment') {
+            const outcome = await createAppointmentTool(doctorId, room, args as unknown as CreateAppointmentArgs)
+            toolResult = outcome.message
+          } else if (call.function.name === 'list_my_appointments') {
+            toolResult = patientId ? await listAppointmentsTool(doctorId, patientId) : noPatientMsg
+          } else if (call.function.name === 'reschedule_appointment') {
+            toolResult = !patientId
+              ? noPatientMsg
+              : (await rescheduleAppointmentTool(doctorId, room, patientId, args as unknown as RescheduleArgs)).message
+          } else if (call.function.name === 'cancel_appointment') {
+            toolResult = !patientId
+              ? noPatientMsg
+              : (await cancelAppointmentTool(doctorId, patientId, args as unknown as CancelArgs)).message
           }
           messages.push({ role: 'tool', tool_call_id: call.id, content: toolResult })
         }

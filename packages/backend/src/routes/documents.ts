@@ -46,6 +46,46 @@ function fillTemplate(content: string, vars: Record<string, string>): string {
   )
 }
 
+// Compartilhado entre /:id/emit (envia na hora) e /:id/generate (deixa
+// pronto pra o Agente de IA entregar depois) — resolve template+paciente e
+// devolve o texto já preenchido, idêntico nos dois fluxos.
+async function resolveFilledDocument(doctorId: string, templateId: string, patientId: string, variables: Record<string, string>) {
+  const template = await prisma.documentTemplate.findUnique({ where: { id: templateId } })
+  if (!template || template.doctorId !== doctorId) return { error: 'TEMPLATE_NOT_FOUND' as const }
+
+  const [patient, doctor] = await Promise.all([
+    prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, name: true, phone: true, cpf: true, rg: true, address: true },
+    }),
+    prisma.user.findUnique({
+      where: { id: doctorId },
+      select: { name: true, crm: true, certNumber: true, specialty: true },
+    }),
+  ])
+  if (!patient) return { error: 'PATIENT_NOT_FOUND' as const }
+
+  const todayFormatted = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const systemVarMap: Record<string, string> = {
+    paciente:             patient.name,
+    nome_paciente:        patient.name,
+    nome_contratante:     patient.name,
+    medico:               doctor?.name ?? '',
+    nome_profissional:    doctor?.name ?? '',
+    crm:                  doctor?.crm ?? '',
+    registro_crp:         doctor?.certNumber ?? doctor?.crm ?? '',
+    especialidade:        doctor?.specialty ?? '',
+    data:                 todayFormatted,
+    data_hoje:            todayFormatted,
+    cpf_contratante:      patient.cpf ?? '',
+    rg_contratante:       patient.rg ?? '',
+    endereco_contratante: patient.address ?? '',
+  }
+  const allVarMap: Record<string, string> = { ...systemVarMap, ...variables }
+
+  return { template, patient, filledContent: fillTemplate(template.content, allVarMap) }
+}
+
 router.get('/', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getEffectiveDoctorId(req)
@@ -162,24 +202,13 @@ router.post('/:id/emit', async (req: AuthRequest, res) => {
       return
     }
 
-    const template = await prisma.documentTemplate.findUnique({ where: { id } })
-    if (!template || template.doctorId !== doctorId) {
-      res.status(404).json({ message: 'Documento não encontrado' })
+    const resolved = await resolveFilledDocument(doctorId, id, patientId, variables)
+    if ('error' in resolved) {
+      res.status(404).json({ message: resolved.error === 'TEMPLATE_NOT_FOUND' ? 'Documento não encontrado' : 'Paciente não encontrado' })
       return
     }
-
-    const [patient, doctor] = await Promise.all([
-      prisma.patient.findUnique({
-        where: { id: patientId },
-        select: { id: true, name: true, phone: true, cpf: true, rg: true, address: true },
-      }),
-      prisma.user.findUnique({
-        where: { id: doctorId },
-        select: { name: true, crm: true, certNumber: true, specialty: true },
-      }),
-    ])
-
-    if (!patient?.phone) {
+    const { patient, filledContent } = resolved
+    if (!patient.phone) {
       res.status(400).json({ message: 'Paciente não encontrado ou sem telefone cadastrado' })
       return
     }
@@ -218,32 +247,6 @@ router.post('/:id/emit', async (req: AuthRequest, res) => {
       return
     }
 
-    // Monta mapa de variáveis de sistema (auto-preenchidas)
-    const todayFormatted = new Date().toLocaleDateString('pt-BR', {
-      day: '2-digit', month: '2-digit', year: 'numeric',
-    })
-    const systemVarMap: Record<string, string> = {
-      paciente:             patient.name,
-      nome_paciente:        patient.name,
-      nome_contratante:     patient.name,
-      medico:               doctor?.name ?? '',
-      nome_profissional:    doctor?.name ?? '',
-      crm:                  doctor?.crm ?? '',
-      registro_crp:         doctor?.certNumber ?? doctor?.crm ?? '',
-      especialidade:        doctor?.specialty ?? '',
-      data:                 todayFormatted,
-      data_hoje:            todayFormatted,
-      cpf_contratante:      patient.cpf ?? '',
-      rg_contratante:       patient.rg ?? '',
-      endereco_contratante: patient.address ?? '',
-    }
-
-    // Mescla variáveis de sistema com as variáveis custom enviadas pelo usuário
-    const allVarMap: Record<string, string> = { ...systemVarMap, ...variables }
-
-    // Preenche o template com todas as variáveis
-    const filledContent = fillTemplate(template.content, allVarMap)
-
     // Envia o documento completo via WhatsApp
     await sendLightMessage(
       instance,
@@ -261,6 +264,54 @@ router.post('/:id/emit', async (req: AuthRequest, res) => {
       return
     }
     console.error('[documents] POST /:id/emit', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// Preenche o template e deixa pronto pra entrega posterior (não envia na
+// hora) — hoje consumido pelo Agente de IA quando o paciente pede um
+// documento pelo WhatsApp (ver send_ready_document em ai-agent-engine.ts).
+// Conteúdo fica congelado: editar o template depois não muda o que já foi
+// gerado aqui.
+router.post('/:id/generate', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { patientId, variables = {} } = z.object({
+      patientId: z.string().min(1),
+      variables: z.record(z.string()).optional().default({}),
+    }).parse(req.body)
+
+    const doctorId = await getEffectiveDoctorId(req)
+    if (!doctorId) {
+      res.status(400).json({ message: 'Não foi possível identificar o médico responsável' })
+      return
+    }
+
+    const resolved = await resolveFilledDocument(doctorId, id, patientId, variables)
+    if ('error' in resolved) {
+      res.status(404).json({ message: resolved.error === 'TEMPLATE_NOT_FOUND' ? 'Documento não encontrado' : 'Paciente não encontrado' })
+      return
+    }
+
+    const doc = await prisma.generatedDocument.create({
+      data: {
+        doctorId,
+        patientId: resolved.patient.id,
+        templateId: resolved.template.id,
+        name: resolved.template.name,
+        content: resolved.filledContent,
+        status: 'READY',
+        createdByUserId: req.user!.userId,
+      },
+    })
+
+    res.status(201).json(doc)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    console.error('[documents] POST /:id/generate', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
