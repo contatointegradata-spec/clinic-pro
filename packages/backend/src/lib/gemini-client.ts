@@ -10,7 +10,11 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models
 
 type GeminiPart =
   | { text: string }
-  | { functionCall: { name: string; args: Record<string, unknown> } }
+  // thoughtSignature: modelos 3.x da Gemini ("thinking") anexam isso em toda
+  // functionCall que devolvem e EXIGEM o mesmo valor de volta quando a gente
+  // reenvia essa chamada no turno seguinte — sem isso a Gemini responde 400
+  // "Function call is missing a thought_signature in functionCall parts".
+  | { functionCall: { name: string; args: Record<string, unknown> }; thoughtSignature?: string }
   | { functionResponse: { name: string; response: Record<string, unknown> } }
 
 interface GeminiContent {
@@ -57,6 +61,7 @@ function toGeminiContents(messages: AiMessage[]): { systemInstruction?: { parts:
           role: 'model',
           parts: m.tool_calls.map(tc => ({
             functionCall: { name: tc.function.name, args: JSON.parse(tc.function.arguments || '{}') },
+            ...(tc.thoughtSignature ? { thoughtSignature: tc.thoughtSignature } : {}),
           })),
         })
       } else {
@@ -150,13 +155,14 @@ export async function geminiChatCompletion(
       .filter((p): p is { text: string } => 'text' in p)
       .map(p => p.text)
     const functionCallParts = parts
-      .filter((p): p is { functionCall: { name: string; args: Record<string, unknown> } } => 'functionCall' in p)
+      .filter((p): p is { functionCall: { name: string; args: Record<string, unknown> }; thoughtSignature?: string } => 'functionCall' in p)
 
     const tool_calls = functionCallParts.length > 0
       ? functionCallParts.map(p => ({
           id: p.functionCall.name,
           type: 'function' as const,
           function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args ?? {}) },
+          thoughtSignature: p.thoughtSignature,
         }))
       : undefined
 

@@ -8,6 +8,12 @@ export interface AiToolCall {
   id: string
   type: 'function'
   function: { name: string; arguments: string }
+  // Opaco, específico da Gemini (modelos 3.x "thinking"): ela anexa isso em
+  // toda functionCall que devolve e exige o mesmo valor de volta quando a
+  // gente reenvia essa chamada no turno seguinte — sem isso ela rejeita a
+  // requisição com "Function call is missing a thought_signature". Ver
+  // gemini-client.ts. Outros provedores simplesmente não preenchem isso.
+  thoughtSignature?: string
 }
 
 export interface AiMessage {
