@@ -23,6 +23,16 @@ function altNineDigitVariant(phone55: string): string | null {
   return null
 }
 
+// Todas as variantes de dígito (com/sem o 9º dígito) que correspondem ao
+// mesmo telefone real — use pra montar filtros `in` que não percam contato
+// por essa ambiguidade (ex: casar Patient.phone com AiAgentMessage.contactPhone
+// gravados antes dessa normalização existir).
+export function phoneVariants(raw: string): string[] {
+  const primary = normalizePatientPhone(raw)
+  const alt = altNineDigitVariant(primary)
+  return alt ? [primary, alt] : [primary]
+}
+
 type PatientFindClient = PrismaClient | Prisma.TransactionClient
 
 // Busca um paciente pelo telefone tentando o formato exato e, se não achar,

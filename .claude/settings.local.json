@@ -100,10 +100,21 @@
       "Bash(tee /tmp/backend_tsc.log)",
       "Bash(tee /tmp/frontend_tsc.log)",
       "Bash(tee /tmp/backend_tsc2.log)",
-      "Bash(tee /tmp/frontend_tsc2.log)"
+      "Bash(tee /tmp/frontend_tsc2.log)",
+      "Bash(grep -rohE \"https?://[a-zA-Z0-9.-]+\\\\.[a-zA-Z]{2,}\" packages/frontend/src --include=\"*.vue\" --include=\"*.ts\")",
+      "Bash(chmod +x /Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/scripts/backup-db.sh)",
+      "Bash(docker compose *)",
+      "Bash(git check-ignore *)",
+      "Bash(rm -rf nginx)",
+      "Bash(rm -f docs/ativar-https.md)",
+      "Bash(awk '/sock.ev.on..messages.upsert/,0' room-whatsapp.ts)",
+      "Bash(cd /Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/backend/src && echo \"=== leadStatus usage ===\" && grep -rn \"leadStatus\" --include=\"*.ts\" . ; echo \"=== AiAgentMessage model ===\" && grep -n \"model AiAgentMessage\" -A 15 ../prisma/schema.prisma)",
+      "Read(//Users/kelvenpereiradasilva/Documents/Programaçao/prisma/**)",
+      "Bash(sed -n '1,30p' tailwind.config.*)"
     ],
     "additionalDirectories": [
-      "c:\\clinicmedia\\packages\\backend\\prisma\\migrations"
+      "c:\\clinicmedia\\packages\\backend\\prisma\\migrations",
+      "/Users/kelvenpereiradasilva/Documents/Programaçao/clinicmedia/packages/frontend"
     ]
   }
 }

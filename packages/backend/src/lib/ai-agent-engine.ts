@@ -137,7 +137,6 @@ async function checkAvailability(doctorId: string, room: RoomForSchedule, dateSt
 
 interface CreateAppointmentArgs {
   patientName: string
-  phone: string
   date: string // YYYY-MM-DD
   time: string // HH:MM
   notes?: string
@@ -146,6 +145,8 @@ interface CreateAppointmentArgs {
 async function createAppointmentTool(
   doctorId: string,
   room: RoomForSchedule,
+  patientId: string | null,
+  canonicalPhone: string,
   args: CreateAppointmentArgs,
 ): Promise<{ success: boolean; message: string }> {
   const [y, m, d] = args.date.split('-').map(Number)
@@ -166,8 +167,6 @@ async function createAppointmentTool(
   if (await checkLunchOverlap(doctorId, slotStart, duration)) {
     return { success: false, message: 'Esse horário cai no intervalo de almoço do profissional — sugira outro horário.' }
   }
-
-  const normalizedPhone = args.phone.replace(/\D/g, '')
 
   // A checagem de conflito + criação da consulta rodam na mesma transação
   // (isolation Serializable) pra fechar a janela de corrida entre "confirmei
@@ -197,14 +196,18 @@ async function createAppointmentTool(
 
       // Normalmente já existe um Patient aqui — handleAiAgentMessage cria um
       // lead (leadStatus NOVO) desde a primeira mensagem, com nome
-      // placeholder. Agendar é a conversão de verdade: atualiza o nome real
+      // placeholder, e resolve esse MESMO patientId pelo telefone de quem
+      // está mandando a mensagem (nunca por um telefone que o modelo tenha
+      // digitado/extraído da conversa — isso já causou lead duplicado no
+      // CRM, com o agendamento "convertendo" um Patient diferente do lead
+      // original). Agendar é a conversão de verdade: atualiza o nome real
       // e avança o card pro "Convertido" no kanban do CRM automaticamente.
-      let patient = await findPatientByPhone(tx, doctorId, normalizedPhone)
+      let patient = patientId ? await tx.patient.findUnique({ where: { id: patientId } }) : null
       if (!patient) {
         patient = await tx.patient.create({
           data: {
             name: args.patientName,
-            phone: normalizePatientPhone(normalizedPhone),
+            phone: canonicalPhone,
             doctorId,
             roomId: room.id,
             status: 'PRE_CADASTRO',
@@ -505,12 +508,11 @@ function buildTools(includeScheduling: boolean): AiTool[] {
           type: 'object',
           properties: {
             patientName: { type: 'string', description: 'Nome completo do paciente' },
-            phone: { type: 'string', description: 'Telefone do paciente (com DDD)' },
             date: { type: 'string', description: 'Data no formato YYYY-MM-DD' },
             time: { type: 'string', description: 'Horário no formato HH:MM' },
             notes: { type: 'string', description: 'Observações adicionais (opcional)' },
           },
-          required: ['patientName', 'phone', 'date', 'time'],
+          required: ['patientName', 'date', 'time'],
         },
       },
     },
@@ -597,12 +599,20 @@ export async function handleAiAgentMessage(params: {
   // documento abaixo — nenhuma delas re-resolve paciente por conta própria,
   // então nenhuma corre o risco de agir sobre o cadastro de outra pessoa.
   let patientId: string | null = existingPatient?.id ?? null
+  // Telefone usado pra ENCADEAR a conversa (histórico + CRM) — sempre o
+  // mesmo valor canônico do cadastro do paciente (Patient.phone), nunca o
+  // dígito bruto que a WhatsApp reportou nesta mensagem específica. A
+  // WhatsApp pode reportar o mesmo contato com ou sem o 9º dígito em
+  // mensagens diferentes; se cada AiAgentMessage guardasse o que veio bruto,
+  // a mesma conversa real se partiria em duas (histórico perdido pro
+  // agente, e o CRM mostra "Nenhuma mensagem encontrada" num dos cartões).
+  let canonicalPhone = existingPatient?.phone ?? normalizePatientPhone(normalizedPhone)
   if (!existingPatient) {
     try {
       const created = await prisma.patient.create({
         data: {
           name: isUnresolvedLid ? 'Novo contato (WhatsApp)' : `Novo contato (${contactPhone})`,
-          phone: normalizePatientPhone(normalizedPhone),
+          phone: canonicalPhone,
           doctorId,
           roomId: room?.id ?? null,
           status: 'PRE_CADASTRO',
@@ -623,13 +633,13 @@ export async function handleAiAgentMessage(params: {
   }
 
   const history = await prisma.aiAgentMessage.findMany({
-    where: { chatbotId, contactPhone: normalizedPhone },
+    where: { chatbotId, contactPhone: canonicalPhone },
     orderBy: { createdAt: 'desc' },
     take: CONTEXT_MESSAGE_LIMIT,
   })
   const historyMessages: AiMessage[] = history.reverse().map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
-  await prisma.aiAgentMessage.create({ data: { chatbotId, contactPhone: normalizedPhone, role: 'user', content: messageText } })
+  await prisma.aiAgentMessage.create({ data: { chatbotId, contactPhone: canonicalPhone, role: 'user', content: messageText } })
 
   const messages: AiMessage[] = [{ role: 'system', content: systemContent }, ...historyMessages, { role: 'user', content: messageText }]
   // Ferramentas de documento ficam disponíveis mesmo sem sala vinculada —
@@ -668,7 +678,7 @@ export async function handleAiAgentMessage(params: {
               ? `Horários disponíveis em ${args.date}: ${slots.join(', ')}`
               : `Nenhum horário disponível em ${args.date}. Sugira outra data ao paciente.`
           } else if (call.function.name === 'create_appointment') {
-            const outcome = await createAppointmentTool(doctorId, room, args as unknown as CreateAppointmentArgs)
+            const outcome = await createAppointmentTool(doctorId, room, patientId, canonicalPhone, args as unknown as CreateAppointmentArgs)
             toolResult = outcome.message
           } else if (call.function.name === 'list_my_appointments') {
             toolResult = patientId ? await listAppointmentsTool(doctorId, patientId) : noPatientMsg
@@ -699,7 +709,7 @@ export async function handleAiAgentMessage(params: {
     finalText = FALLBACK_MESSAGE
   }
 
-  await prisma.aiAgentMessage.create({ data: { chatbotId, contactPhone: normalizedPhone, role: 'assistant', content: finalText } })
+  await prisma.aiAgentMessage.create({ data: { chatbotId, contactPhone: canonicalPhone, role: 'assistant', content: finalText } })
 
   const target = await resolveChatbotLightSendTarget(chatbotId)
   if (!target) return
@@ -716,7 +726,7 @@ export async function handleAiAgentMessage(params: {
     data: {
       doctorId,
       chatbotId,
-      phone: normalizedPhone,
+      phone: canonicalPhone,
       content: finalText,
       module: 'ai_agent',
       status: 'SENT',

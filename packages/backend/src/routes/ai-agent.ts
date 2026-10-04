@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { generateSystemPrompt } from '../lib/ai-agent-engine'
+import { phoneVariants } from '../lib/phone'
 import { AiProviderError } from '../lib/ai-client-types'
 
 const router = Router()
@@ -297,15 +298,22 @@ router.get('/:id/conversations', async (req: AuthRequest, res: Response) => {
     }
 
     const phones = Array.from(byPhone.keys())
+    // Mensagens antigas podem ter o contactPhone gravado numa variante
+    // (com/sem o 9º dígito) diferente da que ficou no cadastro do paciente —
+    // expande a busca pras duas pra não perder o nome/vínculo nesse caso.
+    const expandedPhones = Array.from(new Set(phones.flatMap(phoneVariants)))
 
     // Nome do contato: prioriza o nome real do paciente (dado no agendamento);
     // se ainda não agendou, cai pro nome do WhatsApp (pushName) já capturado
     // pela Conversation do inbox manual, que compartilha a mesma instância.
     const [patients, instance] = await Promise.all([
-      prisma.patient.findMany({ where: { doctorId, phone: { in: phones } }, select: { phone: true, name: true } }),
+      prisma.patient.findMany({ where: { doctorId, phone: { in: expandedPhones } }, select: { phone: true, name: true } }),
       prisma.whatsAppInstance.findUnique({ where: { chatbotId: agent.id }, select: { id: true } }),
     ])
-    const patientNameByPhone = new Map(patients.map(p => [p.phone, p.name]))
+    const patientNameByPhone = new Map<string, string>()
+    for (const p of patients) {
+      for (const variant of phoneVariants(p.phone)) patientNameByPhone.set(variant, p.name)
+    }
 
     let conversationNameByPhone = new Map<string, string>()
     if (instance) {
@@ -333,8 +341,12 @@ router.get('/:id/conversations/:phone', async (req: AuthRequest, res: Response) 
     const agent = await ownedAgent(doctorId, req.params.id)
     if (!agent) { res.status(404).json({ message: 'Agente não encontrado' }); return }
 
+    // Variantes com/sem o 9º dígito — mensagens antigas podem ter sido
+    // gravadas com um contactPhone que não bate byte a byte com o telefone
+    // canônico do Patient (ver lib/phone.ts), então o match exato sozinho
+    // pode voltar vazio mesmo quando a conversa existe.
     const messages = await prisma.aiAgentMessage.findMany({
-      where: { chatbotId: agent.id, contactPhone: req.params.phone },
+      where: { chatbotId: agent.id, contactPhone: { in: phoneVariants(req.params.phone) } },
       orderBy: { createdAt: 'asc' },
     })
     res.json(messages)
