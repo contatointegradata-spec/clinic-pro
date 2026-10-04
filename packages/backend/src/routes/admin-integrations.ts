@@ -149,13 +149,29 @@ function describeAiTestError(error: unknown): string {
   return error instanceof Error ? error.message : 'Erro inesperado'
 }
 
-// Testa os dois formatos de chamada que o Agente de IA realmente usa:
+// Testa os três formatos de chamada que o Agente de IA realmente usa, nessa
+// ordem:
 // 1) simples (sem prompt de sistema/tools) — igual "Gerar e Ativar Prompt
-//    Personalizado"; 2) com prompt de sistema + tools — igual o atendimento
-// de verdade no WhatsApp (check_availability/create_appointment). Testar só
-// o formato (1) não pega problema que só aparece no formato (2).
+//    Personalizado";
+// 2) com prompt de sistema + tools declaradas, mas sem forçar o uso — só
+//    confirma que a Gemini aceita o formato da declaração;
+// 3) o ciclo completo de verdade: a IA chama a ferramenta, a gente manda o
+//    resultado de volta (functionResponse) e pede a resposta final — isso é
+//    exatamente o que handleAiAgentMessage faz no WhatsApp quando o paciente
+//    pede um agendamento. Os testes (1) e (2) passarem não garante que (3)
+//    funciona — é um request diferente (o 2º turno, com o resultado da
+//    ferramenta), e é onde o atendimento real está travando.
+const testTool = {
+  type: 'function' as const,
+  function: {
+    name: 'ferramenta_de_teste',
+    description: 'Ferramenta de teste — sempre chame com x="teste" quando pedirem.',
+    parameters: { type: 'object', properties: { x: { type: 'string' } }, required: ['x'] },
+  },
+}
+
 router.post('/ai/test', async (_req: AuthRequest, res) => {
-  const result: { basic?: string; withToolsAndSystem?: string } = {}
+  const result: { basic?: string; toolsDeclared?: string; toolRoundTrip?: string } = {}
   let success = true
 
   try {
@@ -167,32 +183,36 @@ router.post('/ai/test', async (_req: AuthRequest, res) => {
   }
 
   try {
-    const withTools = await geminiChatCompletion(
-      [
-        { role: 'system', content: 'Você é um assistente de teste. Nunca chame nenhuma ferramenta — apenas responda com texto.' },
-        { role: 'user', content: 'Responda apenas "ok".' },
-      ],
-      [{
-        type: 'function',
-        function: {
-          name: 'ferramenta_de_teste',
-          description: 'Ferramenta só pra validar que a IA aceita o formato de tools — não deve ser chamada.',
-          parameters: { type: 'object', properties: { x: { type: 'string' } }, required: [] },
-        },
-      }],
-      0.4,
-    )
-    result.withToolsAndSystem = withTools.content?.trim() || (withTools.tool_calls ? '(a IA chamou a ferramenta de teste)' : '(sem texto)')
+    const messages: Parameters<typeof geminiChatCompletion>[0] = [
+      { role: 'system', content: 'Você é um assistente de teste com acesso a ferramentas.' },
+      { role: 'user', content: 'Chame agora a ferramenta ferramenta_de_teste com x="teste".' },
+    ]
+    const first = await geminiChatCompletion(messages, [testTool], 0.2)
+    result.toolsDeclared = 'OK (chamada aceita)'
+
+    const call = first.tool_calls?.[0]
+    if (!call) {
+      result.toolRoundTrip = `(a IA não chamou a ferramenta — respondeu texto: "${first.content?.trim() || '(vazio)'}" — não dá pra testar o 2º turno)`
+    } else {
+      messages.push({ role: 'assistant', content: first.content ?? '', tool_calls: first.tool_calls })
+      messages.push({ role: 'tool', tool_call_id: call.id, content: 'ok' })
+      const second = await geminiChatCompletion(messages, [testTool], 0.2)
+      result.toolRoundTrip = `OK — resposta final: "${second.content?.trim() || '(sem texto)'}"`
+    }
   } catch (error) {
     success = false
-    result.withToolsAndSystem = `ERRO: ${describeAiTestError(error)}`
+    const detail = describeAiTestError(error)
+    result.toolsDeclared = result.toolsDeclared ?? `ERRO: ${detail}`
+    result.toolRoundTrip = result.toolRoundTrip ?? `ERRO: ${detail}`
   }
 
   if (!success) console.error('[admin/integrations/ai/test] falha:', result)
 
-  const message = success
-    ? `Conexão OK nos dois formatos — chamada simples: "${result.basic}" · com prompt de sistema e tools: "${result.withToolsAndSystem}"`
-    : `Chamada simples: ${result.basic} · Com prompt de sistema e tools: ${result.withToolsAndSystem}`
+  const message = [
+    `Chamada simples: ${result.basic}`,
+    `Declaração de tools: ${result.toolsDeclared}`,
+    `Ciclo completo da ferramenta (2º turno): ${result.toolRoundTrip}`,
+  ].join(' · ')
 
   res.json({ success, message })
 })
