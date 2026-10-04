@@ -13,6 +13,7 @@ const Usuarios = () => import('../pages/Usuarios.vue')
 const MinhasSalas = () => import('../pages/MinhasSalas.vue')
 const WhatsappChatbot = () => import('../pages/WhatsappChatbot.vue')
 const CRM = () => import('../pages/CRM.vue')
+const Estoque = () => import('../pages/Estoque.vue')
 
 const FinanceiroResumo = () => import('../pages/financeiro/Resumo.vue')
 const FluxoCaixa = () => import('../pages/financeiro/FluxoCaixa.vue')
@@ -79,6 +80,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'agenda', component: Agenda, meta: { label: 'Agenda' } },
       { path: 'pacientes', component: Pacientes, meta: { label: 'Pacientes' } },
       { path: 'prontuario', component: Prontuario, meta: { label: 'Prontuário' } },
+      { path: 'estoque', component: Estoque, meta: { label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
 
       { path: 'financeiro', redirect: '/financeiro/resumo' },
       { path: 'financeiro/resumo', component: FinanceiroResumo, meta: { label: 'Resumo', secretaryPermission: 'financeiro' } },

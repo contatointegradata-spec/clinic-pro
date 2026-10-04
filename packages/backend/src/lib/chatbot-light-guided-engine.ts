@@ -1,4 +1,5 @@
-import { PrismaClient } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { findPatientByPhone, normalizePatientPhone } from './phone'
 import { prisma } from './prisma'
 import { sendLightMessage } from './chatbot-light-engine'
 import { resolveTemplateVariables } from './chatbot-light-variables'
@@ -357,9 +358,7 @@ export async function createAppointmentFromChatbot(params: {
     }
     
     if (!patient) {
-      patient = await tx.patient.findFirst({
-        where: { doctorId, phone: cleanPhone }
-      })
+      patient = await findPatientByPhone(tx, doctorId, cleanPhone)
     }
 
     if (!patient) {
@@ -367,7 +366,7 @@ export async function createAppointmentFromChatbot(params: {
         data: {
           doctorId,
           name: patientName,
-          phone: cleanPhone,
+          phone: normalizePatientPhone(cleanPhone),
           cpf: patientCpf || null,
           active: true
         }
@@ -1769,7 +1768,7 @@ export async function processGuidedStep(
 async function createLeadPatient(
   session: any,
   doctorId: string,
-  db: PrismaClient,
+  db: Prisma.TransactionClient,
   extraNotes?: string
 ): Promise<void> {
   const collected = session.collectedData
@@ -1777,17 +1776,17 @@ async function createLeadPatient(
     : {}
 
   const leadName: string = collected.leadName || 'Não informado'
-  const leadPhone: string = (collected.leadPhone || '').replace(/\D/g, '')
+  const leadPhone: string = normalizePatientPhone(collected.leadPhone || '')
   const isFirstTime: boolean = collected.isFirstTime !== false // default true
 
   const firstTimeNote = isFirstTime ? 'Primeira consulta.' : 'Já tem histórico.'
   const simNote = extraNotes ? ` ${extraNotes}` : ''
   const notes = `Interesse via WhatsApp. ${firstTimeNote}${simNote}`
 
-  // Verificar se já existe paciente com esse telefone para esse médico
-  const existing = await db.patient.findFirst({
-    where: { doctorId, phone: leadPhone }
-  })
+  // Verificar se já existe paciente com esse telefone para esse médico —
+  // compara com e sem o 9º dígito (celular brasileiro), não só o formato
+  // exato, senão um cadastro antigo sem o 9 vira "paciente novo" errado.
+  const existing = await findPatientByPhone(db, doctorId, leadPhone)
 
   if (existing) {
     // Paciente já cadastrado: apenas finaliza a sessão com nota
@@ -1866,7 +1865,7 @@ async function createLeadPatient(
 export async function startLeadCaptureFlow(
   instance: any,
   session: any,
-  db: PrismaClient
+  db: Prisma.TransactionClient
 ): Promise<void> {
   await db.lightFlowSession.update({
     where: { id: session.id },
@@ -1899,7 +1898,7 @@ export async function processLeadCaptureStep(
   instance: any,
   session: any,
   incomingText: string,
-  db: PrismaClient
+  db: Prisma.TransactionClient
 ): Promise<void> {
   const contactPhone = session.contactPhone
   const doctorId = instance.doctorId

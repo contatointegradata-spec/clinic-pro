@@ -4,6 +4,7 @@ import { AiMessage, AiTool } from './ai-client-types'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid, checkPhoneOnWhatsApp } from './room-whatsapp'
 import { checkLunchOverlap } from '../routes/appointments'
 import { getLocalDateInTz } from './chatbot-light-guided-engine'
+import { findPatientByPhone, normalizePatientPhone } from './phone'
 
 const MAX_TOOL_ITERATIONS = 3
 const CONTEXT_MESSAGE_LIMIT = 20
@@ -196,12 +197,12 @@ async function createAppointmentTool(
       // lead (leadStatus NOVO) desde a primeira mensagem, com nome
       // placeholder. Agendar é a conversão de verdade: atualiza o nome real
       // e avança o card pro "Convertido" no kanban do CRM automaticamente.
-      let patient = await tx.patient.findFirst({ where: { doctorId, phone: normalizedPhone } })
+      let patient = await findPatientByPhone(tx, doctorId, normalizedPhone)
       if (!patient) {
         patient = await tx.patient.create({
           data: {
             name: args.patientName,
-            phone: normalizedPhone,
+            phone: normalizePatientPhone(normalizedPhone),
             doctorId,
             roomId: room.id,
             status: 'PRE_CADASTRO',
@@ -314,12 +315,12 @@ export async function handleAiAgentMessage(params: {
     console.warn('[ai-agent-engine] telefone real não resolvido pra este contato (lid sem senderPn) — lead criado sem telefone de verdade.', { chatbotId, contactPhone })
   }
 
-  const existingPatient = await prisma.patient.findFirst({ where: { doctorId, phone: normalizedPhone } })
+  const existingPatient = await findPatientByPhone(prisma, doctorId, normalizedPhone)
   if (!existingPatient) {
     await prisma.patient.create({
       data: {
         name: isUnresolvedLid ? 'Novo contato (WhatsApp)' : `Novo contato (${contactPhone})`,
-        phone: normalizedPhone,
+        phone: normalizePatientPhone(normalizedPhone),
         doctorId,
         roomId: room?.id ?? null,
         status: 'PRE_CADASTRO',

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard, Calendar, Users, DollarSign, UserCog, LogOut, ChevronRight,
   Settings, ClipboardList, MessageSquare, Database, PanelLeftClose, PanelLeft,
-  ShieldCheck, Building2, CreditCard, Webhook, Kanban,
+  ShieldCheck, Building2, CreditCard, Webhook, Kanban, Package,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
 import { useSecretaryPermissions } from '../../composables/useSecretaryPermissions'
@@ -43,6 +43,7 @@ const navItems = [
   { to: '/agenda', icon: Calendar, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
   { to: '/pacientes', icon: Users, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
   { to: '/prontuario', icon: ClipboardList, label: 'Prontuário', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+  { to: '/estoque', icon: Package, label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
   { to: '/financeiro', icon: DollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'financeiro' },
   { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'], secretaryPermission: undefined },
 ]

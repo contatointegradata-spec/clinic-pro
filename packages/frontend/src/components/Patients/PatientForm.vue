@@ -51,7 +51,12 @@ const typeLabel: Record<string, string> = {
 }
 
 function formatBrazilPhone(value: string): string {
-  const digits = value.replace(/\D/g, '').slice(0, 11)
+  let digits = value.replace(/\D/g, '')
+  // Telefone salvo vem com DDI (55) na frente — mesmo formato que o backend
+  // usa pra casar com o telefone do WhatsApp (ver lib/phone.ts). Pra exibir/
+  // editar, mostra só DDD+número, sem o 55.
+  if (digits.length >= 12 && digits.startsWith('55')) digits = digits.slice(2)
+  digits = digits.slice(0, 11)
   if (digits.length === 0) return ''
   if (digits.length <= 2) return `(${digits}`
   if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`

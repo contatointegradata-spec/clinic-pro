@@ -444,6 +444,31 @@ export interface PaymentMethod {
   createdAt: string
 }
 
+export interface Product {
+  id: string
+  doctorId: string
+  name: string
+  unit: string
+  quantity: number
+  minQuantity?: number | null
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface StockMovement {
+  id: string
+  productId: string
+  type: 'ENTRADA' | 'SAIDA'
+  quantity: number
+  reason?: string | null
+  appointmentId?: string | null
+  userId: string
+  createdAt: string
+  product?: { id: string; name: string; unit: string }
+  user?: { id: string; name: string }
+}
+
 export interface AppointmentType {
   id: string
   name: string

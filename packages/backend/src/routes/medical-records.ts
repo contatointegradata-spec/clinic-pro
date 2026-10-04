@@ -39,6 +39,15 @@ const recordSchema = z.object({
   objetivoClinico: z.string().optional().default(''),
   sintese:         z.string().optional().default(''),
   encaminhamento:  z.string().optional().default(''),
+  // Campos específicos de type: 'ANAMNESE' — ver buildAnamneseContent() logo
+  // abaixo. Nos demais tipos ficam vazios e não são usados.
+  queixaPrincipal:      z.string().optional().default(''),
+  historiaDoencaAtual:  z.string().optional().default(''),
+  antecedentesPessoais: z.string().optional().default(''),
+  antecedentesFamiliares: z.string().optional().default(''),
+  habitosVida:          z.string().optional().default(''),
+  exameFisico:           z.string().optional().default(''),
+  hipoteseDiagnostica:   z.string().optional().default(''),
   procedures:      z.array(procedureSchema).optional(),
 })
 
@@ -49,6 +58,26 @@ function buildContent(data: { objetivoClinico?: string; sintese?: string; encami
   if (data.objetivoClinico) parts.push(`Objetivo Clínico:\n${data.objetivoClinico}`)
   if (data.sintese) parts.push(`Síntese:\n${data.sintese}`)
   if (data.encaminhamento) parts.push(`Encaminhamento:\n${data.encaminhamento}`)
+  return parts.join('\n\n') || '(sem conteúdo)'
+}
+
+const ANAMNESE_FIELDS = {
+  queixaPrincipal: 'Queixa Principal',
+  historiaDoencaAtual: 'História da Doença Atual',
+  antecedentesPessoais: 'Antecedentes Pessoais',
+  antecedentesFamiliares: 'Antecedentes Familiares',
+  habitosVida: 'Hábitos de Vida',
+  exameFisico: 'Exame Físico',
+  hipoteseDiagnostica: 'Hipótese Diagnóstica / Conduta',
+} as const
+
+type AnamneseData = Record<keyof typeof ANAMNESE_FIELDS, string | undefined>
+
+function buildAnamneseContent(data: AnamneseData): string {
+  const parts: string[] = []
+  for (const [key, label] of Object.entries(ANAMNESE_FIELDS) as Array<[keyof typeof ANAMNESE_FIELDS, string]>) {
+    if (data[key]) parts.push(`${label}:\n${data[key]}`)
+  }
   return parts.join('\n\n') || '(sem conteúdo)'
 }
 
@@ -157,16 +186,23 @@ router.post('/', requireRole('ADMIN', 'DOCTOR', 'SECRETARY'), async (req: AuthRe
       return
     }
 
-    const { procedures, objetivoClinico, sintese, encaminhamento, ...rest } = data
+    const {
+      procedures, objetivoClinico, sintese, encaminhamento,
+      queixaPrincipal, historiaDoencaAtual, antecedentesPessoais, antecedentesFamiliares,
+      habitosVida, exameFisico, hipoteseDiagnostica,
+      ...rest
+    } = data
+    const anamneseData: AnamneseData = { queixaPrincipal, historiaDoencaAtual, antecedentesPessoais, antecedentesFamiliares, habitosVida, exameFisico, hipoteseDiagnostica }
+    const isAnamnese = rest.type === 'ANAMNESE'
 
     const record = await prisma.$transaction(async (tx) => {
       const created = await tx.medicalRecord.create({
         data: {
           ...rest,
           date: rest.date ? new Date(rest.date) : new Date(),
-          content: buildContent({ objetivoClinico, sintese, encaminhamento }),
-          specialtyType: 'GERAL',
-          specialtyData: { objetivoClinico, sintese, encaminhamento } as Prisma.InputJsonValue,
+          content: isAnamnese ? buildAnamneseContent(anamneseData) : buildContent({ objetivoClinico, sintese, encaminhamento }),
+          specialtyType: isAnamnese ? 'ANAMNESE' : 'GERAL',
+          specialtyData: (isAnamnese ? anamneseData : { objetivoClinico, sintese, encaminhamento }) as Prisma.InputJsonValue,
         },
       })
 
@@ -221,7 +257,14 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
   try {
     const { id } = req.params
     const data = recordSchema.parse(req.body)
-    const { procedures, objetivoClinico, sintese, encaminhamento, ...rest } = data
+    const {
+      procedures, objetivoClinico, sintese, encaminhamento,
+      queixaPrincipal, historiaDoencaAtual, antecedentesPessoais, antecedentesFamiliares,
+      habitosVida, exameFisico, hipoteseDiagnostica,
+      ...rest
+    } = data
+    const anamneseData: AnamneseData = { queixaPrincipal, historiaDoencaAtual, antecedentesPessoais, antecedentesFamiliares, habitosVida, exameFisico, hipoteseDiagnostica }
+    const isAnamnese = rest.type === 'ANAMNESE'
 
     const existing = await prisma.medicalRecord.findUnique({ where: { id } })
     if (!existing) {
@@ -248,9 +291,9 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res)
         data: {
           ...rest,
           date: rest.date ? new Date(rest.date) : undefined,
-          content: buildContent({ objetivoClinico, sintese, encaminhamento }),
-          specialtyType: 'GERAL',
-          specialtyData: { objetivoClinico, sintese, encaminhamento } as Prisma.InputJsonValue,
+          content: isAnamnese ? buildAnamneseContent(anamneseData) : buildContent({ objetivoClinico, sintese, encaminhamento }),
+          specialtyType: isAnamnese ? 'ANAMNESE' : 'GERAL',
+          specialtyData: (isAnamnese ? anamneseData : { objetivoClinico, sintese, encaminhamento }) as Prisma.InputJsonValue,
         },
       })
 

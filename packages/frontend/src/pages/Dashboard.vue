@@ -4,11 +4,11 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
   Calendar, Users, CheckCircle2, Clock, TrendingUp, Activity,
-  ArrowRight, Zap, Stethoscope, BarChart3,
+  ArrowRight, Zap, Stethoscope, BarChart3, Cake, MessageCircle,
 } from 'lucide-vue-next'
 import api from '../lib/api'
 import { useAuthStore } from '../stores/auth'
-import type { Appointment, AppointmentStats } from '../types'
+import type { Appointment, AppointmentStats, Patient } from '../types'
 import StatusBadge from '../components/ui/StatusBadge.vue'
 import { SkeletonStats } from '../components/ui'
 import { useQuery } from '../composables/useQuery'
@@ -26,6 +26,28 @@ const { data: todayAppointmentsData, isLoading: apptLoading } = useQuery<Appoint
   queryFn: () => api.get('/appointments/today').then(r => r.data),
 })
 const todayAppointments = computed(() => todayAppointmentsData.value ?? [])
+
+const { data: birthdaysData } = useQuery<Patient[]>({
+  key: 'birthdays-today',
+  queryFn: () => api.get('/patients/birthdays-today').then(r => r.data),
+})
+const birthdays = computed(() => birthdaysData.value ?? [])
+
+function ageOf(birthDate?: string | null): number | null {
+  if (!birthDate) return null
+  const bd = new Date(birthDate)
+  let age = today.getFullYear() - bd.getUTCFullYear()
+  const beforeBirthdayThisYear = (today.getMonth() + 1) < (bd.getUTCMonth() + 1) ||
+    ((today.getMonth() + 1) === (bd.getUTCMonth() + 1) && today.getDate() < bd.getUTCDate())
+  if (beforeBirthdayThisYear) age -= 1
+  return age
+}
+
+function birthdayWhatsAppLink(patient: Patient): string {
+  const digits = (patient.phone || '').replace(/\D/g, '')
+  const message = encodeURIComponent(`Olá ${patient.name.split(' ')[0]}! 🎉 Passando pra desejar um feliz aniversário! 🎂`)
+  return `https://wa.me/${digits}?text=${message}`
+}
 
 function getGreeting() {
   const h = new Date().getHours()
@@ -240,6 +262,39 @@ const quickLinks = [
                 </div>
                 <span class="text-sm font-bold text-primary-600 tabular-nums">{{ stats?.totalPatients ?? 0 }}</span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <div v-if="birthdays.length > 0" class="card">
+          <h3 class="font-semibold text-slate-900 mb-4 flex items-center gap-2 text-sm">
+            <div class="w-7 h-7 bg-pink-50 rounded-lg flex items-center justify-center">
+              <Cake class="w-3.5 h-3.5 text-pink-500" />
+            </div>
+            Aniversariantes de hoje
+          </h3>
+          <div class="space-y-2">
+            <div
+              v-for="p in birthdays" :key="p.id"
+              class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors"
+            >
+              <div class="w-8 h-8 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                {{ p.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() }}
+              </div>
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">{{ p.name }}</p>
+                <p v-if="ageOf(p.birthDate) !== null" class="text-xs text-slate-400">Completa {{ ageOf(p.birthDate) }} anos</p>
+              </div>
+              <a
+                v-if="p.phone"
+                :href="birthdayWhatsAppLink(p)"
+                target="_blank"
+                rel="noreferrer"
+                class="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center flex-shrink-0 hover:bg-emerald-100 transition-colors"
+                title="Mandar mensagem de parabéns"
+              >
+                <MessageCircle class="w-3.5 h-3.5" />
+              </a>
             </div>
           </div>
         </div>

@@ -305,13 +305,19 @@ const appointmentUpdateSchema = z.object({
   value: z.number().optional().nullable(),
   roomId: z.string().optional().nullable(),
   forceOverlap: z.boolean().optional(),
+  // Produtos do estoque usados nesta consulta — baixa automática só roda
+  // quando o status está sendo alterado pra COMPLETED (ver mais abaixo).
+  stockItems: z.array(z.object({
+    productId: z.string(),
+    quantity: z.coerce.number().int().positive(),
+  })).optional(),
 })
 
 router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const parsed = appointmentUpdateSchema.parse(req.body)
-    const { forceOverlap, ...parsedData } = parsed
+    const { forceOverlap, stockItems, ...parsedData } = parsed
     const data: Record<string, unknown> = { ...parsedData }
 
     if (data.date) data.date = new Date(data.date as string)
@@ -395,6 +401,49 @@ router.put('/:id', async (req: AuthRequest, res) => {
       if (hasOverlap) {
         res.status(409).json({ code: 'OVERLAP_WARNING', message: 'O horário de agendamento vai impactar o próximo atendimento. Confirma?' })
         return
+      }
+    }
+
+    // Baixa de estoque — roda ANTES de concluir a consulta (e numa
+    // transação) pra nunca deixar a consulta marcada como concluída com o
+    // estoque inconsistente: se faltar saldo de algum produto, a requisição
+    // inteira falha com 409 e nada muda, nem a consulta nem o estoque.
+    const willComplete = data.status === 'COMPLETED' && current?.status !== 'COMPLETED' && !current?.transaction
+    if (willComplete && stockItems && stockItems.length > 0) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          for (const item of stockItems) {
+            const product = await tx.product.findFirst({ where: { id: item.productId, doctorId: existing.doctorId } })
+            if (!product) throw new Error(`STOCK_NOT_FOUND:${item.productId}`)
+            if (product.quantity < item.quantity) throw new Error(`STOCK_INSUFFICIENT:${product.name}:${product.quantity}:${product.unit}`)
+
+            await tx.product.update({
+              where: { id: product.id },
+              data: { quantity: { decrement: item.quantity } },
+            })
+            await tx.stockMovement.create({
+              data: {
+                productId: product.id,
+                type: 'SAIDA',
+                quantity: item.quantity,
+                appointmentId: id,
+                userId: req.user!.userId,
+              },
+            })
+          }
+        })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : ''
+        if (message.startsWith('STOCK_INSUFFICIENT:')) {
+          const [, productName, available, unit] = message.split(':')
+          res.status(409).json({ message: `Estoque insuficiente de "${productName}" — disponível: ${available} ${unit}.` })
+          return
+        }
+        if (message.startsWith('STOCK_NOT_FOUND:')) {
+          res.status(409).json({ message: 'Um dos produtos selecionados não foi encontrado no estoque.' })
+          return
+        }
+        throw err
       }
     }
 

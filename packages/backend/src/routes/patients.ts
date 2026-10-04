@@ -4,23 +4,29 @@ import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { fireWebhooks } from '../lib/webhook'
 import { logAudit } from '../lib/secretaryAccess'
+import { findPatientByPhone, normalizePatientPhone } from '../lib/phone'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
+import { getLocalDateInTz } from '../lib/chatbot-light-guided-engine'
 
 const router = Router()
 router.use(authenticate)
 
+// phone/responsiblePhone normalizados aqui (DDI+DDD+número, só dígitos) —
+// único ponto de validação do form de paciente, então é o lugar certo pra
+// garantir que todo cadastro manual já entra no mesmo formato que o Agente
+// de IA usa pra casar telefone vindo do WhatsApp (ver lib/phone.ts).
 const patientSchema = z.object({
   name: z.string().min(2, 'Nome muito curto'),
   email: z.string().email('Email inválido').optional().or(z.literal('')),
-  phone: z.string().min(10, 'Telefone inválido'),
+  phone: z.string().min(10, 'Telefone inválido').transform(normalizePatientPhone),
   birthDate: z.string().optional(),
   cpf: z.string().optional(),
   rg: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional(),
   responsibleName: z.string().optional(),
-  responsiblePhone: z.string().optional(),
+  responsiblePhone: z.string().optional().transform(v => v ? normalizePatientPhone(v) : v),
   plans: z.array(z.object({
     healthPlanId: z.string(),
     value: z.number().optional(),
@@ -107,6 +113,42 @@ router.get('/', async (req: AuthRequest, res) => {
 })
 
 // ─── GET /patients/pre-registrations ─────────────────────────────────────────
+
+// ─── GET /patients/birthdays-today ───────────────────────────────────────────
+// Usado pelo card "Aniversariantes de hoje" do Dashboard. Mês/dia em
+// America/Sao_Paulo — não dá pra confiar no timezone do servidor pra "hoje".
+router.get('/birthdays-today', async (req: AuthRequest, res) => {
+  try {
+    const { doctorIds } = await resolveScope(req)
+    if (doctorIds !== null && doctorIds.length === 0) {
+      res.json([])
+      return
+    }
+
+    const where: Record<string, unknown> = { active: true, status: 'ATIVO', birthDate: { not: null } }
+    if (doctorIds !== null) where.doctorId = doctorIds.length === 1 ? doctorIds[0] : { in: doctorIds }
+
+    const candidates = await prisma.patient.findMany({
+      where,
+      select: { id: true, name: true, phone: true, birthDate: true },
+    })
+
+    const todayBR = getLocalDateInTz()
+    const todayMonth = todayBR.getMonth() + 1
+    const todayDay = todayBR.getDate()
+
+    const birthdays = candidates.filter(p => {
+      if (!p.birthDate) return false
+      const bd = new Date(p.birthDate)
+      return bd.getUTCMonth() + 1 === todayMonth && bd.getUTCDate() === todayDay
+    })
+
+    res.json(birthdays)
+  } catch (error) {
+    console.error('[patients] GET /birthdays-today', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
 
 // ─── GET /patients/check-duplicate ───────────────────────────────────────────
 
@@ -355,7 +397,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
 const preRegisterSchema = z.object({
   name: z.string().min(2, 'Nome muito curto'),
-  phone: z.string().min(10, 'Telefone inválido'),
+  phone: z.string().min(10, 'Telefone inválido').transform(normalizePatientPhone),
   cpf: z.string().optional(),
   birthDate: z.string().optional(),
   notes: z.string().optional(),
@@ -366,14 +408,14 @@ const preRegisterSchema = z.object({
 const completeRegistrationSchema = z.object({
   name: z.string().min(2).optional(),
   email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().min(10).optional(),
+  phone: z.string().min(10).optional().transform(v => v ? normalizePatientPhone(v) : v),
   birthDate: z.string().optional(),
   cpf: z.string().optional(),
   rg: z.string().optional(),
   address: z.string().optional(),
   notes: z.string().optional(),
   responsibleName: z.string().optional(),
-  responsiblePhone: z.string().optional(),
+  responsiblePhone: z.string().optional().transform(v => v ? normalizePatientPhone(v) : v),
   plans: z.array(z.object({
     healthPlanId: z.string(),
     value: z.number().optional(),
@@ -399,7 +441,7 @@ async function findDuplicatePatient(params: {
     if (byCpf) return { patient: byCpf, reason: 'cpf' as const }
   }
 
-  const byPhone = await prisma.patient.findFirst({ where: { ...where, phone } })
+  const byPhone = await findPatientByPhone(prisma, doctorId, phone)
   if (byPhone) return { patient: byPhone, reason: 'phone' as const }
 
   return null

@@ -7,6 +7,7 @@ import { ptBR } from 'date-fns/locale'
 import {
   ChevronLeft, ChevronRight, Plus, Calendar, Clock, Lock, X, MapPin,
   User as UserIcon, CalendarDays, LayoutList, AlertTriangle, Coffee, Settings,
+  StickyNote,
 } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
@@ -30,6 +31,7 @@ interface AppointmentSubmitData {
   notes?: string
   roomId?: string | null
   repeatCount?: number
+  stockItems?: { productId: string; quantity: number }[]
 }
 
 function getApptColor(status: string) {
@@ -1109,6 +1111,10 @@ const listRows = computed<{ day: Date; rows: ListRow[] }[]>(() => {
             <div class="flex items-center gap-1.5">
               <CalendarDays class="w-3 h-3 flex-shrink-0 text-slate-400" />
               <span>{{ format(parseISO(tooltip.appt.createdAt), "dd/MM/yyyy 'às' HH:mm") }}</span>
+            </div>
+            <div v-if="tooltip.appt.notes" class="flex items-start gap-1.5 pt-1 border-t border-slate-100">
+              <StickyNote class="w-3 h-3 flex-shrink-0 text-slate-400 mt-0.5" />
+              <span class="line-clamp-3">{{ tooltip.appt.notes }}</span>
             </div>
           </div>
           <StatusBadge :status="tooltip.appt.status" />

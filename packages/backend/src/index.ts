@@ -16,6 +16,7 @@ import roomRoutes from './routes/rooms'
 import documentRoutes from './routes/documents'
 import notificationRoutes from './routes/notifications'
 import paymentMethodRoutes from './routes/payment-methods'
+import stockRoutes from './routes/stock'
 import integrationRoutes from './routes/integrations'
 import integrationAddonRoutes from './routes/integration-addons'
 import chatbotLightRoutes from './routes/chatbot-light'
@@ -113,6 +114,7 @@ app.use('/api/rooms', authenticate, requireActiveSubscription, roomRoutes)
 app.use('/api/documents', authenticate, requireActiveSubscription, documentRoutes)
 app.use('/api/notifications', authenticate, requireActiveSubscription, notificationRoutes)
 app.use('/api/payment-methods', authenticate, requireActiveSubscription, paymentMethodRoutes)
+app.use('/api/stock', authenticate, requireActiveSubscription, stockRoutes)
 app.use('/api/integrations', authenticate, requireActiveSubscription, integrationRoutes)
 app.use('/api/integration-addons', authenticate, requireActiveSubscription, integrationAddonRoutes)
 app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLightRoutes)

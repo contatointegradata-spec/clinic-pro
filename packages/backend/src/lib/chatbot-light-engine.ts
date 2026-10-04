@@ -2,7 +2,7 @@ import NodeCache from 'node-cache'
 import { prisma } from './prisma'
 import { resolveWhatsAppContactIdentity } from './whatsapp'
 import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhatsAppJid, checkPhoneOnWhatsApp } from './room-whatsapp'
-import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep } from './chatbot-light-guided-engine'
+import { processGuidedStep, interpolateTemplate, startLeadCaptureFlow, processLeadCaptureStep, getLocalDateInTz } from './chatbot-light-guided-engine'
 import { resolveTemplateVariables, resolveMessageText, TemplateContext } from './chatbot-light-variables'
 import { isWithinBusinessHours, flowHasLeadCapture, BusinessHoursConfig } from './chatbot-light-business-hours'
 import { runBlockEngine } from './chatbot-block-engine'
@@ -1004,6 +1004,56 @@ export async function checkScheduledReminders() {
       if (!patient.doctorId || !patient.doctor) continue
 
       await triggerLightAutomatedMessage(patient.doctorId, 'PATIENT_INACTIVE_FOLLOWUP', {
+        patientName: patient.name,
+        patientPhone: patient.phone,
+        patientCpf: patient.cpf ?? undefined,
+        doctorName: patient.doctor.name,
+        doctorSpecialty: patient.doctor.specialty ?? undefined,
+        doctorCrm: patient.doctor.crm ?? undefined,
+      })
+    }
+  }
+
+  // 5. Aniversário do paciente (PATIENT_BIRTHDAY) — paciente ativo cujo
+  // aniversário (mês/dia) é hoje, em America/Sao_Paulo, recebe uma mensagem
+  // de parabéns — no máximo uma vez por ano, checado via LightMessageLog
+  // nos últimos 300 dias (mesmo princípio idempotente da seção 4). Só
+  // dispara de verdade se o médico tiver uma automação configurada pra esse
+  // evento (mesma limitação de todo o resto deste arquivo — não existe
+  // ainda uma tela pra isso, ver lightCampaignPresets.ts).
+  const todayBR = getLocalDateInTz()
+  const birthdayMonth = todayBR.getMonth() + 1
+  const birthdayDay = todayBR.getDate()
+
+  const birthdayCandidates = await prisma.patient.findMany({
+    where: { status: 'ATIVO', anonymizedAt: null, doctorId: { not: null }, birthDate: { not: null } },
+    include: { doctor: true },
+  })
+
+  const birthdayPatients = birthdayCandidates.filter(p => {
+    if (!p.birthDate) return false
+    const bd = new Date(p.birthDate)
+    return bd.getUTCMonth() + 1 === birthdayMonth && bd.getUTCDate() === birthdayDay
+  })
+
+  if (birthdayPatients.length > 0) {
+    const yearCutoff = new Date(now - 300 * 24 * 60 * 60 * 1000)
+    const recentlyGreeted = await prisma.lightMessageLog.findMany({
+      where: {
+        triggerEvent: 'PATIENT_BIRTHDAY',
+        phone: { in: birthdayPatients.map(p => p.phone.replace(/\D/g, '')) },
+        createdAt: { gte: yearCutoff },
+      },
+      select: { phone: true },
+    })
+    const greetedPhones = new Set(recentlyGreeted.map(l => l.phone))
+
+    for (const patient of birthdayPatients) {
+      const normalizedPhone = patient.phone.replace(/\D/g, '')
+      if (greetedPhones.has(normalizedPhone)) continue
+      if (!patient.doctorId || !patient.doctor) continue
+
+      await triggerLightAutomatedMessage(patient.doctorId, 'PATIENT_BIRTHDAY', {
         patientName: patient.name,
         patientPhone: patient.phone,
         patientCpf: patient.cpf ?? undefined,

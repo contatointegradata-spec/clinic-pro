@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 
 // ─── Variable Registry (single source of truth) ───────────────────────────────
 
@@ -143,7 +143,7 @@ export function resolveTemplateVariables(template: string, ctx: TemplateContext)
  */
 export async function resolveContextFromAppointment(
   appointmentId: string,
-  prisma: PrismaClient,
+  prisma: Prisma.TransactionClient,
   extras: Partial<TemplateContext> = {}
 ): Promise<TemplateContext> {
   const appt = await prisma.appointment.findUnique({
@@ -211,7 +211,7 @@ export async function resolveContextFromAppointment(
 export async function resolveMessageText(
   source: { text?: string | null; templateId?: string | null },
   ctx: TemplateContext,
-  prisma: PrismaClient
+  prisma: Prisma.TransactionClient
 ): Promise<string> {
   if (source.templateId) {
     const template = await prisma.lightTemplate.findUnique({ where: { id: source.templateId } })

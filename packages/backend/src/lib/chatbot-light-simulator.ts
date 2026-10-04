@@ -1,4 +1,5 @@
 import { prisma } from './prisma'
+import { findPatientByPhone, normalizePatientPhone } from './phone'
 import { normalizeText } from './chatbot-light-engine'
 import {
   parsePreferredDateText,
@@ -894,9 +895,7 @@ async function processLeadCaptureSimStep(params: {
     // No simulador: criar Patient REAL com flag de simulação nas notas
     const doctorId = instance.doctorId
     try {
-      const existing = await prisma.patient.findFirst({
-        where: { doctorId, phone: cleaned }
-      })
+      const existing = await findPatientByPhone(prisma, doctorId, cleaned)
 
       if (existing) {
         innerCollect('✅ Obrigado! Seu interesse foi registrado e a equipe do(a) médico(a) entrará em contato em breve para confirmar seu agendamento. 😊')
@@ -912,7 +911,7 @@ async function processLeadCaptureSimStep(params: {
             data: {
               doctorId,
               name: leadName,
-              phone: cleaned,
+              phone: normalizePatientPhone(cleaned),
               notes: `Interesse via WhatsApp. ${firstTimeNote} [SIMULAÇÃO]`,
               status: 'PRE_CADASTRO',
               origin: 'CHATBOT',
@@ -929,7 +928,7 @@ async function processLeadCaptureSimStep(params: {
               data: {
                 doctorId,
                 name: leadName,
-                phone: cleaned,
+                phone: normalizePatientPhone(cleaned),
                 notes: `Interesse via WhatsApp. ${firstTimeNote} [SIMULAÇÃO]`,
                 status: 'PRE_CADASTRO',
                 origin: 'CHATBOT',

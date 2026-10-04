@@ -130,6 +130,8 @@ model User {
   documentTemplates    DocumentTemplate[]          @relation("DoctorDocuments")
   notifications        Notification[]              @relation("UserNotifications")
   paymentMethods       PaymentMethod[]             @relation("DoctorPaymentMethods")
+  products             Product[]                   @relation("DoctorProducts")
+  stockMovements       StockMovement[]              @relation("UserStockMovements")
   subscription         DoctorSubscription?         @relation("DoctorSubscription")
   subscriptionPayments SubscriptionPayment[]       @relation("DoctorPayments")
   checkoutAttempts     SubscriptionCheckoutAttempt[] @relation("DoctorCheckoutAttempts")
@@ -430,6 +432,7 @@ model Appointment {
   createdBy   User         @relation("CreatedByAppointments", fields: [createdById], references: [id])
   room        Room?        @relation("RoomAppointments", fields: [roomId], references: [id])
   transaction Transaction?
+  stockMovements StockMovement[]
 
   @@index([doctorId])
   @@index([doctorId, date])
@@ -722,6 +725,51 @@ model PaymentMethod {
   transactions Transaction[] @relation("TransactionPaymentMethod")
 
   @@map("TBLFORMAPAGAMENTO")
+}
+
+enum StockMovementType {
+  ENTRADA
+  SAIDA
+}
+
+// Estoque simples de produtos/medicamentos do médico — entrada manual, baixa
+// automática ao concluir uma consulta (ver POST/PUT /appointments/:id). Sem
+// fornecedor/custo/categoria por enquanto, de propósito (pedido explícito de
+// manter simples); StockMovement existe só pra não perder o histórico de por
+// que o saldo mudou.
+model Product {
+  id          String   @id @default(uuid())
+  doctorId    String
+  name        String
+  unit        String // texto livre: "un", "ml", "caixa" etc.
+  quantity    Int      @default(0)
+  minQuantity Int? // limiar opcional pra alerta de estoque baixo
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  doctor    User            @relation("DoctorProducts", fields: [doctorId], references: [id])
+  movements StockMovement[]
+
+  @@map("TBLPRODUTOESTOQUE")
+}
+
+model StockMovement {
+  id            String            @id @default(uuid())
+  productId     String
+  type          StockMovementType
+  quantity      Int
+  reason        String?
+  appointmentId String?
+  userId        String
+  createdAt     DateTime          @default(now())
+
+  product     Product      @relation(fields: [productId], references: [id])
+  appointment Appointment? @relation(fields: [appointmentId], references: [id])
+  user        User         @relation("UserStockMovements", fields: [userId], references: [id])
+
+  @@index([productId])
+  @@map("TBLMOVIMENTOESTOQUE")
 }
 
 model Integration {

@@ -480,7 +480,11 @@ export async function startRoomSession(connectionId: string, instanceKey: string
       for (const msg of msgs) {
         if (!msg.message || msg.key.fromMe) continue
         const fromJid = msg.key.remoteJid
-        if (!fromJid || fromJid.endsWith('@g.us')) continue
+        // @g.us = grupo; status@broadcast = Status/Stories de contatos salvos
+        // (a WhatsApp expõe isso como "mensagem" normal em messages.upsert) —
+        // sem esse segundo filtro, o agente respondia à legenda de status
+        // de qualquer contato salvo no número conectado.
+        if (!fromJid || fromJid.endsWith('@g.us') || fromJid.endsWith('@broadcast')) continue
 
         const textContent = (
           msg.message.conversation ||

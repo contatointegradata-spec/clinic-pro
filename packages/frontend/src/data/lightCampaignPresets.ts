@@ -81,6 +81,13 @@ export const LIGHT_CAMPAIGN_PRESETS: CampaignPreset[] = [
     category: 'pacientes',
     content: 'Olá {nome}! Faz um tempo que você não vem aqui com {medico}. Gostaria de agendar um retorno? É só responder por aqui.',
   },
+  {
+    module: 'pacientes',
+    triggerEvent: 'PATIENT_BIRTHDAY',
+    name: 'Mensagem de aniversário',
+    category: 'pacientes',
+    content: 'Olá {nome}! 🎉 Passando pra desejar um feliz aniversário! A equipe do(a) {medico} deseja um dia muito especial pra você. 🎂',
+  },
 ]
 
 export function findCampaignPreset(module: string, triggerEvent: string): CampaignPreset | undefined {

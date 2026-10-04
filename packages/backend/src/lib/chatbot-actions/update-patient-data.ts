@@ -1,4 +1,5 @@
 import { prisma } from '../prisma'
+import { findPatientByPhone } from '../phone'
 import type { SystemAction } from './types'
 
 export const updatePatientData: SystemAction = {
@@ -26,7 +27,7 @@ export const updatePatientData: SystemAction = {
 
     const patient = cpf
       ? await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, cpf } })
-      : await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, phone } })
+      : await findPatientByPhone(prisma, ctx.doctorId, phone!)
     if (!patient) {
       return { success: false, error: 'Paciente não encontrado.', code: 'PATIENT_NOT_FOUND' }
     }

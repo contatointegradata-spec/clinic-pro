@@ -1,4 +1,5 @@
 import { prisma } from '../prisma'
+import { findPatientByPhone, normalizePatientPhone } from '../phone'
 import type { SystemAction } from './types'
 
 // Mesmo formato usado por POST /patients/pre-register (routes/patients.ts) —
@@ -27,7 +28,7 @@ export const createPreScheduling: SystemAction = {
 
     const duplicate = cpf
       ? await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, cpf } })
-      : await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, phone } })
+      : await findPatientByPhone(prisma, ctx.doctorId, phone)
     if (duplicate) {
       return {
         success: true,
@@ -39,7 +40,7 @@ export const createPreScheduling: SystemAction = {
       data: {
         doctorId: ctx.doctorId,
         name: String(input.nome ?? ''),
-        phone,
+        phone: normalizePatientPhone(phone),
         cpf: cpf || null,
         notes: input.observacao ? String(input.observacao) : null,
         roomId: input.salaId ? String(input.salaId) : null,

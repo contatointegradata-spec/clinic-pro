@@ -2,11 +2,13 @@
 import { reactive, ref, computed, watch } from 'vue'
 import { z } from 'zod'
 import { format } from 'date-fns'
-import { Trash2, Info, RefreshCw, Check, X, Search, Bell, DollarSign } from 'lucide-vue-next'
-import type { Appointment, User, Patient, AppointmentType, Room, AuthUser, AppointmentStatus } from '../../types'
+import { Trash2, Info, RefreshCw, Check, X, Search, Bell, DollarSign, Package, Plus } from 'lucide-vue-next'
+import type { Appointment, User, Patient, AppointmentType, Room, AuthUser, AppointmentStatus, Product } from '../../types'
 import PreRegisterModal from './PreRegisterModal.vue'
 import NotificarPacienteModal from './NotificarPacienteModal.vue'
 import CobrancaModal from '../Financial/CobrancaModal.vue'
+import api from '../../lib/api'
+import { useQuery } from '../../composables/useQuery'
 
 const DURATIONS = [
   { value: 30, label: '30 min' },
@@ -28,6 +30,10 @@ const schema = z.object({
   notes: z.string().optional(),
   roomId: z.string().optional().nullable(),
   repeatCount: z.coerce.number().int().min(1).max(50).optional(),
+  stockItems: z.array(z.object({
+    productId: z.string().min(1),
+    quantity: z.coerce.number().int().positive(),
+  })).optional(),
 })
 
 export type AppointmentFormData = z.infer<typeof schema>
@@ -76,6 +82,31 @@ const errors = ref<Partial<Record<keyof AppointmentFormData, string>>>({})
 
 const showNotifyModal = ref(false)
 const showCobrancaModal = ref(false)
+
+// ── Produtos usados (baixa de estoque ao concluir) ──
+// Só faz sentido oferecer quando o status está sendo mudado PRA concluído
+// agora — se já estava concluído, o backend ignora stockItems de qualquer
+// forma (não reprocessa baixa de uma consulta já finalizada).
+const canUseStock = computed(() => formData.status === 'COMPLETED' && props.appointment?.status !== 'COMPLETED')
+
+const { data: productsData } = useQuery<Product[]>({
+  key: 'stock-products',
+  queryFn: () => api.get('/stock/products').then(r => r.data),
+  enabled: canUseStock,
+})
+const activeProducts = computed(() => (productsData.value ?? []).filter(p => p.active))
+
+const stockRows = ref<{ productId: string; quantity: number }[]>([])
+
+function addStockRow() {
+  stockRows.value.push({ productId: '', quantity: 1 })
+}
+function removeStockRow(index: number) {
+  stockRows.value.splice(index, 1)
+}
+function unitFor(productId: string): string {
+  return activeProducts.value.find(p => p.id === productId)?.unit ?? ''
+}
 
 // Returns flow state
 const wantsReturns = ref<boolean | null>(null)
@@ -188,7 +219,10 @@ function handleReturnsCountInput(e: Event) {
 
 function handleSubmit(e: Event) {
   e.preventDefault()
-  const result = schema.safeParse(formData)
+  const validRows = canUseStock.value
+    ? stockRows.value.filter(r => r.productId && r.quantity > 0)
+    : []
+  const result = schema.safeParse({ ...formData, stockItems: validRows.length > 0 ? validRows : undefined })
   if (!result.success) {
     const fieldErrors: Partial<Record<keyof AppointmentFormData, string>> = {}
     for (const issue of result.error.issues) {
@@ -314,6 +348,34 @@ function handleSubmit(e: Event) {
           <option value="CANCELLED">Cancelado</option>
           <option value="NO_SHOW">Faltou</option>
         </select>
+      </div>
+
+      <!-- ── Produtos usados (baixa de estoque, opcional) ── -->
+      <div v-if="canUseStock" class="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+        <p class="label flex items-center gap-1.5 mb-1">
+          <Package class="w-3.5 h-3.5 text-slate-400" />
+          Produtos usados (opcional)
+        </p>
+        <p v-if="activeProducts.length === 0" class="text-xs text-slate-400">Nenhum produto cadastrado no estoque.</p>
+        <div v-for="(row, idx) in stockRows" :key="idx" class="flex items-center gap-2">
+          <select v-model="row.productId" class="input-field flex-1 text-sm">
+            <option value="">Selecione um produto</option>
+            <option v-for="p in activeProducts" :key="p.id" :value="p.id">{{ p.name }} (saldo: {{ p.quantity }} {{ p.unit }})</option>
+          </select>
+          <input v-model.number="row.quantity" type="number" min="1" class="input-field w-20 text-sm" />
+          <span class="text-xs text-slate-400 w-10">{{ unitFor(row.productId) }}</span>
+          <button type="button" class="p-1.5 text-slate-400 hover:text-red-500" @click="removeStockRow(idx)">
+            <Trash2 class="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <button
+          v-if="activeProducts.length > 0"
+          type="button"
+          class="flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700"
+          @click="addStockRow"
+        >
+          <Plus class="w-3.5 h-3.5" /> Adicionar produto
+        </button>
       </div>
 
       <!-- ── Returns flow ── -->

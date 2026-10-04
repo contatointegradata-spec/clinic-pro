@@ -52,9 +52,27 @@ const schema = z.object({
   objetivoClinico: z.string().optional(),
   sintese: z.string().optional(),
   encaminhamento: z.string().optional(),
+  queixaPrincipal: z.string().optional(),
+  historiaDoencaAtual: z.string().optional(),
+  antecedentesPessoais: z.string().optional(),
+  antecedentesFamiliares: z.string().optional(),
+  habitosVida: z.string().optional(),
+  exameFisico: z.string().optional(),
+  hipoteseDiagnostica: z.string().optional(),
 })
 
 type FormData = z.infer<typeof schema>
+
+// Seções do formulário de Anamnese — mesma ordem usada na exibição.
+const ANAMNESE_SECTIONS: { key: keyof FormData; label: string; placeholder: string }[] = [
+  { key: 'queixaPrincipal', label: 'Queixa Principal', placeholder: 'Motivo da consulta, nas palavras do paciente...' },
+  { key: 'historiaDoencaAtual', label: 'História da Doença Atual', placeholder: 'Evolução dos sintomas, início, características...' },
+  { key: 'antecedentesPessoais', label: 'Antecedentes Pessoais', placeholder: 'Doenças prévias, cirurgias, alergias, medicações em uso...' },
+  { key: 'antecedentesFamiliares', label: 'Antecedentes Familiares', placeholder: 'Doenças relevantes na família...' },
+  { key: 'habitosVida', label: 'Hábitos de Vida', placeholder: 'Tabagismo, álcool, atividade física, sono...' },
+  { key: 'exameFisico', label: 'Exame Físico', placeholder: 'Achados do exame físico...' },
+  { key: 'hipoteseDiagnostica', label: 'Hipótese Diagnóstica / Conduta', placeholder: 'Hipóteses e conduta inicial...' },
+]
 
 interface ProcedureEntry {
   appointmentTypeId?: string
@@ -77,6 +95,12 @@ function formatValorPago(v: number) {
 
 function specialtyGeral(record: MedicalRecord) {
   return record.specialtyData as { objetivoClinico?: string; sintese?: string; encaminhamento?: string } | null | undefined
+}
+
+type AnamneseData = Partial<Record<'queixaPrincipal' | 'historiaDoencaAtual' | 'antecedentesPessoais' | 'antecedentesFamiliares' | 'habitosVida' | 'exameFisico' | 'hipoteseDiagnostica', string>>
+
+function specialtyAnamnese(record: MedicalRecord) {
+  return record.specialtyData as AnamneseData | null | undefined
 }
 
 function initials(name: string) {
@@ -150,6 +174,13 @@ function defaultFormState(): FormData {
     objetivoClinico: '',
     sintese: '',
     encaminhamento: '',
+    queixaPrincipal: '',
+    historiaDoencaAtual: '',
+    antecedentesPessoais: '',
+    antecedentesFamiliares: '',
+    habitosVida: '',
+    exameFisico: '',
+    hipoteseDiagnostica: '',
   }
 }
 
@@ -172,6 +203,7 @@ function resetFormErrors() {
   errors.objetivoClinico = undefined
   errors.sintese = undefined
   errors.encaminhamento = undefined
+  for (const s of ANAMNESE_SECTIONS) errors[s.key] = undefined
 }
 
 function openCreateModal() {
@@ -188,6 +220,7 @@ function openEditModal(record: MedicalRecord) {
   formMode.value = 'edit'
   editingRecordId.value = record.id
   const geral = record.specialtyType === 'GERAL' ? specialtyGeral(record) : null
+  const anamnese = record.specialtyType === 'ANAMNESE' ? specialtyAnamnese(record) : null
   form.patientId = record.patientId
   form.doctorId = record.doctorId
   form.type = record.type === 'SISTEMA' ? 'OUTROS' : record.type
@@ -196,6 +229,7 @@ function openEditModal(record: MedicalRecord) {
   form.objetivoClinico = geral?.objetivoClinico ?? ''
   form.sintese = geral?.sintese ?? ''
   form.encaminhamento = geral?.encaminhamento ?? ''
+  for (const s of ANAMNESE_SECTIONS) (form[s.key] as string) = anamnese?.[s.key as keyof AnamneseData] ?? ''
   procedures.value = (record.procedures ?? []).map(p => ({
     appointmentTypeId: p.appointmentTypeId ?? undefined,
     name: p.name,
@@ -258,6 +292,13 @@ async function submitForm() {
     objetivoClinico: form.objetivoClinico,
     sintese: form.sintese,
     encaminhamento: form.encaminhamento,
+    queixaPrincipal: form.queixaPrincipal,
+    historiaDoencaAtual: form.historiaDoencaAtual,
+    antecedentesPessoais: form.antecedentesPessoais,
+    antecedentesFamiliares: form.antecedentesFamiliares,
+    habitosVida: form.habitosVida,
+    exameFisico: form.exameFisico,
+    hipoteseDiagnostica: form.hipoteseDiagnostica,
   })
   if (!parsed.success) {
     for (const issue of parsed.error.issues) {
@@ -492,6 +533,14 @@ async function handleCharged() {
                         <p class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{{ specialtyGeral(record)?.encaminhamento }}</p>
                       </div>
                     </div>
+                    <div v-else-if="record.specialtyType === 'ANAMNESE' && record.specialtyData" class="space-y-3">
+                      <template v-for="section in ANAMNESE_SECTIONS" :key="section.key">
+                        <div v-if="specialtyAnamnese(record)?.[section.key as keyof AnamneseData]">
+                          <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{{ section.label }}</p>
+                          <p class="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{{ specialtyAnamnese(record)?.[section.key as keyof AnamneseData] }}</p>
+                        </div>
+                      </template>
+                    </div>
                     <SpecialtyRecordView
                       v-else-if="record.specialtyData && record.specialtyType"
                       :specialty-type="record.specialtyType"
@@ -584,35 +633,48 @@ async function handleCharged() {
           <p v-if="errors.title" class="text-xs text-red-500 mt-1">{{ errors.title }}</p>
         </div>
 
-        <div>
-          <label class="label">Objetivo Clínico</label>
-          <textarea
-            v-model="form.objetivoClinico"
-            rows="3"
-            class="input-field resize-none"
-            placeholder="Objetivo do atendimento..."
-          />
-        </div>
+        <template v-if="form.type === 'ANAMNESE'">
+          <div v-for="section in ANAMNESE_SECTIONS" :key="section.key">
+            <label class="label">{{ section.label }}</label>
+            <textarea
+              v-model="(form[section.key] as string)"
+              rows="3"
+              class="input-field resize-none"
+              :placeholder="section.placeholder"
+            />
+          </div>
+        </template>
+        <template v-else>
+          <div>
+            <label class="label">Objetivo Clínico</label>
+            <textarea
+              v-model="form.objetivoClinico"
+              rows="3"
+              class="input-field resize-none"
+              placeholder="Objetivo do atendimento..."
+            />
+          </div>
 
-        <div>
-          <label class="label">Síntese</label>
-          <textarea
-            v-model="form.sintese"
-            rows="3"
-            class="input-field resize-none"
-            placeholder="Síntese do que foi observado/discutido..."
-          />
-        </div>
+          <div>
+            <label class="label">Síntese</label>
+            <textarea
+              v-model="form.sintese"
+              rows="3"
+              class="input-field resize-none"
+              placeholder="Síntese do que foi observado/discutido..."
+            />
+          </div>
 
-        <div>
-          <label class="label">Encaminhamento</label>
-          <textarea
-            v-model="form.encaminhamento"
-            rows="2"
-            class="input-field resize-none"
-            placeholder="Encaminhamentos, orientações, próximos passos..."
-          />
-        </div>
+          <div>
+            <label class="label">Encaminhamento</label>
+            <textarea
+              v-model="form.encaminhamento"
+              rows="2"
+              class="input-field resize-none"
+              placeholder="Encaminhamentos, orientações, próximos passos..."
+            />
+          </div>
+        </template>
 
         <div>
           <label class="label flex items-center gap-1">

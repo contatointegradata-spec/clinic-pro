@@ -1,0 +1,66 @@
+-- Migration: add_stock_module
+-- Aditiva — novo módulo de Estoque simples: Product (entrada manual) +
+-- StockMovement (histórico, inclui baixa automática ao concluir consulta).
+
+DO $$ BEGIN
+  CREATE TYPE "StockMovementType" AS ENUM ('ENTRADA', 'SAIDA');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+CREATE TABLE IF NOT EXISTS "TBLPRODUTOESTOQUE" (
+  "id"          TEXT NOT NULL,
+  "doctorId"    TEXT NOT NULL,
+  "name"        TEXT NOT NULL,
+  "unit"        TEXT NOT NULL,
+  "quantity"    INTEGER NOT NULL DEFAULT 0,
+  "minQuantity" INTEGER,
+  "active"      BOOLEAN NOT NULL DEFAULT true,
+  "createdAt"   TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"   TIMESTAMP(3) NOT NULL,
+
+  CONSTRAINT "TBLPRODUTOESTOQUE_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "TBLMOVIMENTOESTOQUE" (
+  "id"            TEXT NOT NULL,
+  "productId"     TEXT NOT NULL,
+  "type"          "StockMovementType" NOT NULL,
+  "quantity"      INTEGER NOT NULL,
+  "reason"        TEXT,
+  "appointmentId" TEXT,
+  "userId"        TEXT NOT NULL,
+  "createdAt"     TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT "TBLMOVIMENTOESTOQUE_pkey" PRIMARY KEY ("id")
+);
+
+CREATE INDEX IF NOT EXISTS "TBLMOVIMENTOESTOQUE_productId_idx" ON "TBLMOVIMENTOESTOQUE"("productId");
+
+DO $$ BEGIN
+  ALTER TABLE "TBLPRODUTOESTOQUE" ADD CONSTRAINT "TBLPRODUTOESTOQUE_doctorId_fkey"
+    FOREIGN KEY ("doctorId") REFERENCES "TBLUSUARIO"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE "TBLMOVIMENTOESTOQUE" ADD CONSTRAINT "TBLMOVIMENTOESTOQUE_productId_fkey"
+    FOREIGN KEY ("productId") REFERENCES "TBLPRODUTOESTOQUE"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE "TBLMOVIMENTOESTOQUE" ADD CONSTRAINT "TBLMOVIMENTOESTOQUE_appointmentId_fkey"
+    FOREIGN KEY ("appointmentId") REFERENCES "TBLAGENDAMENTO"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+  ALTER TABLE "TBLMOVIMENTOESTOQUE" ADD CONSTRAINT "TBLMOVIMENTOESTOQUE_userId_fkey"
+    FOREIGN KEY ("userId") REFERENCES "TBLUSUARIO"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
