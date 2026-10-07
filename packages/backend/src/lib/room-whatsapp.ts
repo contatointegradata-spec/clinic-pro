@@ -381,6 +381,10 @@ export async function startRoomSession(connectionId: string, instanceKey: string
       msgRetryCounterCache: roomMsgRetryCounterCache,
       userDevicesCache: roomUserDevicesCache,
       syncFullHistory: false,
+      // As "init queries" do Baileys (abprops, blocklist, privacidade) não são
+      // usadas aqui e o WhatsApp frequentemente não responde ao fetchProps,
+      // gerando "Timed Out" (408) 60s após conectar. Desativamos para evitar o erro.
+      fireInitQueries: false,
       defaultQueryTimeoutMs: 60_000,
       connectTimeoutMs: 60_000,
       keepAliveIntervalMs: 25_000,
