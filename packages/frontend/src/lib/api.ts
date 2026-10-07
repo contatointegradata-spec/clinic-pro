@@ -1,7 +1,32 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api'
+function resolveApiBaseUrl(): string {
+  const envUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim()
+
+  if (typeof window !== 'undefined') {
+    // 1. Se a página foi carregada sobre HTTPS (ex: https://cliniqpro.integradata.app.br),
+    // qualquer requisição para http:// é sumariamente bloqueada pelo navegador como Mixed Content.
+    // Usamos '/api' relativo na mesma origem segura.
+    if (window.location.protocol === 'https:') {
+      if (!envUrl || envUrl.startsWith('http://') || !envUrl.startsWith('https://')) {
+        return '/api'
+      }
+    }
+
+    // 2. Se estiver sendo acessado por um domínio (não localhost e não o IP direto),
+    // sempre priorizar a rota relativa '/api' para evitar CORS e falha de certificado SSL.
+    if (window.location.hostname && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      if (envUrl && (envUrl.includes('2.25.185.223') || !envUrl.includes(window.location.hostname))) {
+        return '/api'
+      }
+    }
+  }
+
+  return envUrl || '/api'
+}
+
+const API_BASE_URL = resolveApiBaseUrl()
 
 const api = axios.create({
   baseURL: API_BASE_URL,

@@ -80,7 +80,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
       args:
-        VITE_API_URL: http://${VPS_IP:-2.25.185.223}/api
+        VITE_API_URL: ${VITE_API_URL:-/api}
         VITE_APP_VERSION: ${RELEASE_SHA:-development}
     container_name: clinicmedia_frontend
     restart: unless-stopped
