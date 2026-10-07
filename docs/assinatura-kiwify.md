@@ -2,7 +2,7 @@
 
 ## Modelo comercial
 
-- Produto único: **Clinic Pro**, R$ 49,90/mês, 7 dias de teste grátis.
+- Produto único: **Clinic Pro**, R$ 49,90/mês, **3 dias de teste grátis** (`CLINIC_PRO_TRIAL_DAYS`).
 - Sem tiers, sem upgrade/downgrade, sem cobrança por módulo.
 - A assinatura é por "tenant" — no modelo de dados atual isso é o **doctorId**
   (o `User` com `role=DOCTOR` é o médico/especialista responsável e dono do
@@ -134,99 +134,61 @@ vivo. Para eliminar esse risco por completo, o sistema Kiwify usa tabelas
 novas: `TBLASSINATURACLINICA` e `TBLPAGAMENTOCLINICA`. As tabelas antigas
 continuam no banco, sem uso — sua limpeza é uma decisão separada e futura.
 
-## Rollout seguro (feature flags)
+## Rollout seguro (bloqueio por assinatura)
 
-```env
-SUBSCRIPTION_FEATURE_ENABLED=true    # mostra a tela/banner de assinatura
-SUBSCRIPTION_ENFORCEMENT_ENABLED=false  # true = bloqueia de verdade
-KIWIFY_WEBHOOK_ENABLED=true
-```
-
-**`SUBSCRIPTION_ENFORCEMENT_ENABLED` vem `false` por padrão.** Enquanto isso,
-o middleware `requireActiveSubscription` sempre libera a requisição — o
-sistema todo (schema, endpoints, telas) pode ser publicado com segurança
-antes mesmo de existir uma conta Kiwify configurada, sem bloquear ninguém.
+O bloqueio real é ligado/desligado em **Admin › Integrações › "Bloqueio por
+assinatura"** (coluna `enforceSubscription` em `TBLCONFIGKIWIFY`, cache de 30s
+em `isSubscriptionEnforced()`). `SUBSCRIPTION_ENFORCEMENT_ENABLED=true` no
+`.env` continua existindo só para forçar o bloqueio pelo servidor. Com o
+bloqueio desligado, `/api/subscription/status` devolve `accessAllowed=true`
+(a tela nunca bloqueia o que a API libera) e `subscriptionValid` com o valor real.
 
 Ordem recomendada de ativação:
-1. Publicar backend + migration (`prisma migrate deploy`).
-2. Rodar `scripts/backfill-subscriptions.ts` pras contas existentes (ver abaixo).
-3. Configurar a conta Kiwify de verdade (checkout, produto, webhook).
-4. Testar o fluxo de ponta a ponta com `SUBSCRIPTION_ENFORCEMENT_ENABLED=false`
-   (nada é bloqueado, mas dá pra validar checkout/webhook/status).
-5. Ativar `SUBSCRIPTION_ENFORCEMENT_ENABLED=true`.
+1. Publicar backend + migrations (`prisma migrate deploy`).
+2. Configurar a Kiwify (seção abaixo) e validar com "Testar Webhook" + uma compra real.
+3. Em Admin › Planos, usar **"Teste grátis para quem está sem acesso"** (ou
+   liberar cortesia individual) para quem já usava o sistema.
+4. Ligar o bloqueio em Admin › Integrações.
 
-## Migração de contas existentes
+## Contas existentes e novos cadastros
 
-`scripts/backfill-subscriptions.ts` cria uma linha de assinatura só para
-médicos que ainda não têm uma (contas criadas antes desta feature existir).
-**Não roda automaticamente** — decida conscientemente o status:
-
-```bash
-# Grandfathering: acesso liberado sem data de expiração (recomendado para
-# quem já usava a Clinic Pro antes da Kiwify existir)
-BACKFILL_STATUS=ACTIVE npx tsx scripts/backfill-subscriptions.ts
-
-# Ou: concede um novo trial de 7 dias a partir de agora
-BACKFILL_STATUS=TRIAL npx tsx scripts/backfill-subscriptions.ts
-```
+- Cadastro público (`/api/auth/register`) e médico criado pelo admin
+  (`POST /api/users`) nascem com `TRIAL` de 3 dias.
+- O watchdog (startup + a cada hora) cria `TRIAL` para qualquer médico ativo
+  ainda sem linha de assinatura, marca trial vencido como `BLOCKED` e período
+  pago vencido (+ `CLINIC_PRO_GRACE_PERIOD_DAYS`, padrão 2) como `PAST_DUE`.
+- `ACTIVE` sem `currentPeriodEndsAt` = **cortesia** (liberado pelo admin sem
+  prazo); exibido como "Liberada", sem botão de pagar.
 
 ## Configuração no painel da Kiwify
 
-<<<<<<< HEAD
-1. Cadastre o produto Clinic Pro (assinatura recorrente mensal, R$ 49,90) e
-   copie o `KIWIFY_PRODUCT_ID`.
-2. Configure o checkout com parâmetros de rastreamento (`s1`, `s2`, `s3`) —
-   o backend já preenche isso automaticamente na URL gerada por
-   `POST /api/subscription/checkout` (`kiwify.client.ts:buildKiwifyCheckoutUrl`).
-3. Cadastre a URL do webhook: `https://SEU_DOMINIO/api/webhooks/kiwify`.
-4. **Importante — verificar antes de ativar em produção**: o esquema exato de
-   assinatura de webhook da Kiwify (header `x-kiwify-signature` vs. token na
-   query string) e os nomes de campo do payload (`order_status`,
-   `TrackingParameters.s1` etc., em `kiwify.types.ts`/`kiwify.mapper.ts`)
-   foram montados a partir da documentação pública da Kiwify, sem um payload
-   real em mãos. Assim que o primeiro webhook de teste chegar, comparar o
-   payload real com `kiwify.types.ts` e ajustar o mapper se necessário.
-5. Se for usar a reconciliação via API (`GET /api/subscription/reconcile`),
-   configure `KIWIFY_CLIENT_ID`/`KIWIFY_CLIENT_SECRET`/`KIWIFY_API_BASE_URL`
-   — sem eles, a reconciliação cai automaticamente no modo "aguardando
-   webhook" (não quebra, só não confirma antecipadamente).
-=======
-**Recomendado: tudo pela UI**, em Admin > Integrações (`/admin/integracoes`,
-só visível pra `role=ADMIN`) — não precisa mexer em `.env` nem redeployar:
+1. **Apps › Webhooks**: no webhook do produto Clinic Pro, a **URL do Webhook**
+   deve ser `https://cliniqpro.integradata.app.br/api/webhooks/kiwify`
+   (exibida em Admin › Integrações) — **não** o link de pagamento. Eventos:
+   "Selecionar todos".
+2. Copie o **Token** desse webhook (gerado pela Kiwify, não editável) e cole em
+   Admin › Integrações › "Token do webhook". A Kiwify chama
+   `POST <url>?signature=<HMAC-SHA1(corpo JSON, token)>` — ver
+   `verifyKiwifyWebhookSignature` em `kiwify.client.ts`.
+3. Cole a URL de checkout (Produto › Links, tipo **Checkout**,
+   `pay.kiwify.com.br/...`) e, opcionalmente, o ID do produto (o UUID da URL
+   `dashboard.kiwify.com/products/edit/<id>`). Marque "Integração ativa" e salve.
+4. "Testar Webhook" na Kiwify: o evento deve aparecer em "Últimos webhooks
+   recebidos" como **Ignorado** (chegou e foi validado, só não é de um médico
+   real). **Recusado** = token errado.
 
-1. Cadastre o produto Clinic Pro na Kiwify (assinatura recorrente mensal,
-   R$ 89,90) e copie o link de **checkout direto** (`pay.kiwify.com.br/...`,
-   não o link da página do produto — só o de checkout aceita os parâmetros de
-   rastreamento `s1/s2/s3` que identificam o médico).
-2. Em Admin > Integrações, cole esse link em "URL de checkout", clique em
-   "Gerar novo segredo" pra criar o token do webhook, copie o **endpoint**
-   exibido (`https://SEU_DOMINIO/api/webhooks/kiwify`) e o **segredo**
-   gerado.
-3. No painel da Kiwify, cadastre o endpoint como URL do webhook e cole o
-   segredo gerado no campo de token/assinatura do webhook.
-4. Volte em Admin > Integrações, ative o toggle "Integração ativa" e salve.
-5. Opcional: preencha "ID do produto" pra ignorar pagamentos de outros
-   produtos da mesma conta Kiwify; e a seção avançada (account ID / client ID
-   / client secret) se for usar a reconciliação via API
-   (`GET /api/subscription/reconcile`) — sem isso, a reconciliação cai
-   automaticamente no modo "aguardando webhook" (não quebra, só não confirma
-   antecipadamente).
+### Como o pagamento é ligado ao médico
+`kiwify.service.ts:resolveDoctorId`, nesta ordem: `TrackingParameters.s1`
+(injetado no checkout gerado pela Clinic Pro) → `subscription_id` da Kiwify já
+vinculado → e-mail do comprador igual ao e-mail de um médico. Se nada bater, o
+evento fica "Ignorado" e o admin usa **Vincular** na lista de webhooks.
 
-Alternativa (sem UI, via `.env` — mantido por compatibilidade): preencha
-`KIWIFY_CHECKOUT_URL`, `KIWIFY_PRODUCT_ID`, `KIWIFY_WEBHOOK_SECRET` etc. no
-`.env` do backend e redeploy. Os valores salvos pela UI sempre têm
-prioridade sobre as env vars quando existirem (ver `src/lib/kiwify-config.ts`).
-
-**Importante — verificar antes de confiar 100% em produção**: o esquema exato
-de assinatura de webhook da Kiwify (header `x-kiwify-signature` vs. token na
-query string) e os nomes de campo do payload (`order_status`,
-`TrackingParameters.s1` etc., em `kiwify.types.ts`/`kiwify.mapper.ts`) foram
-montados a partir da documentação pública da Kiwify. Assim que o primeiro
-webhook de teste chegar, confira em Admin > Integrações (lista de "Últimos
-webhooks recebidos") se ele foi processado corretamente; se aparecer
-"Ignorado" ou com erro, compare o payload real (tabela `TBLWEBHOOKKIWIFY`)
-com `kiwify.types.ts` e ajuste o mapper se necessário.
->>>>>>> 8e2c1c408bd0ada833d3ec97637306a876f61ae9
+### Eventos tratados (`webhook_event_type`)
+`order_approved`/`subscription_renewed` → ACTIVE (período até
+`Subscription.next_payment`, ou +1 mês) · `pix_created`/`billet_created` →
+pagamento pendente · `order_rejected` → recusado · `subscription_late` →
+PAST_DUE · `subscription_canceled` → CANCELED (mantém acesso até o fim do
+período pago) · `order_refunded`/`chargeback` → BLOCKED. Carrinho abandonado é ignorado.
 
 ## Endpoints
 
@@ -238,13 +200,15 @@ com `kiwify.types.ts` e ajuste o mapper se necessário.
 | POST | `/api/webhooks/kiwify` | segredo do webhook (não é sessão) | eventos de pagamento |
 | GET | `/api/admin/integrations/kiwify` | ADMIN | config atual (segredos mascarados) |
 | PUT | `/api/admin/integrations/kiwify` | ADMIN | atualiza checkout/produto/credenciais/toggle |
-| POST | `/api/admin/integrations/kiwify/webhook-secret/regenerate` | ADMIN | gera novo segredo do webhook |
+| POST | `/api/admin/integrations/kiwify/events/:id/assign` | ADMIN | vincula manualmente um pagamento não identificado |
+| POST | `/api/admin/subscriptions/bulk-trial` | ADMIN | novo teste grátis para todo médico sem acesso |
 | GET | `/api/admin/integrations/kiwify/webhook-secret` | ADMIN | revela o segredo atual (auditado) |
 | GET | `/api/admin/integrations/kiwify/events` | ADMIN | últimos webhooks recebidos |
 
 ## Fluxo do webhook
 
-Requisição → verifica assinatura (`KIWIFY_WEBHOOK_SECRET`) → mapeia pro
+Requisição → verifica `?signature=` (HMAC-SHA1 com o token da Kiwify; recusados
+ficam registrados como `REJECTED`) → mapeia pro
 formato interno (`mapKiwifyWebhook`) → valida `KIWIFY_PRODUCT_ID` se
 configurado → gera `eventKey` (`kiwify:{tipo}:{orderId}:{data}`) →
 `kiwifyWebhookEvent` com essa chave única garante idempotência → transação
@@ -258,17 +222,18 @@ responde HTTP 200 (mesmo em duplicidade/erro) pra Kiwify não reenviar em loop.
 npm run dev
 curl http://localhost:3001/api/subscription/status -H "Authorization: Bearer <token>"
 
-# Simular um webhook (ajuste o secret e o payload conforme kiwify.types.ts)
-curl -X POST http://localhost:3001/api/webhooks/kiwify \
-  -H "Content-Type: application/json" \
-  -H "x-kiwify-signature: <hmac-sha256-do-corpo>" \
-  -d '{"order_id":"teste123","order_status":"paid","TrackingParameters":{"s1":"<doctorId>"}}'
+# Simular um webhook (TOKEN = token salvo em Admin > Integrações)
+BODY='{"order_id":"teste123","order_status":"paid","webhook_event_type":"order_approved","Customer":{"email":"medico@teste.com"},"TrackingParameters":{"s1":"<doctorId>"}}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha1 -hmac "$TOKEN" | sed 's/^.* //')
+curl -X POST "http://localhost:3001/api/webhooks/kiwify?signature=$SIG" \
+  -H "Content-Type: application/json" -d "$BODY"
 ```
 
 ## Como reverter
 
-- Definir `SUBSCRIPTION_ENFORCEMENT_ENABLED=false` desbloqueia todo mundo
-  imediatamente, sem precisar reverter migration nem dado nenhum.
+- Desligar o bloqueio em Admin › Integrações desbloqueia todo mundo em até 30s,
+  sem reverter migration nem dado nenhum (desde que
+  `SUBSCRIPTION_ENFORCEMENT_ENABLED` não esteja `true` no `.env`).
 - `SUBSCRIPTION_FEATURE_ENABLED=false` também esconde a consulta de status no
   frontend (o hook para de fazer polling).
 - Nenhuma migration destrutiva foi criada — reverter o código não perde dados.

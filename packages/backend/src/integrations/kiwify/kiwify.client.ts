@@ -2,37 +2,50 @@ import crypto from 'crypto'
 import { getResolvedKiwifyConfig } from '../../lib/kiwify-config'
 import { INTEGRATION_ADDON_PRICING } from '../../lib/billing-config'
 
-// Verificação de assinatura do webhook. A Kiwify suporta dois esquemas comuns:
-// 1) HMAC SHA-256 do corpo bruto, enviado no header `x-kiwify-signature`;
-// 2) um token fixo anexado como query string na URL cadastrada no painel
-//    (`?signature=xxx` ou `?token=xxx`).
-// Confirme no painel da Kiwify qual esquema sua conta usa antes de habilitar
-// KIWIFY_WEBHOOK_ENABLED=true em produção (ver docs/assinatura-kiwify.md).
+// Verificação de assinatura do webhook. Formato oficial da Kiwify: o token
+// do webhook é gerado pela própria Kiwify (campo "Token" no painel, não
+// editável) e cada entrega chega em `POST <url>?signature=<hex>`, onde
+// signature = HMAC-SHA1(corpo JSON, token). Aceitamos também, por
+// compatibilidade: HMAC-SHA256, header `x-kiwify-signature`, e o token puro
+// na query (`?token=`), caso a URL tenha sido cadastrada com ele.
+function safeEqualHex(a: string, b: string): boolean {
+  const left = Buffer.from(a.trim().toLowerCase())
+  const right = Buffer.from(b.trim().toLowerCase())
+  return left.length === right.length && crypto.timingSafeEqual(left, right)
+}
+
 export function verifyKiwifyWebhookSignature(params: {
-  rawBody: Buffer
+  rawBody?: Buffer
+  parsedBody?: unknown
   headerSignature?: string
   querySignature?: string
+  queryToken?: string
   secret: string
 }): boolean {
-  const { rawBody, headerSignature, querySignature, secret } = params
-
+  const { rawBody, parsedBody, headerSignature, querySignature, queryToken, secret } = params
   if (!secret) return false
 
-  if (headerSignature) {
-    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
-    try {
-      return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(headerSignature))
-    } catch {
-      return false
+  // A Kiwify assina JSON.stringify(body); o corpo bruto costuma ser idêntico,
+  // mas testamos os dois pra não depender de espaçamento/ordem de serialização.
+  const bodies: Buffer[] = []
+  if (rawBody?.length) bodies.push(rawBody)
+  if (parsedBody !== undefined) bodies.push(Buffer.from(JSON.stringify(parsedBody)))
+
+  const candidates = [querySignature, headerSignature].filter((v): v is string => !!v)
+  for (const signature of candidates) {
+    const provided = signature.replace(/^sha(1|256)=/i, '')
+    for (const body of bodies) {
+      for (const algo of ['sha1', 'sha256'] as const) {
+        const expected = crypto.createHmac(algo, secret).update(body).digest('hex')
+        if (safeEqualHex(expected, provided)) return true
+      }
     }
   }
 
-  if (querySignature) {
-    try {
-      return crypto.timingSafeEqual(Buffer.from(querySignature), Buffer.from(secret))
-    } catch {
-      return false
-    }
+  if (queryToken) {
+    const a = Buffer.from(queryToken)
+    const b = Buffer.from(secret)
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true
   }
 
   return false

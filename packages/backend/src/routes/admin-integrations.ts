@@ -9,6 +9,10 @@ import {
   getWebhookSecretPlain,
 } from '../lib/kiwify-config'
 import { getAiConfigView, updateAiConfig } from '../lib/ai-integration-config'
+import { mapKiwifyWebhook } from '../integrations/kiwify/kiwify.mapper'
+import { processKiwifyWebhookEvent } from '../integrations/kiwify/kiwify.service'
+import type { KiwifyWebhookPayload } from '../integrations/kiwify/kiwify.types'
+import { logAudit } from '../lib/secretaryAccess'
 import { geminiChatCompletion } from '../lib/gemini-client'
 import { AiProviderError } from '../lib/ai-client-types'
 
@@ -37,6 +41,9 @@ const updateSchema = z.object({
   accountId: z.string().trim().max(200).nullable().optional(),
   clientId: z.string().trim().max(200).nullable().optional(),
   clientSecret: z.string().trim().max(500).nullable().optional(),
+  // Token gerado pela Kiwify no cadastro do webhook (campo "Token").
+  webhookSecret: z.string().trim().max(200).nullable().optional(),
+  enforceSubscription: z.boolean().optional(),
 })
 
 // PUT /api/admin/integrations/kiwify — atualiza checkout/produto/credenciais/toggle
@@ -98,11 +105,63 @@ router.get('/kiwify/events', async (req: AuthRequest, res) => {
         processedAt: true,
         errorMessage: true,
         attempts: true,
+        payload: true,
       },
     })
-    res.json(events)
+    res.json(events.map(({ payload, ...ev }) => {
+      const p = (payload ?? {}) as { Customer?: { email?: string; full_name?: string }; webhook_event_type?: string }
+      return { ...ev, rawEventName: p.webhook_event_type ?? null, customerEmail: p.Customer?.email ?? null, customerName: p.Customer?.full_name ?? null }
+    }))
   } catch (error) {
     console.error('[admin/integrations/kiwify events] erro:', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const assignSchema = z.object({ doctorId: z.string().min(1) })
+
+// POST /api/admin/integrations/kiwify/events/:id/assign — vincula manualmente
+// a um médico um pagamento que chegou sem identificação (ex.: comprou com
+// outro e-mail, por um link aberto fora do sistema) e processa o evento.
+router.post('/kiwify/events/:id/assign', async (req: AuthRequest, res) => {
+  try {
+    const { doctorId } = assignSchema.parse(req.body)
+    const record = await prisma.kiwifyWebhookEvent.findUnique({ where: { id: req.params.id } })
+    if (!record) {
+      res.status(404).json({ message: 'Evento não encontrado' })
+      return
+    }
+    if (record.processingStatus === 'PROCESSED') {
+      res.status(409).json({ message: 'Este evento já foi processado' })
+      return
+    }
+    if (record.processingStatus === 'REJECTED') {
+      res.status(409).json({ message: 'Evento recusado por assinatura inválida não pode ser vinculado — corrija o token e reenvie pela Kiwify' })
+      return
+    }
+    const doctor = await prisma.user.findFirst({ where: { id: doctorId, role: 'DOCTOR' }, select: { id: true, email: true } })
+    if (!doctor) {
+      res.status(404).json({ message: 'Médico não encontrado' })
+      return
+    }
+
+    const event = mapKiwifyWebhook(record.payload as KiwifyWebhookPayload)
+    const result = await processKiwifyWebhookEvent(event, record.eventKey, doctor.id)
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'KIWIFY_EVENT_ASSIGNED',
+      description: `Admin vinculou o pedido ${record.kiwifyOrderId ?? record.id} a ${doctor.email}`,
+    })
+
+    const updated = await prisma.kiwifyWebhookEvent.findUnique({ where: { id: record.id } })
+    res.json({ result, event: updated })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    console.error('[admin/integrations/kiwify assign] erro:', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

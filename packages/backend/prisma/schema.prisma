@@ -905,6 +905,7 @@ model DoctorSubscription {
   doctor   User                  @relation("DoctorSubscription", fields: [doctorId], references: [id])
   payments SubscriptionPayment[] @relation("SubPayments")
 
+  @@index([kiwifySubscriptionId])
   @@map("TBLASSINATURACLINICA")
 }
 
@@ -967,6 +968,8 @@ model KiwifyIntegrationConfig {
   clientId      String?
   clientSecret  String?
   webhookSecret String?
+  // Liga o bloqueio de acesso por assinatura (ver middleware/subscription.ts).
+  enforceSubscription Boolean @default(false)
 
   updatedByUserId String?
   updatedAt       DateTime @updatedAt

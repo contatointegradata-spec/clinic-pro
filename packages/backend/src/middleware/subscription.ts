@@ -3,15 +3,15 @@ import { prisma } from '../lib/prisma'
 import { AuthRequest } from './auth'
 import { getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { calculateClinicAccess } from '../lib/subscription-access'
-import { SUBSCRIPTION_ENFORCEMENT_ENABLED } from '../lib/billing-config'
+import { isSubscriptionEnforced } from '../lib/kiwify-config'
 
 // Gate de assinatura — aplicado nos routers operacionais (agenda, pacientes,
 // prontuário, financeiro, WhatsApp/chatbot etc). Roda depois de authenticate().
-// Enquanto SUBSCRIPTION_ENFORCEMENT_ENABLED=false (padrão), não bloqueia nada —
-// isso permite publicar o backend/banco antes de configurar a Kiwify de verdade
-// e só então ativar o bloqueio real (ver docs/assinatura-kiwify.md).
+// Enquanto o bloqueio estiver desligado (interruptor em Admin > Integrações,
+// ou SUBSCRIPTION_ENFORCEMENT_ENABLED=true no .env para forçar), não bloqueia
+// nada — permite validar a Kiwify antes de ativar o bloqueio real.
 export async function requireActiveSubscription(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
-  if (!SUBSCRIPTION_ENFORCEMENT_ENABLED) {
+  if (!(await isSubscriptionEnforced())) {
     next()
     return
   }

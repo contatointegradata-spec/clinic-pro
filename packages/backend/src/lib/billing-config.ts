@@ -1,11 +1,13 @@
 // Configuração central da assinatura Clinic Pro — plano único, sem tiers.
-// Não repita 8990 / 89.90 / 7 em outros arquivos: importe daqui.
+// Não repita 4990 / 49,90 / 3 em outros arquivos: importe daqui.
 export const CLINIC_PRO_SUBSCRIPTION = {
   name: 'Clinic Pro',
   monthlyPriceCents: Number(process.env.CLINIC_PRO_MONTHLY_PRICE_CENTS) || 4990,
   currency: process.env.CLINIC_PRO_CURRENCY || 'BRL',
-  trialDays: Number(process.env.CLINIC_PRO_TRIAL_DAYS) || 7,
-  gracePeriodDays: Number(process.env.CLINIC_PRO_GRACE_PERIOD_DAYS) || 0,
+  trialDays: Number(process.env.CLINIC_PRO_TRIAL_DAYS) || 3,
+  // Tolerância após o fim do período pago antes de bloquear — cobre o atraso
+  // entre a cobrança da renovação na Kiwify e a chegada do webhook.
+  gracePeriodDays: Number(process.env.CLINIC_PRO_GRACE_PERIOD_DAYS ?? 2),
 }
 
 export const BILLING_PROVIDER = process.env.BILLING_PROVIDER || 'kiwify'

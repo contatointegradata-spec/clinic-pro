@@ -9,6 +9,7 @@ export type SubscriptionPaymentStatusValue = 'PENDING' | 'APPROVED' | 'REFUSED' 
 export type ClinicAccessReason =
   | 'TRIAL_ACTIVE'
   | 'SUBSCRIPTION_ACTIVE'
+  | 'COURTESY_ACTIVE'
   | 'TRIAL_EXPIRED'
   | 'PAYMENT_PENDING'
   | 'PAYMENT_LATE'
@@ -23,6 +24,8 @@ export interface ClinicAccessResult {
   redirectTo?: string
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000
+
 // Transições de status válidas — usado pelo webhook para ignorar eventos que
 // tentariam regredir uma assinatura de forma inconsistente.
 export const VALID_SUBSCRIPTION_TRANSITIONS: Record<SubscriptionStatusValue, SubscriptionStatusValue[]> = {
@@ -36,6 +39,12 @@ export const VALID_SUBSCRIPTION_TRANSITIONS: Record<SubscriptionStatusValue, Sub
 
 export function isValidTransition(from: SubscriptionStatusValue, to: SubscriptionStatusValue): boolean {
   return VALID_SUBSCRIPTION_TRANSITIONS[from]?.includes(to) ?? false
+}
+
+// Fim efetivo do período pago, já com a tolerância (gracePeriodDays) que
+// cobre o atraso entre a cobrança da renovação na Kiwify e a chegada do webhook.
+function paidUntilWithGrace(periodEnd: Date): Date {
+  return new Date(periodEnd.getTime() + CLINIC_PRO_SUBSCRIPTION.gracePeriodDays * DAY_MS)
 }
 
 export function calculateClinicAccess(
@@ -53,20 +62,24 @@ export function calculateClinicAccess(
     return {
       allowed: true,
       reason: 'TRIAL_ACTIVE',
-      trialDaysRemaining: Math.max(0, Math.ceil(msRemaining / (24 * 60 * 60 * 1000))),
+      trialDaysRemaining: Math.max(0, Math.ceil(msRemaining / DAY_MS)),
     }
   }
 
-  if (status === 'ACTIVE' && subscription.currentPeriodEndsAt && subscription.currentPeriodEndsAt > now) {
-    return { allowed: true, reason: 'SUBSCRIPTION_ACTIVE', currentPeriodEndsAt: subscription.currentPeriodEndsAt }
+  if (status === 'ACTIVE') {
+    // Cortesia/grandfathering: liberado pelo admin sem data de expiração
+    // (ver routes/admin.ts e scripts/backfill-subscriptions.ts).
+    if (!subscription.currentPeriodEndsAt) {
+      return { allowed: true, reason: 'COURTESY_ACTIVE' }
+    }
+    if (paidUntilWithGrace(subscription.currentPeriodEndsAt) > now) {
+      return { allowed: true, reason: 'SUBSCRIPTION_ACTIVE', currentPeriodEndsAt: subscription.currentPeriodEndsAt }
+    }
+    // Período pago venceu e nenhuma renovação chegou.
+    return { allowed: false, reason: 'PAYMENT_LATE', currentPeriodEndsAt: subscription.currentPeriodEndsAt, redirectTo: '/configuracoes/assinatura' }
   }
 
-  // Grandfathering: contas migradas manualmente para ACTIVE sem data de período
-  // (ver scripts/backfill-subscriptions.ts) mantêm acesso liberado indefinidamente.
-  if (status === 'ACTIVE' && !subscription.currentPeriodEndsAt) {
-    return { allowed: true, reason: 'SUBSCRIPTION_ACTIVE' }
-  }
-
+  // Cancelou na Kiwify, mas já pagou o mês corrente: mantém até o fim dele.
   if (status === 'CANCELED' && subscription.currentPeriodEndsAt && subscription.currentPeriodEndsAt > now) {
     return { allowed: true, reason: 'SUBSCRIPTION_ACTIVE', currentPeriodEndsAt: subscription.currentPeriodEndsAt }
   }
@@ -79,67 +92,138 @@ export function calculateClinicAccess(
     return { allowed: false, reason: 'PAYMENT_LATE', redirectTo: '/configuracoes/assinatura' }
   }
 
-  if (status === 'BLOCKED') {
-    return { allowed: false, reason: 'SUBSCRIPTION_BLOCKED', redirectTo: '/configuracoes/assinatura' }
-  }
-
   if (status === 'CANCELED') {
     return { allowed: false, reason: 'SUBSCRIPTION_CANCELED', redirectTo: '/configuracoes/assinatura' }
+  }
+
+  // BLOCKED vindo do fim do trial (watchdog) continua sendo "trial expirado"
+  // pro usuário — só é "bloqueado" quando nunca houve pagamento e o trial não
+  // venceu (bloqueio manual do admin, reembolso, chargeback).
+  if (status === 'BLOCKED' && subscription.trialEndsAt > now) {
+    return { allowed: false, reason: 'SUBSCRIPTION_BLOCKED', redirectTo: '/configuracoes/assinatura' }
+  }
+  if (status === 'BLOCKED' && subscription.currentPeriodEndsAt) {
+    return { allowed: false, reason: 'SUBSCRIPTION_BLOCKED', redirectTo: '/configuracoes/assinatura' }
   }
 
   return { allowed: false, reason: 'TRIAL_EXPIRED', redirectTo: '/configuracoes/assinatura' }
 }
 
-// Cria a assinatura TRIAL de 7 dias — chamado dentro da mesma transação do
-// cadastro (auth.ts) e como backfill defensivo no login para contas antigas.
+// Status "de exibição", sempre coerente com o acesso calculado em tempo real
+// (o status gravado no banco pode estar até 1h atrasado em relação ao
+// watchdog, ex.: TRIAL já vencido ainda gravado como TRIAL).
+export type DisplayStatus =
+  | 'TRIAL'
+  | 'TRIAL_EXPIRED'
+  | 'ACTIVE'
+  | 'COURTESY'
+  | 'CANCELED_ACTIVE'
+  | 'PENDING_PAYMENT'
+  | 'PAST_DUE'
+  | 'CANCELED'
+  | 'BLOCKED'
+
+export function getDisplayStatus(
+  subscription: Pick<DoctorSubscription, 'status' | 'trialEndsAt' | 'currentPeriodEndsAt'> | null,
+  access: ClinicAccessResult
+): DisplayStatus {
+  if (!subscription) return 'TRIAL_EXPIRED'
+  switch (access.reason) {
+    case 'TRIAL_ACTIVE': return 'TRIAL'
+    case 'COURTESY_ACTIVE': return 'COURTESY'
+    case 'SUBSCRIPTION_ACTIVE': return subscription.status === 'CANCELED' ? 'CANCELED_ACTIVE' : 'ACTIVE'
+    case 'PAYMENT_PENDING': return 'PENDING_PAYMENT'
+    case 'PAYMENT_LATE': return 'PAST_DUE'
+    case 'SUBSCRIPTION_CANCELED': return 'CANCELED'
+    case 'SUBSCRIPTION_BLOCKED': return 'BLOCKED'
+    default: return 'TRIAL_EXPIRED'
+  }
+}
+
+export function buildTrialWindow(from: Date = new Date()): { trialStartedAt: Date; trialEndsAt: Date } {
+  return { trialStartedAt: from, trialEndsAt: new Date(from.getTime() + CLINIC_PRO_SUBSCRIPTION.trialDays * DAY_MS) }
+}
+
+// Cria a assinatura TRIAL (CLINIC_PRO_TRIAL_DAYS, padrão 3 dias) — chamado na
+// mesma transação do cadastro (auth.ts), na criação de médico pelo admin
+// (users.ts) e pelo watchdog para qualquer médico que ainda esteja sem linha.
 export async function ensureTrialSubscription(
   doctorId: string,
   tx: Pick<typeof prisma, 'doctorSubscription'> = prisma
-): Promise<void> {
+): Promise<boolean> {
   const existing = await tx.doctorSubscription.findUnique({ where: { doctorId } })
-  if (existing) return
-
-  const trialEndsAt = new Date()
-  trialEndsAt.setDate(trialEndsAt.getDate() + CLINIC_PRO_SUBSCRIPTION.trialDays)
+  if (existing) return false
 
   await tx.doctorSubscription.create({
-    data: { doctorId, status: 'TRIAL', trialStartedAt: new Date(), trialEndsAt },
+    data: { doctorId, status: 'TRIAL', ...buildTrialWindow() },
   })
 
-  await logAudit({ userId: doctorId, action: 'TRIAL_CREATED', description: `Trial de ${CLINIC_PRO_SUBSCRIPTION.trialDays} dias iniciado` })
+  await logAudit({ userId: doctorId, action: 'TRIAL_CREATED', description: `Teste grátis de ${CLINIC_PRO_SUBSCRIPTION.trialDays} dias iniciado` })
+  return true
 }
 
-// Job periódico: marca trials vencidos como BLOCKED. calculateClinicAccess já
-// bloqueia em tempo real por conta própria — isso é só para manter o status
-// persistido coerente (ex.: exibido em telas administrativas).
+// Garante que todo médico ativo tenha uma linha de assinatura — contas
+// criadas antes da Kiwify ou por caminhos que não chamavam ensureTrial
+// apareciam como "Bloqueada" sem nunca terem tido teste grátis.
+export async function ensureAllDoctorsHaveSubscription(): Promise<number> {
+  const missing = await prisma.user.findMany({
+    where: { role: 'DOCTOR', active: true, subscription: { is: null } },
+    select: { id: true },
+  })
+  let created = 0
+  for (const doctor of missing) {
+    try {
+      if (await ensureTrialSubscription(doctor.id)) created++
+    } catch (err) {
+      console.error(`[SUBSCRIPTION] Falha ao criar trial para ${doctor.id}:`, err)
+    }
+  }
+  return created
+}
+
+// Job periódico: mantém o status gravado coerente com o acesso real (telas
+// administrativas leem o banco). calculateClinicAccess já bloqueia em tempo
+// real por conta própria.
 let expiryWatchdogInterval: NodeJS.Timeout | null = null
+
+export async function runSubscriptionMaintenance(): Promise<void> {
+  const now = new Date()
+
+  const created = await ensureAllDoctorsHaveSubscription()
+  if (created > 0) console.log(`[SUBSCRIPTION_WATCHDOG] ${created} médico(s) sem assinatura receberam teste grátis`)
+
+  const expiredTrials = await prisma.doctorSubscription.findMany({
+    where: { status: 'TRIAL', trialEndsAt: { lt: now } },
+    select: { id: true, doctorId: true },
+  })
+  for (const sub of expiredTrials) {
+    await prisma.doctorSubscription.update({ where: { id: sub.id }, data: { status: 'BLOCKED', blockedAt: now } })
+    await logAudit({ userId: sub.doctorId, action: 'TRIAL_EXPIRED', description: 'Período de teste grátis encerrado' })
+  }
+
+  // Período pago vencido (+ tolerância) sem webhook de renovação.
+  const overdueLimit = new Date(now.getTime() - CLINIC_PRO_SUBSCRIPTION.gracePeriodDays * DAY_MS)
+  const overdue = await prisma.doctorSubscription.findMany({
+    where: { status: 'ACTIVE', currentPeriodEndsAt: { not: null, lt: overdueLimit } },
+    select: { id: true, doctorId: true },
+  })
+  for (const sub of overdue) {
+    await prisma.doctorSubscription.update({ where: { id: sub.id }, data: { status: 'PAST_DUE' } })
+    await logAudit({ userId: sub.doctorId, action: 'SUBSCRIPTION_PAST_DUE', description: 'Período pago venceu sem confirmação de renovação' })
+  }
+}
 
 export function startSubscriptionExpiryWatchdog(): void {
   if (expiryWatchdogInterval) return
 
   const INTERVAL_MS = 60 * 60 * 1000 // 1 hora
 
-  const run = async () => {
-    try {
-      const expired = await prisma.doctorSubscription.findMany({
-        where: { status: 'TRIAL', trialEndsAt: { lt: new Date() } },
-        select: { id: true, doctorId: true },
-      })
-
-      for (const sub of expired) {
-        await prisma.doctorSubscription.update({
-          where: { id: sub.id },
-          data: { status: 'BLOCKED', blockedAt: new Date() },
-        })
-        await logAudit({ userId: sub.doctorId, action: 'TRIAL_EXPIRED', description: 'Período gratuito de 7 dias encerrado' })
-      }
-    } catch (err) {
-      console.error('[SUBSCRIPTION_WATCHDOG] Erro ao verificar trials expirados:', err)
-    }
-  }
+  const run = () => runSubscriptionMaintenance().catch(err =>
+    console.error('[SUBSCRIPTION_WATCHDOG] Erro na manutenção de assinaturas:', err)
+  )
 
   expiryWatchdogInterval = setInterval(run, INTERVAL_MS)
-  run().catch(err => console.error('[SUBSCRIPTION_WATCHDOG] Erro no check inicial:', err))
+  run()
 
-  console.log('[SUBSCRIPTION_WATCHDOG] Verificação de trials expirados iniciada')
+  console.log('[SUBSCRIPTION_WATCHDOG] Verificação de assinaturas iniciada')
 }

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
+import { ensureTrialSubscription } from '../lib/subscription-access'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 
 const router = Router()
@@ -91,6 +92,14 @@ router.post('/', requireRole('ADMIN'), async (req, res) => {
         createdAt: true,
       },
     })
+
+    // Médico criado pelo admin também nasce com o teste grátis — antes ficava
+    // sem linha de assinatura e aparecia como "Bloqueada".
+    if (user.role === 'DOCTOR') {
+      await ensureTrialSubscription(user.id).catch(err =>
+        console.error('[users] Falha ao criar teste grátis do médico:', err)
+      )
+    }
 
     res.status(201).json(user)
   } catch (error) {

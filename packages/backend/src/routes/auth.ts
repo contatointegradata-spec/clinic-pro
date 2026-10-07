@@ -110,7 +110,7 @@ router.post('/register', async (req, res) => {
         },
       })
 
-      // Assinatura da clínica: trial de 7 dias, criado na mesma transação do
+      // Assinatura da clínica: teste grátis (padrão 3 dias), criado na mesma transação do
       // cadastro pra nunca existir médico sem status de cobrança.
       await ensureTrialSubscription(created.id, tx)
 

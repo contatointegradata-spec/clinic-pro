@@ -2,7 +2,8 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId } from '../lib/secretaryAccess'
-import { calculateClinicAccess } from '../lib/subscription-access'
+import { calculateClinicAccess, getDisplayStatus, ensureTrialSubscription } from '../lib/subscription-access'
+import { getResolvedKiwifyConfig, isSubscriptionEnforced } from '../lib/kiwify-config'
 import { buildKiwifyCheckoutUrl, getKiwifySale } from '../integrations/kiwify/kiwify.client'
 import { CLINIC_PRO_SUBSCRIPTION, monthlyPriceLabel } from '../lib/billing-config'
 
@@ -23,23 +24,38 @@ router.get('/status', async (req: AuthRequest, res) => {
       return
     }
 
-    const subscription = await prisma.doctorSubscription.findUnique({
-      where: { doctorId },
-      include: { payments: { orderBy: { createdAt: 'desc' }, take: 5 } },
-    })
+    // Nunca deixa um médico sem linha de assinatura (contas antigas).
+    await ensureTrialSubscription(doctorId).catch(() => undefined)
+
+    const [subscription, enforced, kiwify] = await Promise.all([
+      prisma.doctorSubscription.findUnique({
+        where: { doctorId },
+        include: { payments: { orderBy: { createdAt: 'desc' }, take: 10 } },
+      }),
+      isSubscriptionEnforced(),
+      getResolvedKiwifyConfig(),
+    ])
 
     const access = calculateClinicAccess(subscription, new Date())
 
     res.json({
       product: CLINIC_PRO_SUBSCRIPTION.name,
       monthlyPrice: monthlyPriceLabel(),
+      trialDays: CLINIC_PRO_SUBSCRIPTION.trialDays,
       status: subscription?.status ?? 'BLOCKED',
-      accessAllowed: access.allowed,
+      displayStatus: getDisplayStatus(subscription, access),
+      // Com o bloqueio desligado o sistema não barra ninguém — a tela não
+      // pode bloquear o que a API libera.
+      accessAllowed: enforced ? access.allowed : true,
+      subscriptionValid: access.allowed,
+      enforced,
       reason: access.reason,
       trialEndsAt: subscription?.trialEndsAt ?? null,
       trialDaysRemaining: access.trialDaysRemaining ?? null,
       currentPeriodEndsAt: subscription?.currentPeriodEndsAt ?? null,
       lastPaymentAt: subscription?.lastPaymentAt ?? null,
+      canceledAt: subscription?.canceledAt ?? null,
+      checkoutAvailable: !!kiwify.checkoutUrl,
       payments: subscription?.payments ?? [],
     })
   } catch (error) {
@@ -53,9 +69,17 @@ router.post('/checkout', requireRole('DOCTOR'), async (req: AuthRequest, res) =>
   try {
     const doctorId = req.user!.userId
 
+    await ensureTrialSubscription(doctorId).catch(() => undefined)
     const subscription = await prisma.doctorSubscription.findUnique({ where: { doctorId } })
     if (!subscription) {
       res.status(404).json({ message: 'Assinatura não encontrada' })
+      return
+    }
+
+    // Evita cobrança em dobro: assinatura paga e vigente não abre novo checkout.
+    const access = calculateClinicAccess(subscription, new Date())
+    if (subscription.status === 'ACTIVE' && access.reason === 'SUBSCRIPTION_ACTIVE') {
+      res.status(409).json({ message: 'Sua assinatura já está ativa — não é preciso pagar novamente.' })
       return
     }
 

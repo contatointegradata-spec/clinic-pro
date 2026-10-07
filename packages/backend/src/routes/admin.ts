@@ -8,6 +8,8 @@ import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { logAudit } from '../lib/secretaryAccess'
 import { CLINIC_PRO_SUBSCRIPTION } from '../lib/billing-config'
+import { calculateClinicAccess, getDisplayStatus, ensureAllDoctorsHaveSubscription, buildTrialWindow } from '../lib/subscription-access'
+import { isSubscriptionEnforced } from '../lib/kiwify-config'
 
 const router = Router()
 router.use(authenticate)
@@ -278,36 +280,106 @@ router.get('/team', async (_req: AuthRequest, res) => {
 // (getEffectiveDoctorId), nunca por usuário individual.
 
 // GET /api/admin/subscriptions — lista todos os médicos com status de assinatura
+// (status efetivo calculado em tempo real, não só o rótulo gravado no banco)
 router.get('/subscriptions', async (_req: AuthRequest, res) => {
   try {
-    const doctors = await prisma.user.findMany({
-      where: { role: 'DOCTOR', active: true },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        specialty: true,
-        createdAt: true,
-        subscription: {
-          select: {
-            status: true,
-            trialEndsAt: true,
-            currentPeriodEndsAt: true,
-            lastPaymentAt: true,
-            blockedAt: true,
-            canceledAt: true,
-            adminNote: true,
-            updatedAt: true,
+    await ensureAllDoctorsHaveSubscription()
+
+    const [doctors, enforced] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: 'DOCTOR', active: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          specialty: true,
+          createdAt: true,
+          subscription: {
+            select: {
+              status: true,
+              trialStartedAt: true,
+              trialEndsAt: true,
+              currentPeriodEndsAt: true,
+              lastPaymentAt: true,
+              blockedAt: true,
+              canceledAt: true,
+              adminNote: true,
+              kiwifySubscriptionId: true,
+              lastKiwifyOrderId: true,
+              updatedAt: true,
+              _count: { select: { payments: { where: { status: 'APPROVED' } } } },
+            },
+          },
+          _count: {
+            select: { doctorTeam: { where: { active: true } } },
           },
         },
-        _count: {
-          select: { doctorTeam: { where: { active: true } } },
+        orderBy: { name: 'asc' },
+      }),
+      isSubscriptionEnforced(),
+    ])
+
+    const now = new Date()
+    const rows = doctors.map(d => {
+      const access = calculateClinicAccess(d.subscription, now)
+      return {
+        ...d,
+        access: {
+          allowed: access.allowed,
+          reason: access.reason,
+          displayStatus: getDisplayStatus(d.subscription, access),
+          trialDaysRemaining: access.trialDaysRemaining ?? null,
         },
-      },
-      orderBy: { name: 'asc' },
+      }
     })
-    res.json(doctors)
-  } catch {
+
+    res.json({ enforced, trialDays: CLINIC_PRO_SUBSCRIPTION.trialDays, doctors: rows })
+  } catch (error) {
+    console.error('[admin/subscriptions] erro:', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+const bulkTrialSchema = z.object({ note: z.string().max(500).optional() })
+
+// POST /api/admin/subscriptions/bulk-trial — concede um novo teste grátis a
+// todo médico que HOJE estaria sem acesso (trial vencido, bloqueado,
+// cancelado...). Pensado pro momento de ligar o bloqueio: ninguém que já
+// usava o sistema é barrado sem aviso. Não mexe em quem já tem acesso.
+router.post('/subscriptions/bulk-trial', async (req: AuthRequest, res) => {
+  try {
+    const { note } = bulkTrialSchema.parse(req.body)
+    await ensureAllDoctorsHaveSubscription()
+
+    const subs = await prisma.doctorSubscription.findMany({
+      where: { doctor: { role: 'DOCTOR', active: true } },
+      select: { id: true, doctorId: true, status: true, trialEndsAt: true, currentPeriodEndsAt: true },
+    })
+
+    const now = new Date()
+    const targets = subs.filter(sub => !calculateClinicAccess(sub, now).allowed)
+    const window = buildTrialWindow(now)
+
+    for (const sub of targets) {
+      await prisma.doctorSubscription.update({
+        where: { id: sub.id },
+        data: { status: 'TRIAL', ...window, blockedAt: null, canceledAt: null, adminNote: note ?? 'Teste grátis concedido em lote' },
+      })
+    }
+
+    await logAudit({
+      userId: req.user!.userId,
+      action: 'SUBSCRIPTION_ADMIN_BULK_TRIAL',
+      description: `Admin concedeu ${CLINIC_PRO_SUBSCRIPTION.trialDays} dias de teste a ${targets.length} médico(s) sem acesso`,
+    })
+
+    res.json({ updated: targets.length, trialDays: CLINIC_PRO_SUBSCRIPTION.trialDays })
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    console.error('[admin/subscriptions/bulk-trial] erro:', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
@@ -415,7 +487,7 @@ router.post('/subscriptions/:doctorId/block', async (req: AuthRequest, res) => {
 
 const resetTrialSchema = z.object({ note: z.string().max(500).optional() })
 
-// POST /api/admin/subscriptions/:doctorId/reset-trial — concede um novo trial de 7 dias
+// POST /api/admin/subscriptions/:doctorId/reset-trial — concede um novo teste grátis (CLINIC_PRO_TRIAL_DAYS)
 router.post('/subscriptions/:doctorId/reset-trial', async (req: AuthRequest, res) => {
   try {
     const { doctorId } = req.params
@@ -427,15 +499,14 @@ router.post('/subscriptions/:doctorId/reset-trial', async (req: AuthRequest, res
       return
     }
 
-    const now = new Date()
-    const trialEndsAt = new Date(now.getTime() + CLINIC_PRO_SUBSCRIPTION.trialDays * 24 * 60 * 60 * 1000)
+    const { trialStartedAt, trialEndsAt } = buildTrialWindow()
 
     const subscription = await prisma.doctorSubscription.upsert({
       where: { doctorId },
-      create: { doctorId, status: 'TRIAL', trialStartedAt: now, trialEndsAt, adminNote: note },
+      create: { doctorId, status: 'TRIAL', trialStartedAt, trialEndsAt, adminNote: note },
       update: {
         status: 'TRIAL',
-        trialStartedAt: now,
+        trialStartedAt,
         trialEndsAt,
         blockedAt: null,
         canceledAt: null,
@@ -446,7 +517,7 @@ router.post('/subscriptions/:doctorId/reset-trial', async (req: AuthRequest, res
     await logAudit({
       userId: req.user!.userId,
       action: 'SUBSCRIPTION_ADMIN_TRIAL_RESET',
-      description: `Admin resetou trial de ${doctor.email}${note ? ` — ${note}` : ''}`,
+      description: `Admin concedeu ${CLINIC_PRO_SUBSCRIPTION.trialDays} dias de teste a ${doctor.email}${note ? ` — ${note}` : ''}`,
     })
 
     res.json(subscription)
