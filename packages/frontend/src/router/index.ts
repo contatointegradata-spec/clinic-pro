@@ -4,6 +4,7 @@ import { INTEGRATION_PERMISSION_KEYS } from '../composables/useSecretaryPermissi
 
 const AppShell = () => import('../components/layout/AppShell.vue')
 const Login = () => import('../pages/Login.vue')
+const Cadastro = () => import('../pages/Cadastro.vue')
 const LandingPage = () => import('../pages/LandingPage.vue')
 const Dashboard = () => import('../pages/Dashboard.vue')
 const Agenda = () => import('../pages/Agenda.vue')
@@ -59,6 +60,11 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/login',
     component: Login,
+    meta: { guestOnly: true },
+  },
+  {
+    path: '/cadastro',
+    component: Cadastro,
     meta: { guestOnly: true },
   },
   {

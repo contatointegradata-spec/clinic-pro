@@ -264,6 +264,11 @@ function closeForgotModal() {
             </template>
           </button>
         </form>
+
+        <p class="mt-6 text-center text-sm text-slate-500">
+          Ainda não tem conta?
+          <router-link to="/cadastro" class="font-semibold text-primary-600 hover:text-primary-700 hover:underline">Teste grátis por 3 dias</router-link>
+        </p>
       </div>
 
       <div class="mt-auto pt-8 w-full max-w-[420px] transition-all duration-700 delay-500" :class="mounted ? 'opacity-100' : 'opacity-0'">
