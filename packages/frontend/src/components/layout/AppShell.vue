@@ -95,12 +95,16 @@ const secretaryPermission = computed(() => route.meta.secretaryPermission as Sec
         <div class="p-4 sm:p-6 max-w-screen-2xl mx-auto w-full">
           <SettingsMobileNav v-if="isSettings" />
           <SubscriptionGate>
-            <div :key="route.path" class="page-enter">
-              <SecretaryGate v-if="secretaryPermission" :permission="secretaryPermission">
-                <router-view />
-              </SecretaryGate>
-              <router-view v-else />
-            </div>
+            <router-view v-slot="{ Component }">
+              <transition name="page-fade" mode="out-in">
+                <div :key="route.path" class="page-container w-full">
+                  <SecretaryGate v-if="secretaryPermission" :permission="secretaryPermission">
+                    <component :is="Component" />
+                  </SecretaryGate>
+                  <component v-else :is="Component" />
+                </div>
+              </transition>
+            </router-view>
           </SubscriptionGate>
         </div>
       </main>

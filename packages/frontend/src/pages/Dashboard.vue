@@ -71,110 +71,137 @@ function pct(value: number, max: number) {
 }
 
 const quickLinks = [
-  { to: '/agenda', icon: Calendar, label: 'Ver agenda completa', color: 'text-sky-300', bg: 'bg-sky-500/10' },
-  { to: '/pacientes', icon: Users, label: 'Gerenciar pacientes', color: 'text-violet-300', bg: 'bg-violet-500/10' },
-  { to: '/prontuario', icon: TrendingUp, label: 'Prontuários', color: 'text-emerald-300', bg: 'bg-emerald-500/10' },
-  { to: '/financeiro', icon: Stethoscope, label: 'Financeiro', color: 'text-amber-300', bg: 'bg-amber-500/10' },
+  { to: '/agenda', icon: Calendar, label: 'Ver agenda completa', color: 'text-primary-600', bg: 'bg-primary-50' },
+  { to: '/pacientes', icon: Users, label: 'Gerenciar pacientes', color: 'text-violet-600', bg: 'bg-violet-50' },
+  { to: '/prontuario', icon: TrendingUp, label: 'Prontuários', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  { to: '/financeiro', icon: Stethoscope, label: 'Financeiro', color: 'text-amber-600', bg: 'bg-amber-50' },
 ]
 </script>
 
 <template>
   <div class="space-y-6 page-stagger">
-    <!-- Welcome banner -->
-    <div class="bg-gradient-to-br from-primary-700 via-primary-600 to-sky-600 rounded-2xl p-5 sm:p-6 text-white shadow-xl shadow-primary-700/20 overflow-hidden relative">
-      <div class="absolute -top-10 -right-10 w-52 h-52 bg-white/5 rounded-full blur-3xl pointer-events-none" />
-      <div class="absolute bottom-0 left-1/3 w-40 h-40 bg-sky-300/10 rounded-full blur-2xl pointer-events-none" />
+    <!-- Header Executivo Minimalista e Sofisticado (Substitui a tarja pesada) -->
+    <div class="bg-white/85 backdrop-blur-md rounded-2xl border border-slate-200/80 p-6 sm:p-7 shadow-[0_1px_3px_rgba(0,0,0,0.03)] relative overflow-hidden transition-all duration-300">
+      <!-- Brilho ambiental sutil primário no topo/canto direito -->
+      <div class="absolute top-0 right-0 w-96 h-48 bg-gradient-to-bl from-primary-50/70 via-sky-50/20 to-transparent pointer-events-none rounded-bl-full" />
+      <div class="absolute top-0 left-0 right-0 h-[2px] bg-gradient-to-r from-primary-500 via-primary-400 to-sky-300 opacity-60" />
 
-      <div class="relative flex items-start justify-between gap-4">
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 mb-1">
-            <Zap class="w-4 h-4 text-sky-200" fill="currentColor" />
-            <span class="text-sky-200 text-xs font-bold uppercase tracking-widest">ClinIQ Pro</span>
+      <div class="relative flex flex-col sm:flex-row sm:items-center justify-between gap-5">
+        <div class="min-w-0">
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-primary-50/80 text-primary-700 border border-primary-100 mb-2.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-primary-500 animate-pulse-soft" />
+            <span class="tracking-wide uppercase text-[10.5px]">ClinIQ Pro</span>
           </div>
-          <h1 class="text-2xl sm:text-3xl font-bold mb-1 leading-tight">
+
+          <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight leading-tight">
             {{ getGreeting() }}, {{ authStore.user?.name?.split(' ')[0] }}! 👋
           </h1>
-          <p class="text-blue-100 text-sm">{{ dateCapitalized }}</p>
-          <div v-if="authStore.user?.specialty" class="mt-3 inline-flex items-center gap-1.5 bg-white/15 backdrop-blur-sm px-3 py-1.5 rounded-full text-xs font-medium border border-white/20">
-            <Activity class="w-3.5 h-3.5 text-sky-200" />
-            {{ authStore.user.specialty }}
-            <template v-if="authStore.user.crm"> · {{ authStore.user.crm }}</template>
+          <p class="text-slate-500 text-sm mt-1">
+            {{ dateCapitalized }} · <span class="text-slate-400">Visão geral da sua clínica</span>
+          </p>
+
+          <div v-if="authStore.user?.specialty" class="mt-3.5 inline-flex items-center gap-2 bg-slate-50 border border-slate-200/70 px-3 py-1 rounded-full text-xs font-medium text-slate-700 shadow-sm">
+            <Activity class="w-3.5 h-3.5 text-primary-600" />
+            <span>{{ authStore.user.specialty }}</span>
+            <span v-if="authStore.user.crm" class="text-slate-400">· {{ authStore.user.crm }}</span>
           </div>
         </div>
-        <div class="hidden sm:flex items-center gap-2.5 bg-white/15 backdrop-blur-sm px-4 py-3 rounded-2xl border border-white/20 flex-shrink-0">
-          <Calendar class="w-5 h-5 text-sky-200" />
+
+        <div class="hidden sm:flex items-center gap-3.5 bg-slate-50/80 border border-slate-200/70 px-4 py-3 rounded-2xl flex-shrink-0 shadow-sm">
+          <div class="w-10 h-10 rounded-xl bg-primary-50 border border-primary-100 flex items-center justify-center text-primary-600 shadow-sm">
+            <Calendar class="w-5 h-5" />
+          </div>
           <div class="text-right">
-            <p class="text-lg font-bold leading-none tabular-nums">{{ format(today, 'd MMM', { locale: ptBR }) }}</p>
-            <p class="text-xs text-blue-100 mt-0.5">{{ format(today, 'yyyy') }}</p>
+            <p class="text-base font-bold text-slate-900 leading-none tabular-nums">{{ format(today, 'd MMM', { locale: ptBR }) }}</p>
+            <p class="text-xs text-slate-400 mt-1 font-medium">{{ format(today, 'yyyy') }}</p>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Stats -->
+    <!-- Cards de Métricas (Refinados, minimalistas com micro-interações) -->
     <SkeletonStats v-if="statsLoading" :count="4" />
     <div v-else class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-      <div class="stat-card">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-primary-500 to-primary-700 shadow-sm">
-            <Calendar class="w-5 h-5 text-white" />
+      <!-- Consultas Hoje -->
+      <div class="group relative bg-white rounded-2xl border border-slate-200/80 p-5 hover:border-primary-300 hover:shadow-lg hover:shadow-primary-500/5 transition-all duration-300 ease-spring">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Consultas Hoje</p>
+            <p class="text-3xl font-bold text-slate-900 mt-2 mb-1 leading-none tabular-nums group-hover:text-primary-600 transition-colors">
+              {{ stats?.todayTotal ?? 0 }}
+            </p>
+            <p class="text-xs text-slate-400">agendamentos do dia</p>
           </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-xs text-slate-500 font-medium uppercase tracking-wide">Consultas Hoje</p>
-            <p class="text-3xl font-bold text-slate-900 mt-1 leading-none tabular-nums">{{ stats?.todayTotal ?? 0 }}</p>
-            <p class="text-xs text-slate-400 mt-1.5">agendamentos do dia</p>
+          <div class="w-11 h-11 rounded-xl bg-primary-50 text-primary-600 border border-primary-100/80 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+            <Calendar class="w-5 h-5" />
           </div>
         </div>
+        <div class="absolute bottom-0 left-5 right-5 h-[2px] bg-primary-500/0 group-hover:bg-primary-500/50 rounded-full transition-all duration-300" />
       </div>
-      <div class="stat-card">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-sm">
-            <CheckCircle2 class="w-5 h-5 text-white" />
+
+      <!-- Concluídas -->
+      <div class="group relative bg-white rounded-2xl border border-slate-200/80 p-5 hover:border-emerald-300 hover:shadow-lg hover:shadow-emerald-500/5 transition-all duration-300 ease-spring">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Concluídas</p>
+            <p class="text-3xl font-bold text-slate-900 mt-2 mb-1 leading-none tabular-nums group-hover:text-emerald-600 transition-colors">
+              {{ stats?.todayCompleted ?? 0 }}
+            </p>
+            <p class="text-xs text-slate-400">finalizadas hoje</p>
           </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-xs text-slate-500 font-medium uppercase tracking-wide">Concluídas</p>
-            <p class="text-3xl font-bold text-slate-900 mt-1 leading-none tabular-nums">{{ stats?.todayCompleted ?? 0 }}</p>
-            <p class="text-xs text-slate-400 mt-1.5">finalizadas hoje</p>
+          <div class="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-100/80 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+            <CheckCircle2 class="w-5 h-5" />
           </div>
         </div>
+        <div class="absolute bottom-0 left-5 right-5 h-[2px] bg-emerald-500/0 group-hover:bg-emerald-500/50 rounded-full transition-all duration-300" />
       </div>
-      <div class="stat-card">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-amber-500 to-amber-600 shadow-sm">
-            <Clock class="w-5 h-5 text-white" />
+
+      <!-- Pendentes -->
+      <div class="group relative bg-white rounded-2xl border border-slate-200/80 p-5 hover:border-amber-300 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300 ease-spring">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Pendentes</p>
+            <p class="text-3xl font-bold text-slate-900 mt-2 mb-1 leading-none tabular-nums group-hover:text-amber-600 transition-colors">
+              {{ stats?.todayScheduled ?? 0 }}
+            </p>
+            <p class="text-xs text-slate-400">aguardando atendimento</p>
           </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-xs text-slate-500 font-medium uppercase tracking-wide">Pendentes</p>
-            <p class="text-3xl font-bold text-slate-900 mt-1 leading-none tabular-nums">{{ stats?.todayScheduled ?? 0 }}</p>
-            <p class="text-xs text-slate-400 mt-1.5">aguardando atendimento</p>
+          <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 border border-amber-100/80 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+            <Clock class="w-5 h-5" />
           </div>
         </div>
+        <div class="absolute bottom-0 left-5 right-5 h-[2px] bg-amber-500/0 group-hover:bg-amber-500/50 rounded-full transition-all duration-300" />
       </div>
-      <div class="stat-card">
-        <div class="flex items-start gap-4">
-          <div class="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 bg-gradient-to-br from-violet-500 to-violet-700 shadow-sm">
-            <Users class="w-5 h-5 text-white" />
+
+      <!-- Total de Pacientes -->
+      <div class="group relative bg-white rounded-2xl border border-slate-200/80 p-5 hover:border-primary-300 hover:shadow-lg hover:shadow-primary-500/5 transition-all duration-300 ease-spring">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0 flex-1">
+            <p class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Total de Pacientes</p>
+            <p class="text-3xl font-bold text-slate-900 mt-2 mb-1 leading-none tabular-nums group-hover:text-primary-600 transition-colors">
+              {{ stats?.totalPatients ?? 0 }}
+            </p>
+            <p class="text-xs text-slate-400">cadastrados no sistema</p>
           </div>
-          <div class="flex-1 min-w-0">
-            <p class="text-xs text-slate-500 font-medium uppercase tracking-wide">Total de Pacientes</p>
-            <p class="text-3xl font-bold text-slate-900 mt-1 leading-none tabular-nums">{{ stats?.totalPatients ?? 0 }}</p>
-            <p class="text-xs text-slate-400 mt-1.5">cadastrados no sistema</p>
+          <div class="w-11 h-11 rounded-xl bg-sky-50 text-sky-600 border border-sky-100/80 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300 shadow-sm">
+            <Users class="w-5 h-5" />
           </div>
         </div>
+        <div class="absolute bottom-0 left-5 right-5 h-[2px] bg-primary-500/0 group-hover:bg-primary-500/50 rounded-full transition-all duration-300" />
       </div>
     </div>
 
     <!-- Main grid -->
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
       <div class="xl:col-span-2">
-        <div class="card h-full flex flex-col">
+        <div class="card h-full flex flex-col border border-slate-200/80">
           <div class="flex items-center justify-between mb-5">
             <div>
               <h2 class="text-base font-semibold text-slate-900">Agenda de Hoje</h2>
               <p class="text-xs text-slate-400 mt-0.5">{{ dateCapitalized }}</p>
             </div>
             <div class="flex items-center gap-2">
-              <span v-if="todayAppointments.length > 0" class="bg-primary-50 text-primary-700 text-xs font-bold px-3 py-1.5 rounded-full border border-primary-100 tabular-nums">
+              <span v-if="todayAppointments.length > 0" class="bg-primary-50 text-primary-700 text-xs font-semibold px-3 py-1 rounded-full border border-primary-100 tabular-nums">
                 {{ todayAppointments.length }} consulta{{ todayAppointments.length !== 1 ? 's' : '' }}
               </span>
               <router-link to="/agenda" class="btn-icon" title="Ver agenda completa">
@@ -195,11 +222,11 @@ const quickLinks = [
             </div>
           </div>
           <div v-else-if="todayAppointments.length === 0" class="empty-state flex-1">
-            <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4">
-              <Calendar class="w-8 h-8 text-slate-300" />
+            <div class="w-14 h-14 bg-slate-50 border border-slate-100 rounded-2xl flex items-center justify-center mb-3">
+              <Calendar class="w-7 h-7 text-slate-300" />
             </div>
-            <p class="text-slate-500 font-semibold">Nenhuma consulta hoje</p>
-            <p class="text-slate-400 text-sm mt-1">Aproveite o dia tranquilo!</p>
+            <p class="text-slate-600 font-semibold text-sm">Nenhuma consulta hoje</p>
+            <p class="text-slate-400 text-xs mt-1">Aproveite o dia tranquilo!</p>
             <router-link to="/agenda" class="mt-4 btn-primary text-xs">
               <Calendar class="w-3.5 h-3.5" />
               Ver agenda
@@ -208,15 +235,15 @@ const quickLinks = [
           <div v-else class="space-y-2 max-h-72 overflow-y-auto pr-0.5 scrollbar-none flex-1">
             <div
               v-for="appt in todayAppointments" :key="appt.id"
-              class="flex items-center gap-4 p-3.5 rounded-xl border transition-all duration-200 bg-slate-50 hover:bg-white hover:shadow-sm hover:border-slate-200 border-transparent cursor-pointer"
+              class="flex items-center gap-4 p-3.5 rounded-xl border border-slate-100 bg-slate-50/50 hover:bg-white hover:shadow-sm hover:border-slate-200 transition-all duration-200 cursor-pointer group"
             >
               <div class="text-center min-w-[52px]">
-                <p class="text-sm font-bold text-slate-900 tabular-nums">{{ format(new Date(appt.date), 'HH:mm') }}</p>
+                <p class="text-sm font-bold text-slate-900 tabular-nums group-hover:text-primary-600 transition-colors">{{ format(new Date(appt.date), 'HH:mm') }}</p>
                 <p class="text-xs text-slate-400">{{ appt.duration }}min</p>
               </div>
               <div class="w-px h-9 flex-shrink-0 bg-slate-200" />
               <div class="flex-1 min-w-0">
-                <p class="font-semibold text-slate-900 text-sm truncate">{{ appt.patient.name }}</p>
+                <p class="font-semibold text-slate-900 text-sm truncate group-hover:text-primary-700 transition-colors">{{ appt.patient.name }}</p>
                 <p class="text-xs text-slate-400 truncate mt-0.5">
                   <template v-if="appt.type">{{ appt.type }} · </template>Dr(a). {{ appt.doctor.name }}
                 </p>
@@ -228,9 +255,10 @@ const quickLinks = [
       </div>
 
       <div class="space-y-4">
-        <div class="card">
+        <!-- Resumo do Dia -->
+        <div class="card border border-slate-200/80">
           <h3 class="font-semibold text-slate-900 mb-4 flex items-center gap-2 text-sm">
-            <div class="w-7 h-7 bg-primary-50 rounded-lg flex items-center justify-center">
+            <div class="w-7 h-7 bg-primary-50 rounded-lg flex items-center justify-center border border-primary-100">
               <BarChart3 class="w-3.5 h-3.5 text-primary-600" />
             </div>
             Resumo do Dia
@@ -238,7 +266,7 @@ const quickLinks = [
           <div class="space-y-4">
             <div>
               <div class="flex items-center justify-between mb-1.5">
-                <span class="text-xs text-slate-500">Concluídas</span>
+                <span class="text-xs text-slate-500 font-medium">Concluídas</span>
                 <span class="text-xs font-bold text-emerald-600 tabular-nums">{{ conclusionRate }}%</span>
               </div>
               <div class="progress-track">
@@ -247,7 +275,7 @@ const quickLinks = [
             </div>
             <div>
               <div class="flex items-center justify-between mb-1.5">
-                <span class="text-xs text-slate-500">Agendadas</span>
+                <span class="text-xs text-slate-500 font-medium">Agendadas</span>
                 <span class="text-xs font-bold text-amber-600 tabular-nums">{{ stats?.todayScheduled ?? 0 }}</span>
               </div>
               <div class="progress-track">
@@ -266,9 +294,10 @@ const quickLinks = [
           </div>
         </div>
 
-        <div v-if="birthdays.length > 0" class="card">
+        <!-- Aniversariantes -->
+        <div v-if="birthdays.length > 0" class="card border border-slate-200/80">
           <h3 class="font-semibold text-slate-900 mb-4 flex items-center gap-2 text-sm">
-            <div class="w-7 h-7 bg-pink-50 rounded-lg flex items-center justify-center">
+            <div class="w-7 h-7 bg-pink-50 rounded-lg flex items-center justify-center border border-pink-100">
               <Cake class="w-3.5 h-3.5 text-pink-500" />
             </div>
             Aniversariantes de hoje
@@ -278,7 +307,7 @@ const quickLinks = [
               v-for="p in birthdays" :key="p.id"
               class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors"
             >
-              <div class="w-8 h-8 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+              <div class="w-8 h-8 rounded-full bg-pink-50 text-pink-600 flex items-center justify-center text-xs font-bold flex-shrink-0 border border-pink-100">
                 {{ p.name.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() }}
               </div>
               <div class="flex-1 min-w-0">
@@ -299,22 +328,25 @@ const quickLinks = [
           </div>
         </div>
 
-        <div class="card bg-gradient-to-br from-slate-900 to-slate-800 border-slate-700/50">
-          <h3 class="font-semibold text-white mb-1 flex items-center gap-2 text-sm">
-            <Zap class="w-4 h-4 text-sky-300" fill="currentColor" />
-            Acesso Rápido
-          </h3>
-          <p class="text-xs text-slate-400 mb-4">Ações mais usadas</p>
+        <!-- Acesso Rápido Sofisticado (Em harmonia com o tema claro e minimalista) -->
+        <div class="card border border-slate-200/80">
+          <div class="flex items-center gap-2 mb-1">
+            <div class="w-7 h-7 bg-primary-50 rounded-lg flex items-center justify-center border border-primary-100">
+              <Zap class="w-3.5 h-3.5 text-primary-600" />
+            </div>
+            <h3 class="font-semibold text-slate-900 text-sm">Acesso Rápido</h3>
+          </div>
+          <p class="text-xs text-slate-400 mb-3.5">Ações e atalhos mais usados</p>
           <div class="space-y-1">
             <router-link
               v-for="link in quickLinks" :key="link.to" :to="link.to"
-              class="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/10 active:bg-white/5 text-slate-300 hover:text-white transition-all duration-150 group"
+              class="flex items-center gap-3 px-3 py-2 rounded-xl text-slate-600 hover:text-primary-700 hover:bg-primary-50/60 border border-transparent hover:border-primary-100/70 transition-all duration-200 group"
             >
-              <div :class="['w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0', link.bg]">
+              <div :class="['w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 border border-slate-100', link.bg]">
                 <component :is="link.icon" :class="['w-3.5 h-3.5', link.color]" />
               </div>
               <span class="text-sm font-medium flex-1">{{ link.label }}</span>
-              <ArrowRight class="w-3.5 h-3.5 text-slate-500 group-hover:text-white group-hover:translate-x-0.5 transition-all duration-150" />
+              <ArrowRight class="w-3.5 h-3.5 text-slate-400 group-hover:text-primary-600 group-hover:translate-x-1 transition-all duration-200" />
             </router-link>
           </div>
         </div>

@@ -5,7 +5,11 @@ import Toaster from './components/system/Toaster.vue'
 
 <template>
   <ErrorBoundary>
-    <router-view />
+    <router-view v-slot="{ Component }">
+      <transition name="app-fade" mode="out-in">
+        <component :is="Component" />
+      </transition>
+    </router-view>
     <Toaster />
   </ErrorBoundary>
 </template>

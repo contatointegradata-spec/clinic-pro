@@ -2,9 +2,9 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  LayoutDashboard, Calendar, Users, DollarSign, UserCog, LogOut, ChevronRight,
-  Settings, ClipboardList, MessageSquare, Database, PanelLeftClose, PanelLeft,
-  ShieldCheck, Building2, CreditCard, Webhook, Kanban, Package,
+  LayoutDashboard, CalendarDays, Users2, CircleDollarSign, UserCog, LogOut, ChevronRight,
+  Settings, ClipboardList, Bot, Database, PanelLeftClose, PanelLeft,
+  ShieldCheck, Building2, CreditCard, Webhook, FolderKanban, Boxes,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
 import { useSecretaryPermissions } from '../../composables/useSecretaryPermissions'
@@ -40,11 +40,11 @@ const roleColor: Record<string, string> = {
 
 const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined as string | undefined },
-  { to: '/agenda', icon: Calendar, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/pacientes', icon: Users, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+  { to: '/agenda', icon: CalendarDays, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+  { to: '/pacientes', icon: Users2, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
   { to: '/prontuario', icon: ClipboardList, label: 'Prontuário', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/estoque', icon: Package, label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/financeiro', icon: DollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'financeiro' },
+  { to: '/estoque', icon: Boxes, label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
+  { to: '/financeiro', icon: CircleDollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'financeiro' },
   { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'], secretaryPermission: undefined },
 ]
 
@@ -72,10 +72,10 @@ function handleLogout() {
 
 <template>
   <aside
-    class="bg-white border-r border-slate-200 flex flex-col h-screen flex-shrink-0 overflow-hidden select-none"
+    class="bg-white border-r border-slate-200/80 flex flex-col h-screen flex-shrink-0 overflow-hidden select-none"
     :style="{ width: `${props.collapsed ? 68 : 256}px`, transition: 'width 0.32s cubic-bezier(.22,1,.36,1)' }"
   >
-    <div class="px-2.5 py-3.5 border-b border-slate-100 flex-shrink-0">
+    <div class="px-3 py-3.5 border-b border-slate-100 flex-shrink-0">
       <div v-if="!props.collapsed" class="flex items-center justify-between min-w-0">
         <ClinicLogo size="md" dark />
         <button class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-all duration-150 flex-shrink-0 ml-1" title="Recolher sidebar" @click="emit('toggleCollapse')">
@@ -90,47 +90,47 @@ function handleLogout() {
       </div>
     </div>
 
-    <nav class="flex-1 px-2 py-3 space-y-0.5 overflow-y-auto scrollbar-none">
-      <p v-if="!props.collapsed" class="section-label mb-3">Menu Principal</p>
+    <nav class="flex-1 px-2.5 py-3 space-y-1 overflow-y-auto scrollbar-none">
+      <p v-if="!props.collapsed" class="section-label mb-2.5">Menu Principal</p>
       <router-link
         v-for="item in visibleItems"
         :key="item.to"
         :to="item.to"
         :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']"
       >
-        <component :is="item.icon" :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-white' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-110']" />
+        <component :is="item.icon" :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
         <span class="flex-1 overflow-hidden transition-all duration-300 whitespace-nowrap" :style="{ opacity: props.collapsed ? 0 : 1, maxWidth: props.collapsed ? '0' : '200px' }">
           {{ item.label }}
         </span>
         <span v-if="item.to === '/pacientes' && pendingCount > 0 && !props.collapsed" class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold bg-amber-500 text-white rounded-full leading-none">
           {{ pendingCount > 99 ? '99+' : pendingCount }}
         </span>
-        <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-4 h-4 opacity-60 flex-shrink-0" />
+        <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-4 h-4 text-primary-500/70 flex-shrink-0" />
         <span v-if="props.collapsed" class="tooltip">{{ item.label }}</span>
       </router-link>
 
-      <div v-if="can('chatbot_light_operar') || can('chatbot_light_configurar')" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-5 pt-4', 'border-t border-slate-100']">
+      <div v-if="can('chatbot_light_operar') || can('chatbot_light_configurar')" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
         <router-link to="/agente/chatbot" :class="['sidebar-link group tooltip-trigger', isChatbotRoute ? 'active' : '']">
-          <MessageSquare :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isChatbotRoute ? 'text-white' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-110']" />
+          <Bot :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isChatbotRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
           <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">Agente de IA</span>
           <span v-else class="tooltip">Agente de IA</span>
         </router-link>
-        <router-link to="/agente/crm" :class="['sidebar-link group tooltip-trigger mt-0.5', isCrmRoute ? 'active' : '']">
-          <Kanban :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isCrmRoute ? 'text-white' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-110']" />
+        <router-link to="/agente/crm" :class="['sidebar-link group tooltip-trigger mt-1', isCrmRoute ? 'active' : '']">
+          <FolderKanban :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isCrmRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
           <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">CRM</span>
           <span v-else class="tooltip">CRM</span>
         </router-link>
       </div>
 
-      <div v-if="authStore.user?.role === 'SECRETARY'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-4', 'border-t border-slate-100']">
+      <div v-if="authStore.user?.role === 'SECRETARY'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
         <p v-if="!props.collapsed" class="section-label mb-2">Atendimento</p>
         <router-link to="/minhas-salas" :class="['sidebar-link group tooltip-trigger', isActive('/minhas-salas') ? 'active' : '']">
-          <Building2 :class="['w-5 h-5 flex-shrink-0', isActive('/minhas-salas') ? 'text-white' : 'text-slate-400 group-hover:text-primary-600']" />
+          <Building2 :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive('/minhas-salas') ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
           <span v-if="!props.collapsed" class="flex-1">Minhas Salas</span>
         </router-link>
       </div>
 
-      <div v-if="authStore.user?.role === 'ADMIN'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-4', 'border-t border-slate-100']">
+      <div v-if="authStore.user?.role === 'ADMIN'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
         <p v-if="!props.collapsed" class="section-label mb-2">Admin</p>
         <router-link v-for="item in [
           { to: '/admin/gestao', icon: ShieldCheck, label: 'Gestão' },
@@ -138,15 +138,15 @@ function handleLogout() {
           { to: '/admin/integracoes', icon: Webhook, label: 'Integrações' },
           { to: '/admin/sql', icon: Database, label: 'SQL Admin' },
         ]" :key="item.to" :to="item.to" :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']">
-          <component :is="item.icon" :class="['w-5 h-5 flex-shrink-0', isActive(item.to) ? 'text-white' : 'text-slate-400 group-hover:text-primary-600']" />
+          <component :is="item.icon" :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
           <span v-if="!props.collapsed" class="flex-1">{{ item.label }}</span>
         </router-link>
       </div>
     </nav>
 
-    <div class="px-2 pb-2 border-t border-slate-100 pt-2">
+    <div class="px-2.5 pb-2 border-t border-slate-100 pt-2">
       <router-link to="/configuracoes/perfil" :class="['sidebar-link group tooltip-trigger', route.path.startsWith('/configuracoes') ? 'active' : '']">
-        <Settings :class="['w-5 h-5 flex-shrink-0', route.path.startsWith('/configuracoes') ? 'text-white' : 'text-slate-400 group-hover:text-primary-600']" />
+        <Settings :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', route.path.startsWith('/configuracoes') ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
         <span v-if="!props.collapsed" class="flex-1">Configurações</span>
       </router-link>
     </div>

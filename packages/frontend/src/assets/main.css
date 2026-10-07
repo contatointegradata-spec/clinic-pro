@@ -60,21 +60,27 @@
 
 @layer components {
   /* ─────────────────────────────────────────
-     SIDEBAR — chrome claro, acento azul
+     SIDEBAR — chrome sofisticado, acento azul refinado
   ───────────────────────────────────────── */
   .sidebar-link {
-    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-500
-           hover:text-primary-700 hover:bg-primary-50/80
+    @apply relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600
+           hover:text-slate-900 hover:bg-slate-100/70
            transition-all duration-200 ease-spring text-sm font-medium cursor-pointer
-           relative overflow-hidden;
+           overflow-hidden select-none;
   }
 
   .sidebar-link.active {
-    @apply bg-primary-600 text-white shadow-sm shadow-primary-600/25;
+    @apply bg-primary-50/90 text-primary-700 font-semibold border border-primary-100/70 shadow-sm;
+  }
+
+  .sidebar-link.active::before {
+    content: '';
+    @apply absolute left-0 top-2 bottom-2 w-1 bg-primary-600 rounded-r-full
+           shadow-sm shadow-primary-600/25 transition-all duration-300;
   }
 
   .sidebar-link.active:hover {
-    @apply bg-primary-600 text-white;
+    @apply bg-primary-100/70 text-primary-800;
   }
 
   /* ─────────────────────────────────────────
@@ -283,6 +289,48 @@
 
   .page-wrapper {
     @apply page-enter;
+  }
+
+  /* ─────────────────────────────────────────
+     VUE ROUTE & PORTAL TRANSITIONS
+  ───────────────────────────────────────── */
+  .page-fade-enter-active {
+    transition: opacity 0.24s cubic-bezier(0.16, 1, 0.3, 1), transform 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .page-fade-leave-active {
+    transition: opacity 0.16s cubic-bezier(0.4, 0, 1, 1), transform 0.16s cubic-bezier(0.4, 0, 1, 1);
+  }
+  .page-fade-enter-from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  .page-fade-leave-to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  .app-fade-enter-active {
+    transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .app-fade-leave-active {
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 1, 1), transform 0.2s cubic-bezier(0.4, 0, 1, 1);
+  }
+  .app-fade-enter-from {
+    opacity: 0;
+    transform: scale(0.992) translateY(4px);
+  }
+  .app-fade-leave-to {
+    opacity: 0;
+    transform: scale(0.992);
+  }
+
+  .portal-fade-enter-active,
+  .portal-fade-leave-active {
+    transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 0.4s ease;
+  }
+  .portal-fade-enter-from,
+  .portal-fade-leave-to {
+    opacity: 0;
   }
 
   /* ─────────────────────────────────────────

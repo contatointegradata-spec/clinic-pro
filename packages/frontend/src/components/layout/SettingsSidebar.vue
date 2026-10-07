@@ -71,11 +71,11 @@ function handleLogout() {
         :to="item.to"
         :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']"
       >
-        <component :is="item.icon" :class="['w-4.5 h-4.5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-white' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-110']" />
+        <component :is="item.icon" :class="['w-4.5 h-4.5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
         <span class="flex-1 text-sm overflow-hidden transition-all duration-300 whitespace-nowrap" :style="{ opacity: props.collapsed ? 0 : 1, maxWidth: props.collapsed ? '0' : '200px' }">
           {{ item.label }}
         </span>
-        <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-3.5 h-3.5 opacity-50 flex-shrink-0" />
+        <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-3.5 h-3.5 text-primary-500/70 flex-shrink-0" />
         <span v-if="props.collapsed" class="tooltip">{{ item.label }}</span>
       </router-link>
     </nav>

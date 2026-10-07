@@ -46,6 +46,9 @@ const forgotLoading = ref(false)
 const forgotSuccess = ref(false)
 const mounted = ref(false)
 
+const enteringPlatform = ref(false)
+const welcomeUserGreeting = ref('')
+
 const form = reactive({ email: '', password: '' })
 const errors = reactive<{ email?: string; password?: string }>({})
 
@@ -68,19 +71,22 @@ async function onLogin() {
   loading.value = true
   loginPhase.value = 'loading'
   try {
-    await new Promise(r => setTimeout(r, 800))
-    loginPhase.value = 'preparing'
-
     const res = await api.post('/auth/login', form)
     const { token, refreshToken, user } = res.data
     authStore.setAuth(user, token, refreshToken)
 
-    await new Promise(r => setTimeout(r, 1200))
+    welcomeUserGreeting.value = getGreeting(user.name)
+    loginPhase.value = 'preparing'
+    enteringPlatform.value = true
+
+    // Animação e transição cinematográfica de entrada na plataforma
+    await new Promise(r => setTimeout(r, 750))
 
     toast.success(getGreeting(user.name), { duration: 4000 })
     router.push('/dashboard')
   } catch (error: any) {
     loginPhase.value = 'idle'
+    enteringPlatform.value = false
     errors.email = error?.response?.data?.message || 'Erro ao fazer login'
   } finally {
     loading.value = false
@@ -314,5 +320,46 @@ function closeForgotModal() {
         </div>
       </form>
     </Modal>
+
+    <!-- TRANSIÇÃO E ANIMAÇÃO DE ENTRADA NA PLATAFORMA -->
+    <Transition name="portal-fade">
+      <div
+        v-if="enteringPlatform"
+        class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/80 backdrop-blur-xl"
+      >
+        <div class="relative flex flex-col items-center max-w-sm w-full px-6 text-center animate-scale-in">
+          <!-- Logo com Ondas Radiantes e Brilho Primário -->
+          <div class="relative mb-6">
+            <div class="absolute -inset-6 bg-primary-500/25 rounded-full blur-2xl animate-pulse-soft" />
+            <div class="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 via-primary-600 to-sky-600 flex items-center justify-center shadow-2xl shadow-primary-500/50 border border-white/20">
+              <svg class="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="7.3" stroke="currentColor" stroke-width="2" fill="none" />
+                <path d="M5.5 12 H9 L10.6 8 L13.2 16 L14.8 12 H18.5" stroke="#bbdcfd" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                <circle cx="18.7" cy="6.3" r="2.1" fill="currentColor" />
+              </svg>
+            </div>
+            <div class="absolute -inset-2 rounded-2xl border border-sky-400/40 animate-ping-once pointer-events-none" />
+          </div>
+
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-500/15 text-sky-300 border border-primary-400/30 mb-3 shadow-sm">
+            <Sparkles class="w-3.5 h-3.5 text-sky-300" />
+            <span>Acesso Autorizado</span>
+          </div>
+
+          <h2 class="text-2xl font-bold text-white mb-1.5 tracking-tight">
+            {{ welcomeUserGreeting }}
+          </h2>
+          <p class="text-slate-300 text-sm mb-6">
+            Preparando seu consultório e carregando dados...
+          </p>
+
+          <!-- Barra de Progresso Animada -->
+          <div class="w-full h-1.5 bg-white/10 rounded-full overflow-hidden relative mb-2.5">
+            <div class="h-full bg-gradient-to-r from-sky-400 via-primary-500 to-sky-300 rounded-full animate-progress-fill" />
+          </div>
+          <span class="text-[11px] text-slate-400 font-medium tracking-wide">ClinIQ Pro · Gestão Clínica Inteligente</span>
+        </div>
+      </div>
+    </Transition>
   </div>
 </template>
