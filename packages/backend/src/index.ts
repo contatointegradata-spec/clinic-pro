@@ -61,6 +61,12 @@ if (process.env.NODE_ENV === 'production') {
 const app = express()
 const PORT = process.env.PORT || 3001
 
+// O backend roda atrás de um único nginx (nginx.conf) — confia em 1 salto de
+// proxy pra req.ip ser o IP real do cliente. Sem isso o express-rate-limit
+// enxerga todo mundo como o IP do nginx (limite compartilhado entre todos os
+// usuários) e loga ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set('trust proxy', Number(process.env.TRUST_PROXY_HOPS ?? 1))
+
 // ─── CORS — allowlist explícita com suporte a subdomínios confiáveis ───────
 const explicitAllowedOrigins = new Set<string>([
   'https://cliniqpro.integradata.app.br',

@@ -121,6 +121,12 @@ jobs:
             echo "==> Baixando imagens já publicadas no ghcr.io..."
             docker compose pull
 
+            # Também atualiza o ":latest" local. Sem isso, um
+            # `docker compose up -d` manual na VPS (sem RELEASE_SHA) recriava o
+            # container com um ":latest" antigo e voltava o sistema de versão.
+            docker pull ${{ env.BACKEND_IMAGE }}:latest
+            docker pull ${{ env.FRONTEND_IMAGE }}:latest
+
             echo "==> Restarting services..."
             docker compose up -d --remove-orphans
 
