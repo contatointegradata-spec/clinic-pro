@@ -36,9 +36,9 @@ services:
       PORT: 3001
       DATABASE_URL: postgresql://${POSTGRES_USER:-clinicuser}:${POSTGRES_PASSWORD:-clinicpass123}@postgres:5432/${POSTGRES_DB:-clinicmedia}
       JWT_SECRET: ${JWT_SECRET:-change-this-secret-in-production}
-      JWT_EXPIRES_IN: 7d
-      FRONTEND_URL: http://${VPS_IP:-2.25.185.223}
-      BACKEND_URL: http://${VPS_IP:-2.25.185.223}
+      DOMAIN: ${DOMAIN:-cliniqpro.integradata.app.br}
+      FRONTEND_URL: ${FRONTEND_URL:-https://cliniqpro.integradata.app.br}
+      BACKEND_URL: ${BACKEND_URL:-https://cliniqpro.integradata.app.br}
       SESSIONS_DIR: /app/sessions
       WA_ENABLE_HISTORY_SYNC: "false"
       WA_ENABLE_AVATAR_SYNC: "false"

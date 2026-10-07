@@ -104,7 +104,7 @@ router.post('/', async (req: AuthRequest, res) => {
         patientName: assessment.patient.name,
         patientPhone: assessment.patient.phone,
         doctorName: assessment.doctor.name,
-        link: `${process.env.FRONTEND_URL || 'http://2.25.185.223'}/assessment/${assessment.id}`
+        link: `${process.env.FRONTEND_URL || 'https://cliniqpro.integradata.app.br'}/assessment/${assessment.id}`
       }).catch(err => console.error('[triggerLightAutomatedMessage ASSESSMENT error]', err))
     }
 
@@ -157,7 +157,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
         patientName: updated.patient.name,
         patientPhone: updated.patient.phone,
         doctorName: updated.doctor.name,
-        link: `${process.env.FRONTEND_URL || 'http://2.25.185.223'}/assessment/${updated.id}`
+        link: `${process.env.FRONTEND_URL || 'https://cliniqpro.integradata.app.br'}/assessment/${updated.id}`
       }).catch(err => console.error('[triggerLightAutomatedMessage ASSESSMENT error]', err))
     }
 

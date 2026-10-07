@@ -61,26 +61,63 @@ if (process.env.NODE_ENV === 'production') {
 const app = express()
 const PORT = process.env.PORT || 3001
 
-// ─── CORS — allowlist explícita em vez de refletir qualquer Origin ─────────
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  process.env.DOMAIN ? `https://${process.env.DOMAIN}` : undefined,
-  process.env.DOMAIN ? `http://${process.env.DOMAIN}` : undefined,
-  process.env.NODE_ENV !== 'production' ? 'http://localhost:5173' : undefined,
-].filter((origin): origin is string => Boolean(origin))
+// ─── CORS — allowlist explícita com suporte a subdomínios confiáveis ───────
+const explicitAllowedOrigins = new Set<string>([
+  'https://cliniqpro.integradata.app.br',
+  'http://cliniqpro.integradata.app.br',
+  'http://2.25.185.223',
+  'https://2.25.185.223',
+  ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : []),
+  ...(process.env.DOMAIN ? [`https://${process.env.DOMAIN}`, `http://${process.env.DOMAIN}`] : []),
+  ...(process.env.ADDITIONAL_ORIGINS ? process.env.ADDITIONAL_ORIGINS.split(',').map(s => s.trim()) : []),
+  ...(process.env.NODE_ENV !== 'production' ? ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173'] : []),
+].filter(Boolean))
+
+function isOriginAllowed(origin: string): boolean {
+  if (explicitAllowedOrigins.has(origin)) {
+    return true
+  }
+
+  try {
+    const url = new URL(origin)
+    const hostname = url.hostname.toLowerCase()
+
+    // Permite o domínio principal e qualquer subdomínio do integradata.app.br
+    if (hostname === 'integradata.app.br' || hostname.endsWith('.integradata.app.br')) {
+      return true
+    }
+
+    // Permite domínios sslip.io do servidor
+    if (hostname.endsWith('.sslip.io')) {
+      return true
+    }
+
+    // Em ambiente de desenvolvimento, aceita localhost e 127.0.0.1
+    if (process.env.NODE_ENV !== 'production' && (hostname === 'localhost' || hostname === '127.0.0.1')) {
+      return true
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
 
 app.use(cors({
   origin: (origin, callback) => {
     // Requisições sem header Origin (ex: chamadas server-to-server, curl,
-    // health checks) continuam permitidas — não há cookie de sessão pra
-    // proteger aqui, a autenticação é via Bearer token.
-    if (!origin || allowedOrigins.includes(origin)) {
+    // health checks) continuam permitidas — autenticação é via Bearer token.
+    if (!origin || isOriginAllowed(origin)) {
       callback(null, true)
       return
     }
-    callback(new Error('Origem não permitida pelo CORS'))
+
+    console.warn(`[CORS] Origem não permitida bloqueada: ${origin}`)
+    callback(null, false)
   },
   credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
 }))
 
 // Rede de proteção geral contra abuso/flood em toda a API.

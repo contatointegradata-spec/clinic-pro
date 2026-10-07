@@ -606,7 +606,7 @@ router.post('/', async (req, res) => {
         patientPhone: transaction.appointment.patient.phone,
         doctorName: transaction.doctor.name,
         paymentValue: String(transaction.amount),
-        link: `${process.env.FRONTEND_URL || 'http://2.25.185.223'}/pagar/${transaction.id}`
+        link: `${process.env.FRONTEND_URL || 'https://cliniqpro.integradata.app.br'}/pagar/${transaction.id}`
       }).catch(err => console.error('[triggerLightAutomatedMessage PAYMENT error]', err))
     }
 
