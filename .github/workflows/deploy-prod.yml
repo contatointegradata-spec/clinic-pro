@@ -107,7 +107,8 @@ jobs:
             cd ${{ secrets.VPS_APP_DIR }}
 
             echo "==> Sincronizando docker-compose.yml/nginx.conf (sem build de código)..."
-            git pull origin main
+            git fetch origin main
+            git reset --hard origin/main
 
             export RELEASE_SHA="${GITHUB_SHA}"
 

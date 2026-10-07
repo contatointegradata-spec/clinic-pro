@@ -19,7 +19,8 @@ echo "========================================"
 # 1. Sincroniza docker-compose.yml/nginx.conf/scripts (não builda código)
 echo ""
 echo "[1/4] Atualizando docker-compose.yml/nginx.conf..."
-git pull origin main
+git fetch origin main
+git reset --hard origin/main
 
 # 2. Baixa a imagem ":latest" publicada pelo GitHub Actions no último deploy
 #    (RELEASE_SHA fica sem valor de propósito — cai no default ":latest" do
