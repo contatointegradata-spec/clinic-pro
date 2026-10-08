@@ -24,6 +24,7 @@ import aiAgentRoutes from './routes/ai-agent'
 import myRoomsRoutes from './routes/my-rooms'
 import attendanceRoutes, { attendanceStreamRouter } from './routes/attendance'
 import { startNotificationJobs } from './lib/notification-jobs'
+import { reconcileAllLidConversations } from './lib/attendance'
 import { runStartupDatabaseCleanup } from './lib/whatsapp'
 import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsapp'
 import { startLightScheduler } from './lib/chatbot-light-engine'
@@ -218,6 +219,8 @@ app.listen(PORT, () => {
     .then(() => {
       // Restaura conexões WhatsApp por sala
       restoreRoomSessions().catch(err => console.error('[ROOM_WA] Erro ao restaurar sessões de sala:', err))
+      // Unifica conversas duplicadas do mesmo contato (LID x telefone) já existentes
+      reconcileAllLidConversations().catch(() => {})
     })
     .catch(err => console.error('[WA] Erro na limpeza inicial:', err))
 

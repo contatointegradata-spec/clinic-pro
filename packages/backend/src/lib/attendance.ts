@@ -16,6 +16,7 @@ import { publish } from './attendance-events'
 import { notifyUsers } from './notifications'
 import { findPatientByPhone, normalizePatientPhone, phoneVariants } from './phone'
 import { checkPhoneOnWhatsApp, getRoomConnectionInfo, sendRoomWhatsAppMessage } from './room-whatsapp'
+import { lookupLidsByPhones, lookupPhoneByLid, onLidMappingLearned } from './whatsapp-identity'
 
 // ─── Regras de negócio do módulo Atendimento ─────────────────────────────────
 // Toda transição de status usa updateMany condicionado ao estado lido
@@ -309,18 +310,199 @@ function previewOf(content: string, type: MessageType): string {
   return labels[type] || '[Mensagem]'
 }
 
-async function findRoomConversation(roomId: string, contactPhone: string, lidJid?: string | null) {
-  const variants = /^\d+$/.test(contactPhone) ? phoneVariants(contactPhone) : [contactPhone]
-  return prisma.conversation.findFirst({
+// ─── Identidade única do contato (LID ↔ telefone) ────────────────────────────
+// A mesma pessoa pode chegar como @lid ou pelo número. O telefone é a chave
+// canônica; conversas que se revelarem do mesmo contato são FUNDIDAS numa só,
+// e o estado humano sempre vence (uma conversa em atendimento nunca volta
+// para a IA só porque a mensagem chegou pelo outro identificador).
+
+const STATUS_RANK: Record<AttendanceStatus, number> = { IN_PROGRESS: 4, QUEUED: 3, BOT: 2, RESOLVED: 1 }
+
+function isPhoneKey(contactPhone: string): boolean {
+  return /^\d{10,15}$/.test(contactPhone)
+}
+
+/** Ordem de preferência da conversa que sobrevive a uma fusão. */
+function survivorOrder(a: Prisma.ConversationGetPayload<object>, b: Prisma.ConversationGetPayload<object>): number {
+  const phoneA = isPhoneKey(a.contactPhone) ? 1 : 0
+  const phoneB = isPhoneKey(b.contactPhone) ? 1 : 0
+  if (phoneA !== phoneB) return phoneB - phoneA
+  const rank = STATUS_RANK[b.attendanceStatus] - STATUS_RANK[a.attendanceStatus]
+  if (rank !== 0) return rank
+  return a.createdAt.getTime() - b.createdAt.getTime()
+}
+
+/**
+ * Funde `dropId` em `keepId` (mesma sala, mesmo contato): move mensagens e
+ * eventos, soma não lidas, preenche identidade/paciente e adota o estado de
+ * atendimento de maior prioridade (IN_PROGRESS > QUEUED > BOT > RESOLVED).
+ */
+async function mergeConversations(keepId: string, dropId: string): Promise<void> {
+  if (keepId === dropId) return
+  const merged = await prisma.$transaction(async tx => {
+    const [keep, drop] = await Promise.all([
+      tx.conversation.findUnique({ where: { id: keepId } }),
+      tx.conversation.findUnique({ where: { id: dropId } }),
+    ])
+    if (!keep || !drop || keep.roomId !== drop.roomId) return null
+
+    // Mensagens já presentes na conversa mantida (mesmo waMessageId) são descartadas.
+    const keepWaIds = await tx.message.findMany({
+      where: { conversationId: keep.id, waMessageId: { not: null } },
+      select: { waMessageId: true },
+    })
+    const ids = keepWaIds.map(m => m.waMessageId!).filter(Boolean)
+    if (ids.length > 0) {
+      await tx.message.deleteMany({ where: { conversationId: drop.id, waMessageId: { in: ids } } })
+    }
+    await tx.message.updateMany({ where: { conversationId: drop.id }, data: { conversationId: keep.id } })
+    await tx.conversationEvent.updateMany({ where: { conversationId: drop.id }, data: { conversationId: keep.id } })
+
+    const winner = STATUS_RANK[drop.attendanceStatus] > STATUS_RANK[keep.attendanceStatus] ? drop : keep
+    const dropIsNewer = (drop.lastMessageAt?.getTime() ?? 0) > (keep.lastMessageAt?.getTime() ?? 0)
+    const genericName = (n: string | null) => !n || n === 'Contato WhatsApp'
+
+    await tx.conversation.delete({ where: { id: drop.id } })
+    await tx.conversation.update({
+      where: { id: keep.id },
+      data: {
+        attendanceStatus: winner.attendanceStatus,
+        queueId: winner.queueId,
+        queuedAt: winner.queuedAt,
+        assignedUserId: winner.assignedUserId,
+        assignedAt: winner.assignedAt,
+        resolvedAt: winner.resolvedAt,
+        resolvedById: winner.resolvedById,
+        firstHumanResponseAt: winner.firstHumanResponseAt,
+        unreadCount: keep.unreadCount + drop.unreadCount,
+        lastInboundAt: [keep.lastInboundAt, drop.lastInboundAt].filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null,
+        ...(dropIsNewer ? { lastMessage: drop.lastMessage, lastMessageAt: drop.lastMessageAt, lastMessageSender: drop.lastMessageSender } : {}),
+        contactName: genericName(keep.contactName) ? (drop.contactName ?? keep.contactName) : keep.contactName,
+        contactAvatar: keep.contactAvatar ?? drop.contactAvatar,
+        patientId: keep.patientId ?? drop.patientId,
+        lidJid: keep.lidJid ?? drop.lidJid,
+        phoneJid: keep.phoneJid ?? drop.phoneJid,
+        normalizedPhone: keep.normalizedPhone ?? drop.normalizedPhone,
+        instanceId: keep.instanceId ?? drop.instanceId,
+      },
+    })
+    await recordEvent(tx, keep.id, 'NOTE', { note: 'Conversas do mesmo contato unificadas (número e identificador do WhatsApp).' })
+    return { keep, drop }
+  })
+  if (!merged) return
+
+  log('conversation.merged', { intoId: keepId, fromId: dropId, roomId: merged.keep.roomId })
+  const ref = { doctorId: merged.keep.doctorId, roomId: merged.keep.roomId }
+  publish(ref, 'conversation.merged', { fromId: dropId, intoId: keepId })
+  await publishConversationUpdate(keepId)
+}
+
+/**
+ * Busca a conversa do contato na sala por TODOS os identificadores conhecidos
+ * (variantes do telefone, LID, e LIDs/telefone do vínculo persistente). Se
+ * houver mais de uma, funde tudo na canônica (chave = telefone) e a retorna.
+ */
+async function findRoomConversation(roomId: string, contactPhone: string, lidJid?: string | null, phone?: string | null) {
+  const phoneDigits = phone || (isPhoneKey(contactPhone) ? contactPhone : null)
+  const variants = phoneDigits ? phoneVariants(phoneDigits) : []
+  const lids = new Set<string>()
+  if (lidJid) lids.add(lidJid)
+  if (contactPhone.endsWith('@lid')) lids.add(contactPhone)
+  if (variants.length > 0) for (const l of await lookupLidsByPhones(variants)) lids.add(l)
+  const lidList = [...lids]
+
+  const candidates = await prisma.conversation.findMany({
     where: {
       roomId,
+      isGroup: false,
       OR: [
-        { contactPhone: { in: variants } },
-        ...(lidJid ? [{ lidJid }] : []),
+        { contactPhone: { in: [contactPhone, ...variants, ...lidList] } },
+        ...(lidList.length > 0 ? [{ lidJid: { in: lidList } }] : []),
+        ...(variants.length > 0 ? [{ normalizedPhone: { in: variants } }] : []),
       ],
     },
-    orderBy: { createdAt: 'asc' },
   })
+  if (candidates.length === 0) return null
+  if (candidates.length === 1) return candidates[0]
+
+  const [keep, ...rest] = [...candidates].sort(survivorOrder)
+  for (const drop of rest) {
+    try {
+      await mergeConversations(keep.id, drop.id)
+    } catch (err) {
+      console.error('[attendance] fusão de conversas falhou:', (err as Error)?.message)
+    }
+  }
+  return prisma.conversation.findUnique({ where: { id: keep.id } })
+}
+
+/**
+ * Chamado quando um vínculo LID ↔ telefone é aprendido: em cada sala onde o
+ * contato existe, funde as conversas duplicadas e promove a chave da conversa
+ * para o telefone (se ainda estiver no @lid).
+ */
+export async function reconcileLidConversations(lidJid: string, phone: string): Promise<void> {
+  const rooms = await prisma.conversation.findMany({
+    where: { isGroup: false, roomId: { not: null }, OR: [{ lidJid }, { contactPhone: lidJid }] },
+    select: { roomId: true },
+    distinct: ['roomId'],
+  })
+  for (const { roomId } of rooms) {
+    const conv = await findRoomConversation(roomId!, phone, lidJid, phone)
+    if (!conv) continue
+    const data: Prisma.ConversationUpdateInput = {}
+    if (!conv.lidJid) data.lidJid = lidJid
+    if (!conv.normalizedPhone || !isPhoneKey(conv.normalizedPhone)) data.normalizedPhone = phone
+    if (!conv.phoneJid) data.phoneJid = `${phone}@s.whatsapp.net`
+    if (!isPhoneKey(conv.contactPhone)) data.contactPhone = phone
+    if (Object.keys(data).length === 0) continue
+    try {
+      await prisma.conversation.update({ where: { id: conv.id }, data })
+    } catch (err) {
+      // Unique (roomId, contactPhone): mantém a chave antiga, só a identidade foi atualizada.
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        delete data.contactPhone
+        if (Object.keys(data).length > 0) await prisma.conversation.update({ where: { id: conv.id }, data }).catch(() => {})
+      } else {
+        throw err
+      }
+    }
+    if (!conv.patientId && conv.doctorId) {
+      const patient = await findPatientByPhone(prisma, conv.doctorId, phone).catch(() => null)
+      if (patient) await prisma.conversation.update({ where: { id: conv.id }, data: { patientId: patient.id } }).catch(() => {})
+    }
+    await publishConversationUpdate(conv.id)
+  }
+}
+
+onLidMappingLearned((lidJid, phone) => reconcileLidConversations(lidJid, phone))
+
+/**
+ * Varredura de inicialização: unifica conversas duplicadas já existentes
+ * (criadas antes do vínculo LID ↔ telefone existir). Idempotente.
+ */
+export async function reconcileAllLidConversations(): Promise<void> {
+  try {
+    const convs = await prisma.conversation.findMany({
+      where: { isGroup: false, roomId: { not: null }, OR: [{ lidJid: { not: null } }, { contactPhone: { endsWith: '@lid' } }] },
+      select: { lidJid: true, contactPhone: true },
+    })
+    const lids = new Set<string>()
+    for (const c of convs) {
+      if (c.lidJid?.endsWith('@lid')) lids.add(c.lidJid)
+      if (c.contactPhone.endsWith('@lid')) lids.add(c.contactPhone)
+    }
+    let reconciled = 0
+    for (const lid of lids) {
+      const phone = await lookupPhoneByLid(lid)
+      if (!phone) continue
+      await reconcileLidConversations(lid, phone)
+      reconciled++
+    }
+    log('identity.startup_reconcile', { lids: lids.size, reconciled })
+  } catch (err) {
+    console.error('[attendance] reconcileAllLidConversations falhou:', (err as Error)?.message)
+  }
 }
 
 /**
@@ -335,7 +517,7 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
   const inbound = !input.fromMe
   const { identity } = input
 
-  let conversation = await findRoomConversation(input.roomId, input.contactPhone, identity.lidJid)
+  let conversation = await findRoomConversation(input.roomId, input.contactPhone, identity.lidJid, identity.normalizedPhone)
   let createdNow = false
 
   if (!conversation) {

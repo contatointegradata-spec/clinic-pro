@@ -7,7 +7,7 @@ import type { ConversationScopeRef } from './attendance-access'
 // In-process: com mais de uma réplica do backend seria preciso trocar por
 // Redis pub/sub — hoje o deploy roda um único processo.
 
-export type AttendanceEventName = 'conversation.updated' | 'message.created' | 'summary'
+export type AttendanceEventName = 'conversation.updated' | 'conversation.merged' | 'message.created' | 'summary'
 
 export interface AttendanceEnvelope {
   ref: ConversationScopeRef

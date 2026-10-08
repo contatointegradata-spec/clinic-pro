@@ -1196,6 +1196,24 @@ model AiAgentMessage {
   @@map("TBLAIAGENTMESSAGE")
 }
 
+// Vínculo LID ↔ telefone de um contato do WhatsApp. O LID (@lid) é um
+// identificador anônimo e global da conta do contato — a mesma pessoa pode
+// mandar mensagem ora pelo @lid, ora pelo número (@s.whatsapp.net). Sem
+// guardar esse par, a mesma pessoa virava duas conversas (e o Agente de IA
+// respondia numa delas enquanto um humano atendia na outra). Aprendido de
+// senderPn/senderLid, chats.phoneNumberShare, contacts.* e onWhatsApp.
+model WhatsAppLidMapping {
+  lidJid    String   @id
+  // Telefone canônico (só dígitos, com DDI — ver normalizePatientPhone)
+  phone     String
+  source    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([phone])
+  @@map("TBLWHATSAPPLID")
+}
+
 model WhatsAppMessageRetry {
   id          String   @id @default(uuid())
   instanceId  String

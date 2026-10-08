@@ -8,6 +8,8 @@ interface StreamHandlers {
   onConversation: (c: ConversationListItem) => void
   onMessage: (m: AttendanceMessage) => void
   onSummary?: (s: AttendanceSummary) => void
+  /** Duas conversas do mesmo contato foram unificadas (LID x telefone). */
+  onMerged?: (e: { fromId: string; intoId: string }) => void
   /** Chamado a cada ciclo de polling e após reconectar (para recuperar o que se perdeu). */
   onResync: () => void
 }
@@ -80,6 +82,10 @@ export function useAttendanceStream(handlers: StreamHandlers) {
       es.addEventListener('message.created', e => {
         const m = parse<AttendanceMessage>(e)
         if (m) handlers.onMessage(m)
+      })
+      es.addEventListener('conversation.merged', e => {
+        const m = parse<{ fromId: string; intoId: string }>(e)
+        if (m) handlers.onMerged?.(m)
       })
       es.addEventListener('summary', e => {
         const s = parse<AttendanceSummary>(e)

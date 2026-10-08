@@ -1,4 +1,6 @@
 import { prisma } from './prisma'
+import { lookupLidsByPhones, lookupPhoneByLid } from './whatsapp-identity'
+import { phoneVariants } from './phone'
 
 // ─── Logger Estruturado ────────────────────────────────────────────────────────
 
@@ -52,9 +54,11 @@ export async function resolveWhatsAppContactIdentity(
     lidJid = remoteJid
     logWA('info', 'global', 'whatsapp.contact_identity.lid_detected', { remoteJid })
 
-    // Tenta buscar se já existe mapeamento no banco (por exemplo, na tabela Conversation ou LightFlowSession)
+    // 1º: vínculo LID ↔ telefone persistente (TBLWHATSAPPLID + cache).
+    // Depois, fallbacks antigos (conversa da sala / sessão do Chatbot Light).
     try {
-      const existingConv = scope.roomId ? await prisma.conversation.findFirst({
+      const mapped = await lookupPhoneByLid(remoteJid)
+      const existingConv = mapped ? { normalizedPhone: mapped, phoneJid: `${mapped}@s.whatsapp.net` } : scope.roomId ? await prisma.conversation.findFirst({
         where: {
           roomId: scope.roomId,
           lidJid: remoteJid,
@@ -90,6 +94,15 @@ export async function resolveWhatsAppContactIdentity(
   } else if (remoteJid.endsWith('@s.whatsapp.net')) {
     phoneJid = remoteJid
     normalizedPhone = remoteJid.replace('@s.whatsapp.net', '').replace(/\D/g, '')
+    // Mensagem pelo número: anexa o LID (vindo na própria mensagem ou já
+    // conhecido) — é ele que casa com uma conversa antiga aberta via @lid.
+    const senderLid = msgRaw?.key?.senderLid
+    if (typeof senderLid === 'string' && senderLid.endsWith('@lid')) {
+      lidJid = `${senderLid.split('@')[0].split(':')[0]}@lid`
+    } else {
+      const lids = await lookupLidsByPhones(phoneVariants(normalizedPhone)).catch(() => [])
+      if (lids.length > 0) lidJid = lids[0]
+    }
   }
 
   // Se a WhatsApp mandou o telefone real junto da mensagem: em conversa 1:1

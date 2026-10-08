@@ -22,6 +22,7 @@ import { prisma } from './prisma'
 import pino from 'pino'
 import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
 import { resolveWhatsAppContactIdentity } from './whatsapp'
+import { learnFromMessageKey, rememberLidMapping } from './whatsapp-identity'
 import { handleIncomingLightMessage } from './chatbot-light-engine'
 import { createNotification, notifyAppointmentEvent, notifyClinicTeam } from './notifications'
 import { getRoomBotTarget, ingestWhatsAppMessage, recordPlatformOutbound } from './attendance'
@@ -436,6 +437,20 @@ export async function startRoomSession(connectionId: string, instanceKey: string
       }
     })
 
+    // ── Identidade do contato: vínculos LID ↔ telefone enviados pela WhatsApp ──
+    sock.ev.on('chats.phoneNumberShare', ({ lid, jid }) => {
+      rememberLidMapping(lid, jid, 'phoneNumberShare').catch(() => {})
+    })
+    const learnContacts = (contacts: Array<{ id?: string | null; lid?: string | null; jid?: string | null }>) => {
+      for (const c of contacts) {
+        const id = c.id ?? ''
+        if (id.endsWith('@lid')) rememberLidMapping(id, c.jid, 'contacts').catch(() => {})
+        else if (c.lid) rememberLidMapping(c.lid, id, 'contacts').catch(() => {})
+      }
+    }
+    sock.ev.on('contacts.upsert', contacts => learnContacts(contacts as Array<{ id?: string; lid?: string; jid?: string }>))
+    sock.ev.on('contacts.update', contacts => learnContacts(contacts as Array<{ id?: string; lid?: string; jid?: string }>))
+
     // ── Ingestão (Atendimento) + SIM/NÃO de confirmação + Agente de IA ───────
     sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
       let connection: RoomConnectionRef | null = null
@@ -454,6 +469,11 @@ export async function startRoomSession(connectionId: string, instanceKey: string
           // (online) ou 'append' (sincronizadas depois) — dedupe por waMessageId.
           if (!fromMe && type !== 'notify') continue
           if (fromMe && msg.key.id && platformSentIds.has(msg.key.id)) continue
+
+          // Aprende o par LID ↔ telefone ANTES de gravar (só em recebidas — em
+          // fromMe o senderPn é o próprio número conectado). Se for um par novo,
+          // as conversas duplicadas do contato já são unificadas aqui.
+          if (!fromMe) await learnFromMessageKey(msg.key as Parameters<typeof learnFromMessageKey>[0])
 
           if (!connection) {
             connection = await prisma.roomWhatsAppConnection.findUnique({
@@ -620,6 +640,10 @@ export async function checkPhoneOnWhatsApp(
     const resolved = (!result || result.length === 0)
       ? { exists: false, jid }
       : { exists: result[0].exists, jid: result[0].jid ?? jid }
+    // A consulta também devolve o LID do número — guarda o vínculo para que a
+    // resposta do contato (que pode vir via @lid) caia na mesma conversa.
+    const lid = result?.[0]?.lid
+    if (typeof lid === 'string') rememberLidMapping(lid, resolved.jid, 'onWhatsApp').catch(() => {})
     phoneCheckCache.set(cacheKey, resolved)
     return resolved
   } catch (err) {

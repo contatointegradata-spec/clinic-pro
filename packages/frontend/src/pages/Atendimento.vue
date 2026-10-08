@@ -34,6 +34,15 @@ const { state: streamState } = useAttendanceStream({
   onConversation: c => store.upsertConversation(c),
   onMessage: m => store.applyMessage(m),
   onSummary: s => { store.summary = s },
+  onMerged: ({ fromId, intoId }) => {
+    store.removeConversation(fromId)
+    // A conversa aberta foi unificada: abre a que ficou (mensagens das duas).
+    if (store.selectedId === fromId || store.selectedId === intoId) {
+      if (store.selectedId === fromId) select(intoId)
+      else store.select(intoId)
+    }
+    store.fetchSummary()
+  },
   onResync: () => store.resync(),
 })
 

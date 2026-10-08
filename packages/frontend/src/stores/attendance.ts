@@ -182,6 +182,12 @@ export const useAttendanceStore = defineStore('attendance', () => {
     }
   }
 
+  /** Remove da lista a conversa que foi unificada em outra. */
+  function removeConversation(id: string) {
+    const idx = items.value.findIndex(i => i.id === id)
+    if (idx >= 0) items.value.splice(idx, 1)
+  }
+
   // ─── Conversa ────────────────────────────────────────────────────────
 
   async function select(id: string | null) {
@@ -388,7 +394,7 @@ export const useAttendanceStore = defineStore('attendance', () => {
   return {
     summary, queues, tab, search, queueId, items, nextCursor, listLoading, listLoadingMore,
     selectedId, detail, detailLoading, messages, hasMore, loadingOlder, events,
-    fetchSummary, fetchQueues, fetchList, loadMore, upsertConversation, applyMessage,
+    fetchSummary, fetchQueues, fetchList, loadMore, upsertConversation, removeConversation, applyMessage,
     select, fetchEvents, loadOlder, markRead, send, deliver, discard, refreshDetail, act, resync, reset,
   }
 })
