@@ -86,80 +86,90 @@ enum IntegrationType {
 }
 
 model User {
-  id                   String    @id @default(uuid())
-  name                 String
-  email                String    @unique
-  password             String
-  role                 Role      @default(SECRETARY)
-  active               Boolean   @default(true)
+  id                  String    @id @default(uuid())
+  name                String
+  email               String    @unique
+  password            String
+  role                Role      @default(SECRETARY)
+  active              Boolean   @default(true)
   // Desenvolvedor da plataforma (hoje só admin@cliniq.com) — ortogonal ao Role,
   // controla acesso aos menus Notificações/Integrações e ao painel Admin
   // Desenvolvedor. Ver routes/platform-admin.ts.
-  isPlatformDeveloper  Boolean   @default(false)
-  notificationsAccess  Boolean   @default(false)
-  integrationsAccess   Boolean   @default(false)
+  isPlatformDeveloper Boolean   @default(false)
+  notificationsAccess Boolean   @default(false)
+  integrationsAccess  Boolean   @default(false)
   // Quantos Agentes de IA este médico pode ter simultaneamente — todo médico
   // cadastrado começa com 1 grátis; o Admin Desenvolvedor libera mais por
   // conta, via painel. Ver routes/ai-agent.ts (POST /) e platform-admin.ts.
-  aiAgentLimit     Int       @default(1)
-  specialty        String?
-  certType         String?
-  certNumber       String?
-  crm              String?
-  phone            String?
-  avatarUrl        String?
-  bio              String?
-  lunchStart       String?
-  lunchEnd         String?
-  resetToken       String?
-  resetTokenExpiry DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  aiAgentLimit        Int       @default(1)
+  specialty           String?
+  certType            String?
+  certNumber          String?
+  crm                 String?
+  phone               String?
+  avatarUrl           String?
+  bio                 String?
+  lunchStart          String?
+  lunchEnd            String?
+  resetToken          String?
+  resetTokenExpiry    DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  patients             Patient[]                   @relation("DoctorPatients")
-  doctorAppointments   Appointment[]               @relation("DoctorAppointments")
-  createdAppointments  Appointment[]               @relation("CreatedByAppointments")
-  transactions         Transaction[]
-  medicalRecords       MedicalRecord[]             @relation("DoctorRecords")
-  appointmentBlocks    AppointmentBlock[]          @relation("DoctorBlocks")
-  assessments          Assessment[]                @relation("DoctorAssessments")
-  doctorTeam           DoctorSecretary[]           @relation("DoctorTeam")
-  secretaryOf          DoctorSecretary[]           @relation("SecretaryOf")
-  rooms                Room[]                      @relation("DoctorRooms")
-  roomAssignments      RoomSecretary[]             @relation("SecretaryRooms")
-  documentTemplates    DocumentTemplate[]          @relation("DoctorDocuments")
-  notifications        Notification[]              @relation("UserNotifications")
-  paymentMethods       PaymentMethod[]             @relation("DoctorPaymentMethods")
-  products             Product[]                   @relation("DoctorProducts")
-  stockMovements       StockMovement[]              @relation("UserStockMovements")
-  generatedDocuments      GeneratedDocument[]       @relation("DoctorGeneratedDocuments")
-  generatedDocumentsMade  GeneratedDocument[]       @relation("UserGeneratedDocuments")
-  subscription         DoctorSubscription?         @relation("DoctorSubscription")
-  subscriptionPayments SubscriptionPayment[]       @relation("DoctorPayments")
-  checkoutAttempts     SubscriptionCheckoutAttempt[] @relation("DoctorCheckoutAttempts")
-  integrations         Integration[]               @relation("DoctorIntegrations")
-  integrationAddons    IntegrationAddon[]          @relation("DoctorIntegrationAddons")
-  whatsappInstances    WhatsAppInstance[]          @relation("DoctorWhatsApp")
-  healthPlans          HealthPlan[]                @relation("DoctorHealthPlans")
-  appointmentTypes     AppointmentType[]           @relation("DoctorAppointmentTypes")
-  sqlLogs              SqlQueryLog[]               @relation("AdminSqlLogs")
-  lightTemplates       LightTemplate[]             @relation("DoctorLightTemplates")
-  lightIntegrations    LightIntegrationConfig[]    @relation("DoctorLightIntegrations")
-  lightLogs            LightMessageLog[]           @relation("DoctorLightLogs")
-  lightSettings        LightSettings?              @relation("DoctorLightSettings")
-  lightFluxos          LightFluxo[]                @relation("DoctorLightFluxos")
-  lightQuickReplies    LightQuickReply[]           @relation("DoctorLightQuickReplies")
-  lightChatbots        LightChatbot[]              @relation("DoctorLightChatbots")
-  roomWAConnections    RoomWhatsAppConnection[]    @relation("DoctorRoomConnections")
-  roomWAConnectedBy    RoomWhatsAppConnection[]    @relation("RoomWAConnectedBy")
-  patientsCreated      Patient[]                   @relation("PatientCreatedBy")
-  patientsCompleted    Patient[]                   @relation("PatientCompletedBy")
-  financialCategories  FinancialCategory[]         @relation("DoctorFinancialCategories")
-  costCenters          CostCenter[]                @relation("DoctorCostCenters")
-  bankAccounts         BankAccount[]               @relation("DoctorBankAccounts")
-  lightNotifTemplates  LightNotificationTemplate[] @relation("DoctorLightNotifTemplates")
-  refreshTokens        RefreshToken[]              @relation("UserRefreshTokens")
-  patientConsentsTaken PatientConsent[]             @relation("ConsentRecordedBy")
+  patients                Patient[]                     @relation("DoctorPatients")
+  doctorAppointments      Appointment[]                 @relation("DoctorAppointments")
+  createdAppointments     Appointment[]                 @relation("CreatedByAppointments")
+  transactions            Transaction[]
+  medicalRecords          MedicalRecord[]               @relation("DoctorRecords")
+  appointmentBlocks       AppointmentBlock[]            @relation("DoctorBlocks")
+  assessments             Assessment[]                  @relation("DoctorAssessments")
+  doctorTeam              DoctorSecretary[]             @relation("DoctorTeam")
+  secretaryOf             DoctorSecretary[]             @relation("SecretaryOf")
+  rooms                   Room[]                        @relation("DoctorRooms")
+  roomAssignments         RoomSecretary[]               @relation("SecretaryRooms")
+  documentTemplates       DocumentTemplate[]            @relation("DoctorDocuments")
+  notifications           Notification[]                @relation("UserNotifications")
+  paymentMethods          PaymentMethod[]               @relation("DoctorPaymentMethods")
+  products                Product[]                     @relation("DoctorProducts")
+  stockMovements          StockMovement[]               @relation("UserStockMovements")
+  generatedDocuments      GeneratedDocument[]           @relation("DoctorGeneratedDocuments")
+  generatedDocumentsMade  GeneratedDocument[]           @relation("UserGeneratedDocuments")
+  subscription            DoctorSubscription?           @relation("DoctorSubscription")
+  subscriptionPayments    SubscriptionPayment[]         @relation("DoctorPayments")
+  checkoutAttempts        SubscriptionCheckoutAttempt[] @relation("DoctorCheckoutAttempts")
+  integrations            Integration[]                 @relation("DoctorIntegrations")
+  integrationAddons       IntegrationAddon[]            @relation("DoctorIntegrationAddons")
+  whatsappInstances       WhatsAppInstance[]            @relation("DoctorWhatsApp")
+  healthPlans             HealthPlan[]                  @relation("DoctorHealthPlans")
+  appointmentTypes        AppointmentType[]             @relation("DoctorAppointmentTypes")
+  sqlLogs                 SqlQueryLog[]                 @relation("AdminSqlLogs")
+  lightTemplates          LightTemplate[]               @relation("DoctorLightTemplates")
+  lightIntegrations       LightIntegrationConfig[]      @relation("DoctorLightIntegrations")
+  lightLogs               LightMessageLog[]             @relation("DoctorLightLogs")
+  lightSettings           LightSettings?                @relation("DoctorLightSettings")
+  lightFluxos             LightFluxo[]                  @relation("DoctorLightFluxos")
+  lightQuickReplies       LightQuickReply[]             @relation("DoctorLightQuickReplies")
+  lightChatbots           LightChatbot[]                @relation("DoctorLightChatbots")
+  roomWAConnections       RoomWhatsAppConnection[]      @relation("DoctorRoomConnections")
+  roomWAConnectedBy       RoomWhatsAppConnection[]      @relation("RoomWAConnectedBy")
+  patientsCreated         Patient[]                     @relation("PatientCreatedBy")
+  patientsCompleted       Patient[]                     @relation("PatientCompletedBy")
+  financialCategories     FinancialCategory[]           @relation("DoctorFinancialCategories")
+  costCenters             CostCenter[]                  @relation("DoctorCostCenters")
+  bankAccounts            BankAccount[]                 @relation("DoctorBankAccounts")
+  lightNotifTemplates     LightNotificationTemplate[]   @relation("DoctorLightNotifTemplates")
+  refreshTokens           RefreshToken[]                @relation("UserRefreshTokens")
+  patientConsentsTaken    PatientConsent[]              @relation("ConsentRecordedBy")
+  // ── Módulo Atendimento ──
+  attendanceQueues        AttendanceQueue[]             @relation("DoctorAttendanceQueues")
+  attendanceQueueMembers  AttendanceQueueMember[]       @relation("AttendanceQueueMemberUser")
+  doctorConversations     Conversation[]                @relation("DoctorConversations")
+  assignedConversations   Conversation[]                @relation("ConversationAssignedUser")
+  resolvedConversations   Conversation[]                @relation("ConversationResolvedBy")
+  authoredMessages        Message[]                     @relation("MessageAuthor")
+  conversationEventsActed ConversationEvent[]           @relation("ConversationEventActor")
+  conversationEventsFrom  ConversationEvent[]           @relation("ConversationEventFromUser")
+  conversationEventsTo    ConversationEvent[]           @relation("ConversationEventToUser")
 
   @@map("TBLUSUARIO")
 }
@@ -169,12 +179,12 @@ model User {
 // a sessão viva, é revogável no logout (ou manualmente) e nunca armazenado
 // em texto puro (só o hash, mesmo padrão do resetToken de senha).
 model RefreshToken {
-  id         String    @id @default(uuid())
-  userId     String
-  tokenHash  String    @unique
-  expiresAt  DateTime
-  revokedAt  DateTime?
-  createdAt  DateTime  @default(now())
+  id        String    @id @default(uuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 
   user User @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade)
 
@@ -230,18 +240,19 @@ model Patient {
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
-  doctor          User?             @relation("DoctorPatients", fields: [doctorId], references: [id])
-  createdByUser   User?             @relation("PatientCreatedBy", fields: [createdByUserId], references: [id])
-  completedByUser User?             @relation("PatientCompletedBy", fields: [completedByUserId], references: [id])
-  room            Room?             @relation("RoomPatients", fields: [roomId], references: [id])
-  chatbotSession  LightFlowSession? @relation("ChatbotSessionPatient", fields: [chatbotSessionId], references: [id])
-  appointments    Appointment[]
-  patientPlans    PatientPlan[]
-  medicalRecords  MedicalRecord[]
-  assessments     Assessment[]
-  transactions    Transaction[]
-  consents        PatientConsent[]
+  doctor             User?               @relation("DoctorPatients", fields: [doctorId], references: [id])
+  createdByUser      User?               @relation("PatientCreatedBy", fields: [createdByUserId], references: [id])
+  completedByUser    User?               @relation("PatientCompletedBy", fields: [completedByUserId], references: [id])
+  room               Room?               @relation("RoomPatients", fields: [roomId], references: [id])
+  chatbotSession     LightFlowSession?   @relation("ChatbotSessionPatient", fields: [chatbotSessionId], references: [id])
+  appointments       Appointment[]
+  patientPlans       PatientPlan[]
+  medicalRecords     MedicalRecord[]
+  assessments        Assessment[]
+  transactions       Transaction[]
+  consents           PatientConsent[]
   generatedDocuments GeneratedDocument[]
+  conversations      Conversation[]      @relation("PatientConversations")
 
   @@index([doctorId])
   @@index([status])
@@ -263,13 +274,13 @@ enum ConsentChannel {
 // sistema), não pelo paciente diretamente. Um paciente pode ter mais de um
 // registro ao longo do tempo (ex.: nova versão dos termos).
 model PatientConsent {
-  id              String         @id @default(uuid())
-  patientId       String
-  channel         ConsentChannel
-  termsVersion    String
-  consentedAt     DateTime       @default(now())
+  id               String         @id @default(uuid())
+  patientId        String
+  channel          ConsentChannel
+  termsVersion     String
+  consentedAt      DateTime       @default(now())
   recordedByUserId String
-  createdAt       DateTime       @default(now())
+  createdAt        DateTime       @default(now())
 
   patient        Patient @relation(fields: [patientId], references: [id])
   recordedByUser User    @relation("ConsentRecordedBy", fields: [recordedByUserId], references: [id])
@@ -364,9 +375,9 @@ model MedicalRecord {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  patient    Patient                  @relation(fields: [patientId], references: [id])
-  doctor     User                     @relation("DoctorRecords", fields: [doctorId], references: [id])
-  procedures MedicalRecordProcedure[]
+  patient     Patient                  @relation(fields: [patientId], references: [id])
+  doctor      User                     @relation("DoctorRecords", fields: [doctorId], references: [id])
+  procedures  MedicalRecordProcedure[]
   transaction Transaction?
 
   @@map("TBLPRONTUARIO")
@@ -430,11 +441,11 @@ model Appointment {
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
-  patient     Patient      @relation(fields: [patientId], references: [id])
-  doctor      User         @relation("DoctorAppointments", fields: [doctorId], references: [id])
-  createdBy   User         @relation("CreatedByAppointments", fields: [createdById], references: [id])
-  room        Room?        @relation("RoomAppointments", fields: [roomId], references: [id])
-  transaction Transaction?
+  patient        Patient         @relation(fields: [patientId], references: [id])
+  doctor         User            @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  createdBy      User            @relation("CreatedByAppointments", fields: [createdById], references: [id])
+  room           Room?           @relation("RoomAppointments", fields: [roomId], references: [id])
+  transaction    Transaction?
   stockMovements StockMovement[]
 
   @@index([doctorId])
@@ -571,18 +582,18 @@ model BankAccount {
 }
 
 model Room {
-  id               String   @id @default(uuid())
-  doctorId         String
-  name             String
-  logradouro       String?
-  bairro           String?
-  cep              String?
-  numero           String?
-  cidade           String?
-  address          String?  @map("address")
-  daysOfWeek       Json     @default("[]")
-  startTime        String
-  endTime          String
+  id                  String   @id @default(uuid())
+  doctorId            String
+  name                String
+  logradouro          String?
+  bairro              String?
+  cep                 String?
+  numero              String?
+  cidade              String?
+  address             String?  @map("address")
+  daysOfWeek          Json     @default("[]")
+  startTime           String
+  endTime             String
   // Intervalo opcional (ex: almoço) — vale para todos os dias selecionados.
   breakStart          String?
   breakEnd            String?
@@ -590,10 +601,10 @@ model Room {
   // Dias sem entrada aqui usam startTime/endTime padrão.
   specialHours        Json?
   slotDurationMinutes Int      @default(30)
-  color            String?
-  active           Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  color               String?
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   doctor              User                    @relation("DoctorRooms", fields: [doctorId], references: [id])
   secretaries         RoomSecretary[]
@@ -602,6 +613,7 @@ model Room {
   whatsappConnection  RoomWhatsAppConnection?
   patients            Patient[]               @relation("RoomPatients")
   chatbotLightBinding LightChatbot?           @relation("ChatbotLightRoomBinding")
+  conversations       Conversation[]          @relation("RoomConversations")
 
   @@map("TBLSALA")
 }
@@ -694,7 +706,7 @@ model DocumentTemplate {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  doctor User @relation("DoctorDocuments", fields: [doctorId], references: [id])
+  doctor             User                @relation("DoctorDocuments", fields: [doctorId], references: [id])
   generatedDocuments GeneratedDocument[]
 
   @@map("TBLMODELODOCUMENTO")
@@ -727,18 +739,38 @@ model GeneratedDocument {
   @@map("TBLDOCUMENTOGERADO")
 }
 
+// Notificações ficam restritas a eventos acionáveis (agenda, cancelamento,
+// follow-up/CRM, atendimento) + alertas críticos de sistema — mensagem
+// recebida no WhatsApp NÃO vira notificação (isso é papel do Atendimento).
+enum NotificationCategory {
+  AGENDAMENTO
+  CANCELAMENTO
+  FOLLOW_UP
+  CRM
+  ATENDIMENTO
+  SYSTEM
+}
+
 model Notification {
-  id        String   @id @default(uuid())
-  userId    String
-  title     String
-  message   String
-  read      Boolean  @default(false)
-  type      String   @default("INFO")
-  link      String?
-  createdAt DateTime @default(now())
+  id         String               @id @default(uuid())
+  userId     String
+  title      String
+  message    String
+  read       Boolean              @default(false)
+  type       String               @default("INFO")
+  link       String?
+  category   NotificationCategory @default(SYSTEM)
+  // Entidade relacionada (ex.: "appointment"/<id>, "conversation"/<id>).
+  entityType String?
+  entityId   String?
+  // Chave de deduplicação para jobs periódicos (ex.: followup:<patientId>:<yyyy-mm-dd>).
+  // NULL não colide no índice único do Postgres.
+  dedupeKey  String?              @unique
+  createdAt  DateTime             @default(now())
 
   user User @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, read, createdAt])
   @@map("TBLNOTIFICACAO")
 }
 
@@ -877,30 +909,30 @@ model WebhookLog {
 // Valores válidos ficam tipados em TypeScript: ver lib/subscription-access.ts.
 
 model DoctorSubscription {
-  id                     String    @id @default(uuid())
-  doctorId               String    @unique
-  status                 String    @default("TRIAL")
+  id       String @id @default(uuid())
+  doctorId String @unique
+  status   String @default("TRIAL")
 
-  trialStartedAt         DateTime  @default(now())
-  trialEndsAt            DateTime
+  trialStartedAt DateTime @default(now())
+  trialEndsAt    DateTime
 
   currentPeriodStartedAt DateTime?
   currentPeriodEndsAt    DateTime?
 
-  kiwifySubscriptionId   String?
-  kiwifyCustomerId       String?
-  lastKiwifyOrderId      String?
+  kiwifySubscriptionId String?
+  kiwifyCustomerId     String?
+  lastKiwifyOrderId    String?
 
-  lastPaymentAt          DateTime?
-  canceledAt             DateTime?
-  blockedAt              DateTime?
+  lastPaymentAt DateTime?
+  canceledAt    DateTime?
+  blockedAt     DateTime?
 
   // Preenchido quando um ADMIN da plataforma libera/bloqueia/reseta a
   // assinatura manualmente (ex.: usuário de teste) — ver routes/admin.ts.
-  adminNote              String?
+  adminNote String?
 
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   doctor   User                  @relation("DoctorSubscription", fields: [doctorId], references: [id])
   payments SubscriptionPayment[] @relation("SubPayments")
@@ -910,20 +942,20 @@ model DoctorSubscription {
 }
 
 model SubscriptionPayment {
-  id             String    @id @default(uuid())
+  id             String @id @default(uuid())
   doctorId       String
   subscriptionId String
-  kiwifyOrderId  String    @unique
-  status         String    @default("PENDING")
-  amountCents    Int       @default(4990)
-  currency       String    @default("BRL")
+  kiwifyOrderId  String @unique
+  status         String @default("PENDING")
+  amountCents    Int    @default(4990)
+  currency       String @default("BRL")
 
-  paymentMethod  String?
-  approvedAt     DateTime?
-  refundedAt     DateTime?
+  paymentMethod String?
+  approvedAt    DateTime?
+  refundedAt    DateTime?
 
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   doctor       User               @relation("DoctorPayments", fields: [doctorId], references: [id])
   subscription DoctorSubscription @relation("SubPayments", fields: [subscriptionId], references: [id])
@@ -936,11 +968,11 @@ model SubscriptionPayment {
 // Registro bruto de cada webhook recebido da Kiwify — garante idempotência
 // (eventKey é único) e serve de trilha de auditoria/reconciliação.
 model KiwifyWebhookEvent {
-  id               String    @id @default(uuid())
-  eventKey         String    @unique
-  eventType        String
-  kiwifyOrderId    String?
-  payload          Json
+  id            String  @id @default(uuid())
+  eventKey      String  @unique
+  eventType     String
+  kiwifyOrderId String?
+  payload       Json
 
   processingStatus String    @default("RECEIVED")
   receivedAt       DateTime  @default(now())
@@ -948,8 +980,8 @@ model KiwifyWebhookEvent {
   errorMessage     String?
   attempts         Int       @default(0)
 
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@map("TBLWEBHOOKKIWIFY")
 }
@@ -960,14 +992,14 @@ model KiwifyWebhookEvent {
 // depender de variável de ambiente/redeploy. Ver src/lib/kiwify-config.ts:
 // valores em branco aqui caem de volta pras env vars (KIWIFY_*) como fallback.
 model KiwifyIntegrationConfig {
-  id            String  @id
-  enabled       Boolean @default(false)
-  checkoutUrl   String?
-  productId     String?
-  accountId     String?
-  clientId      String?
-  clientSecret  String?
-  webhookSecret String?
+  id                  String  @id
+  enabled             Boolean @default(false)
+  checkoutUrl         String?
+  productId           String?
+  accountId           String?
+  clientId            String?
+  clientSecret        String?
+  webhookSecret       String?
   // Liga o bloqueio de acesso por assinatura (ver middleware/subscription.ts).
   enforceSubscription Boolean @default(false)
 
@@ -999,11 +1031,11 @@ model AiIntegrationConfig {
 // Rastreia cada tentativa de checkout aberta pelo médico, pra relacionar o
 // pagamento na Kiwify de volta à conta certa (via s1/s2/s3 na URL).
 model SubscriptionCheckoutAttempt {
-  id          String    @id @default(uuid())
-  doctorId    String
-  userId      String
+  id       String @id @default(uuid())
+  doctorId String
+  userId   String
 
-  status      String    @default("CREATED")
+  status      String  @default("CREATED")
   checkoutUrl String?
 
   createdAt   DateTime  @default(now())
@@ -1091,21 +1123,21 @@ model WhatsAppInstance {
 }
 
 model LightChatbot {
-  id            String   @id @default(uuid())
-  doctorId      String
-  name          String
-  description   String?
-  objective     String?
-  active        Boolean  @default(true)
+  id                   String   @id @default(uuid())
+  doctorId             String
+  name                 String
+  description          String?
+  objective            String?
+  active               Boolean  @default(true)
   // Uma sala só pode pertencer a 1 chatbot por vez — resolve a ambiguidade
   // de "que chatbot é dono desta sala?" no roteamento inbound.
-  boundRoomId   String?  @unique
-  fallbackQueue String?
+  boundRoomId          String?  @unique
+  fallbackQueue        String?
   // "legacy" (padrão antigo) = motor por keywords (LightFluxo/LightSystemActionConfig).
   // "visual_builder" (Fase 3, antigo) = motor de blocos genéricos.
   // "ai_agent" (atual) = agente de IA real via Gemini — handleIncomingLightMessage
   // desvia pra handleAiAgentMessage() e ignora os motores antigos por completo.
-  builderMode   String   @default("ai_agent")
+  builderMode          String   @default("ai_agent")
   // ── Campos do Agente de IA ("Personalizar seu Prompt") ──
   agentName            String?
   companyName          String?
@@ -1117,18 +1149,18 @@ model LightChatbot {
   // Prompt de sistema gerado (ou editado manualmente) que alimenta a LLM.
   systemPrompt         String?  @db.Text
   responseDelaySeconds Int      @default(3)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
 
-  doctor          User                     @relation("DoctorLightChatbots", fields: [doctorId], references: [id])
-  boundRoom       Room?                    @relation("ChatbotLightRoomBinding", fields: [boundRoomId], references: [id])
-  instance        WhatsAppInstance?
-  fluxos          LightFluxo[]
-  quickReplies    LightQuickReply[]
-  integrations    LightIntegrationConfig[]
-  messageLogs     LightMessageLog[]
-  ignoredNumbers  LightIgnoredNumber[]
-  agentMessages   AiAgentMessage[]
+  doctor         User                     @relation("DoctorLightChatbots", fields: [doctorId], references: [id])
+  boundRoom      Room?                    @relation("ChatbotLightRoomBinding", fields: [boundRoomId], references: [id])
+  instance       WhatsAppInstance?
+  fluxos         LightFluxo[]
+  quickReplies   LightQuickReply[]
+  integrations   LightIntegrationConfig[]
+  messageLogs    LightMessageLog[]
+  ignoredNumbers LightIgnoredNumber[]
+  agentMessages  AiAgentMessage[]
 
   @@index([doctorId])
   @@map("TBLLIGHTCHATBOT")
@@ -1154,7 +1186,7 @@ model AiAgentMessage {
   id           String   @id @default(uuid())
   chatbotId    String
   contactPhone String
-  role         String   // 'user' | 'assistant'
+  role         String // 'user' | 'assistant'
   content      String   @db.Text
   createdAt    DateTime @default(now())
 
@@ -1180,9 +1212,102 @@ model WhatsAppMessageRetry {
   @@map("TBLWHATSAPPMESSAGERETRY")
 }
 
+// ─── Atendimento (inbox humano multi-sala) ────────────────────────────────────
+
+enum AttendanceStatus {
+  BOT
+  QUEUED
+  IN_PROGRESS
+  RESOLVED
+}
+
+enum AttendanceQueueKind {
+  RECEPTION
+  DOCTOR
+  CUSTOM
+}
+
+enum ConversationEventType {
+  CREATED
+  BOT_STARTED
+  HANDOFF_TO_HUMAN
+  ASSUMED
+  TRANSFERRED_QUEUE
+  TRANSFERRED_USER
+  RETURNED_TO_BOT
+  RESOLVED
+  REOPENED
+  NOTE
+}
+
+// Fila de atendimento por médico. Seed lazy em lib/attendance-access.ts
+// (ensureDefaultQueues): "Recepção" (RECEPTION, isDefault) + "Médico" (DOCTOR).
+model AttendanceQueue {
+  id        String              @id @default(uuid())
+  doctorId  String
+  name      String
+  color     String?
+  kind      AttendanceQueueKind @default(CUSTOM)
+  // Fila de entrada/handoff padrão — no máximo uma ativa por médico (garantido na aplicação).
+  isDefault Boolean             @default(false)
+  active    Boolean             @default(true)
+  sortOrder Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+
+  doctor        User                    @relation("DoctorAttendanceQueues", fields: [doctorId], references: [id], onDelete: Cascade)
+  members       AttendanceQueueMember[]
+  conversations Conversation[]          @relation("ConversationQueue")
+  eventsFrom    ConversationEvent[]     @relation("ConversationEventFromQueue")
+  eventsTo      ConversationEvent[]     @relation("ConversationEventToQueue")
+
+  @@unique([doctorId, kind, name])
+  @@index([doctorId, active])
+  @@map("TBLFILAATENDIMENTO")
+}
+
+model AttendanceQueueMember {
+  id        String   @id @default(uuid())
+  queueId   String
+  userId    String
+  createdAt DateTime @default(now())
+
+  queue AttendanceQueue @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  user  User            @relation("AttendanceQueueMemberUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([queueId, userId])
+  @@index([userId])
+  @@map("TBLFILAATENDIMENTOMEMBRO")
+}
+
+// Timeline/auditoria de transições da conversa (sem conteúdo de mensagem).
+model ConversationEvent {
+  id             String                @id @default(uuid())
+  conversationId String
+  type           ConversationEventType
+  actorUserId    String?
+  fromQueueId    String?
+  toQueueId      String?
+  fromUserId     String?
+  toUserId       String?
+  note           String?               @db.Text
+  createdAt      DateTime              @default(now())
+
+  conversation Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actor        User?            @relation("ConversationEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  fromQueue    AttendanceQueue? @relation("ConversationEventFromQueue", fields: [fromQueueId], references: [id], onDelete: SetNull)
+  toQueue      AttendanceQueue? @relation("ConversationEventToQueue", fields: [toQueueId], references: [id], onDelete: SetNull)
+  fromUser     User?            @relation("ConversationEventFromUser", fields: [fromUserId], references: [id], onDelete: SetNull)
+  toUser       User?            @relation("ConversationEventToUser", fields: [toUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@map("TBLCONVERSAEVENTO")
+}
+
 model Conversation {
   id                String               @id @default(uuid())
-  instanceId        String
+  // Legado (instância do chatbot). A chave da conversa agora é (roomId, contactPhone).
+  instanceId        String?
   contactPhone      String
   contactName       String?
   contactAvatar     String?
@@ -1205,11 +1330,38 @@ model Conversation {
   phoneJid        String?
   normalizedPhone String?
 
-  instance WhatsAppInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  messages Message[]
+  // ── Atendimento ── (doctorId/roomId definem o escopo de acesso — ver lib/attendance-access.ts)
+  doctorId             String?
+  roomId               String?
+  attendanceStatus     AttendanceStatus @default(BOT)
+  queueId              String?
+  assignedUserId       String?
+  patientId            String?
+  queuedAt             DateTime?
+  assignedAt           DateTime?
+  resolvedAt           DateTime?
+  resolvedById         String?
+  lastInboundAt        DateTime?
+  firstHumanResponseAt DateTime?
+  lastReadAt           DateTime?
 
+  instance     WhatsAppInstance?   @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  doctor       User?               @relation("DoctorConversations", fields: [doctorId], references: [id], onDelete: SetNull)
+  room         Room?               @relation("RoomConversations", fields: [roomId], references: [id], onDelete: SetNull)
+  queue        AttendanceQueue?    @relation("ConversationQueue", fields: [queueId], references: [id], onDelete: SetNull)
+  assignedUser User?               @relation("ConversationAssignedUser", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  resolvedBy   User?               @relation("ConversationResolvedBy", fields: [resolvedById], references: [id], onDelete: SetNull)
+  patient      Patient?            @relation("PatientConversations", fields: [patientId], references: [id], onDelete: SetNull)
+  messages     Message[]
+  events       ConversationEvent[]
+
+  @@unique([roomId, contactPhone])
   @@index([instanceId])
   @@index([category])
+  @@index([doctorId, attendanceStatus, lastMessageAt])
+  @@index([assignedUserId, attendanceStatus])
+  @@index([queueId, attendanceStatus])
+  @@index([patientId])
   @@map("TBLCONVERSA")
 }
 
@@ -1224,12 +1376,18 @@ model Message {
   mediaUrl       String?
   status         MessageStatus @default(SENT)
   isBot          Boolean       @default(false)
+  // Usuário do sistema que enviou (resposta humana/nota). NULL = contato, IA ou celular.
+  authorUserId   String?
+  // Observação interna da equipe — nunca é enviada ao WhatsApp.
+  isInternalNote Boolean       @default(false)
   timestamp      DateTime      @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author       User?        @relation("MessageAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
 
   @@unique([conversationId, waMessageId])
   @@index([conversationId])
+  @@index([conversationId, timestamp])
   @@index([waMessageId])
   @@map("TBLMENSAGEM")
 }
@@ -1327,18 +1485,18 @@ model LightSettings {
 }
 
 model LightFluxo {
-  id              String   @id @default(uuid())
-  doctorId        String
-  chatbotId       String?
-  name            String
-  description     String?
-  keywords        String
-  welcomeMessage  String   @db.Text
-  options         Json     @default("[]")
-  maxAttempts     Int      @default(3)
-  fallbackMessage String   @default("Não consegui entender. Vou transferir para um atendente.") @db.Text
-  active          Boolean  @default(true)
-  executions      Int      @default(0)
+  id                  String    @id @default(uuid())
+  doctorId            String
+  chatbotId           String?
+  name                String
+  description         String?
+  keywords            String
+  welcomeMessage      String    @db.Text
+  options             Json      @default("[]")
+  maxAttempts         Int       @default(3)
+  fallbackMessage     String    @default("Não consegui entender. Vou transferir para um atendente.") @db.Text
+  active              Boolean   @default(true)
+  executions          Int       @default(0)
   // Camada de rascunho do Construtor de Atendimento (builder visual). O motor
   // (chatbot-light-engine.ts / chatbot-light-guided-engine.ts) só lê os campos
   // acima (live/publicados) — os campos draft* abaixo só viram live quando o
@@ -1349,8 +1507,8 @@ model LightFluxo {
   draftOptions        Json?
   hasDraftChanges     Boolean   @default(false)
   lastPublishedAt     DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   doctor  User          @relation("DoctorLightFluxos", fields: [doctorId], references: [id])
   chatbot LightChatbot? @relation(fields: [chatbotId], references: [id])
@@ -1489,17 +1647,17 @@ model ChatbotBuilderVersion {
 }
 
 model ChatbotBlock {
-  id             String   @id @default(uuid())
-  versionId      String
-  chatbotId      String
-  type           String   // welcome|message|off_hours|success_message|error_message|menu|submenu|menu_dynamic|collect_data|confirm_data|system_action|condition|transfer|end
-  name           String
-  orderIndex     Int      @default(0)
-  parentBlockId  String?
-  config         Json     @default("{}")
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id            String   @id @default(uuid())
+  versionId     String
+  chatbotId     String
+  type          String // welcome|message|off_hours|success_message|error_message|menu|submenu|menu_dynamic|collect_data|confirm_data|system_action|condition|transfer|end
+  name          String
+  orderIndex    Int      @default(0)
+  parentBlockId String?
+  config        Json     @default("{}")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   version ChatbotBuilderVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
 
@@ -1513,17 +1671,17 @@ model ChatbotBlock {
 // (motor legado). "variables" é o estado coletado/retornado durante a
 // conversa (nome, cpf, servicoId, horarioEscolhido, agendamentoId, ...).
 model ChatbotBuilderSession {
-  id            String    @id @default(uuid())
-  chatbotId     String
-  roomId        String?
-  phone         String
-  contactName   String?
+  id             String    @id @default(uuid())
+  chatbotId      String
+  roomId         String?
+  phone          String
+  contactName    String?
   currentBlockId String?
-  status        String    @default("ACTIVE") // ACTIVE|COMPLETED|CANCELLED|TRANSFER|FAILED|EXPIRED
-  variables     Json      @default("{}")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  lastMessageAt DateTime?
+  status         String    @default("ACTIVE") // ACTIVE|COMPLETED|CANCELLED|TRANSFER|FAILED|EXPIRED
+  variables      Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  lastMessageAt  DateTime?
 
   @@index([chatbotId, phone, status])
   @@map("TBLCHATBOTBUILDERSESSION")
@@ -1532,17 +1690,17 @@ model ChatbotBuilderSession {
 // Rastro por mensagem individual (não por turno) — cada mensagem
 // enviada/recebida pelo motor novo é logada com origem rastreável.
 model ChatbotMessageTrace {
-  id                 String   @id @default(uuid())
-  sessionId          String
-  chatbotId          String
-  direction          String   // inbound|outbound|system
-  message             String   @db.Text
-  blockId            String?
-  sourceType         String   // block|template|fallback_block|system_action_result|automation_block
-  sourceId           String?
-  variablesSnapshot  Json?
-  metadata           Json?
-  createdAt          DateTime @default(now())
+  id                String   @id @default(uuid())
+  sessionId         String
+  chatbotId         String
+  direction         String // inbound|outbound|system
+  message           String   @db.Text
+  blockId           String?
+  sourceType        String // block|template|fallback_block|system_action_result|automation_block
+  sourceId          String?
+  variablesSnapshot Json?
+  metadata          Json?
+  createdAt         DateTime @default(now())
 
   @@index([sessionId])
   @@index([chatbotId])
@@ -1574,7 +1732,7 @@ model SystemActionExecution {
 model LegacyActionMapping {
   id             String   @id @default(uuid())
   chatbotId      String
-  legacyActionId String   // LightSystemActionConfig.id
+  legacyActionId String // LightSystemActionConfig.id
   status         String   @default("active") // active|migrated|ignored
   notes          String?
   createdAt      DateTime @default(now())

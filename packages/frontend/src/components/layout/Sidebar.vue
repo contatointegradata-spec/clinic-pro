@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard, CalendarDays, Users2, CircleDollarSign, UserCog, LogOut, ChevronRight,
   Settings, ClipboardList, Bot, Database, PanelLeftClose, PanelLeft,
-  ShieldCheck, Building2, CreditCard, Webhook, FolderKanban, Boxes,
+  ShieldCheck, Building2, CreditCard, Webhook, FolderKanban, Boxes, MessagesSquare,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
+import { useAttendanceStore } from '../../stores/attendance'
 import { useSecretaryPermissions } from '../../composables/useSecretaryPermissions'
 import { useQuery } from '../../composables/useQuery'
 import api from '../../lib/api'
@@ -23,6 +24,18 @@ const router = useRouter()
 
 const isChatbotRoute = computed(() => route.path.startsWith('/agente/chatbot'))
 const isCrmRoute = computed(() => route.path.startsWith('/agente/crm'))
+const isAttendanceRoute = computed(() => route.path.startsWith('/atendimento'))
+
+// Badge de não lidas "minhas" do Atendimento — polling leve; na própria
+// tela de Atendimento o stream em tempo real também atualiza o summary.
+const attendance = useAttendanceStore()
+const attendanceUnread = computed(() => attendance.summary?.unreadMine ?? 0)
+let attendanceTimer: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  attendance.fetchSummary(10000)
+  attendanceTimer = setInterval(() => attendance.fetchSummary(10000), 30000)
+})
+onBeforeUnmount(() => clearInterval(attendanceTimer))
 
 const { data: preRegistrations } = useQuery<unknown[]>({
   key: 'pre-registrations-count',
@@ -109,21 +122,34 @@ function handleLogout() {
         <span v-if="props.collapsed" class="tooltip">{{ item.label }}</span>
       </router-link>
 
-      <div v-if="can('chatbot_light_operar') || can('chatbot_light_configurar')" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
-        <router-link to="/agente/chatbot" :class="['sidebar-link group tooltip-trigger', isChatbotRoute ? 'active' : '']">
-          <Bot :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isChatbotRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-          <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">Agente de IA</span>
-          <span v-else class="tooltip">Agente de IA</span>
+      <div :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
+        <router-link to="/atendimento" :class="['sidebar-link group tooltip-trigger', isAttendanceRoute ? 'active' : '']">
+          <span class="relative flex-shrink-0">
+            <MessagesSquare :class="['w-5 h-5 transition-all duration-200', isAttendanceRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
+            <span v-if="props.collapsed && attendanceUnread > 0" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
+          </span>
+          <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">Atendimento</span>
+          <span v-else class="tooltip">Atendimento</span>
+          <span v-if="!props.collapsed && attendanceUnread > 0" class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold bg-emerald-500 text-white rounded-full leading-none" :aria-label="`${attendanceUnread} conversas não lidas`">
+            {{ attendanceUnread > 99 ? '99+' : attendanceUnread }}
+          </span>
         </router-link>
-        <router-link to="/agente/crm" :class="['sidebar-link group tooltip-trigger mt-1', isCrmRoute ? 'active' : '']">
-          <FolderKanban :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isCrmRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-          <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">CRM</span>
-          <span v-else class="tooltip">CRM</span>
-        </router-link>
+        <template v-if="can('chatbot_light_operar') || can('chatbot_light_configurar')">
+          <router-link to="/agente/chatbot" :class="['sidebar-link group tooltip-trigger mt-1', isChatbotRoute ? 'active' : '']">
+            <Bot :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isChatbotRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
+            <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">Agente de IA</span>
+            <span v-else class="tooltip">Agente de IA</span>
+          </router-link>
+          <router-link to="/agente/crm" :class="['sidebar-link group tooltip-trigger mt-1', isCrmRoute ? 'active' : '']">
+            <FolderKanban :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isCrmRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
+            <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">CRM</span>
+            <span v-else class="tooltip">CRM</span>
+          </router-link>
+        </template>
       </div>
 
       <div v-if="authStore.user?.role === 'SECRETARY'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
-        <p v-if="!props.collapsed" class="section-label mb-2">Atendimento</p>
+        <p v-if="!props.collapsed" class="section-label mb-2">Salas</p>
         <router-link to="/minhas-salas" :class="['sidebar-link group tooltip-trigger', isActive('/minhas-salas') ? 'active' : '']">
           <Building2 :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive('/minhas-salas') ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
           <span v-if="!props.collapsed" class="flex-1">Minhas Salas</span>

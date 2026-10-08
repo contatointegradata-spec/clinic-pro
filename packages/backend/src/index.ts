@@ -22,6 +22,8 @@ import integrationAddonRoutes from './routes/integration-addons'
 import chatbotLightRoutes from './routes/chatbot-light'
 import aiAgentRoutes from './routes/ai-agent'
 import myRoomsRoutes from './routes/my-rooms'
+import attendanceRoutes, { attendanceStreamRouter } from './routes/attendance'
+import { startNotificationJobs } from './lib/notification-jobs'
 import { runStartupDatabaseCleanup } from './lib/whatsapp'
 import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsapp'
 import { startLightScheduler } from './lib/chatbot-light-engine'
@@ -163,6 +165,11 @@ app.use('/api/integration-addons', authenticate, requireActiveSubscription, inte
 app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLightRoutes)
 app.use('/api/ai-agent', authenticate, requireActiveSubscription, aiAgentRoutes)
 app.use('/api/my/rooms', authenticate, requireActiveSubscription, myRoomsRoutes)
+// Atendimento: o SSE (/stream) autentica por token curto na query (EventSource
+// não manda Authorization), então é montado ANTES do authenticate. O router
+// do stream só trata GET /stream; o resto cai no router autenticado.
+app.use('/api/attendance', attendanceStreamRouter)
+app.use('/api/attendance', authenticate, requireActiveSubscription, attendanceRoutes)
 app.use('/api/admin/sql', adminSqlRoutes)
 app.use('/api/admin/integrations', adminIntegrationsRoutes)
 app.use('/api/platform-admin', platformAdminRoutes)
@@ -222,6 +229,9 @@ app.listen(PORT, () => {
 
   // Verifica periodicamente trials expirados e marca a assinatura como bloqueada
   startSubscriptionExpiryWatchdog()
+
+  // Notificações periódicas (follow-up de leads, pré-agendamentos, fila de atendimento)
+  startNotificationJobs()
 })
 
 export default app

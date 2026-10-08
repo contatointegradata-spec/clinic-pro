@@ -306,19 +306,17 @@ router.get('/:id/conversations', async (req: AuthRequest, res: Response) => {
     // Nome do contato: prioriza o nome real do paciente (dado no agendamento);
     // se ainda não agendou, cai pro nome do WhatsApp (pushName) já capturado
     // pela Conversation do inbox manual, que compartilha a mesma instância.
-    const [patients, instance] = await Promise.all([
-      prisma.patient.findMany({ where: { doctorId, phone: { in: expandedPhones } }, select: { phone: true, name: true } }),
-      prisma.whatsAppInstance.findUnique({ where: { chatbotId: agent.id }, select: { id: true } }),
-    ])
+    const patients = await prisma.patient.findMany({ where: { doctorId, phone: { in: expandedPhones } }, select: { phone: true, name: true } })
     const patientNameByPhone = new Map<string, string>()
     for (const p of patients) {
       for (const variant of phoneVariants(p.phone)) patientNameByPhone.set(variant, p.name)
     }
 
     let conversationNameByPhone = new Map<string, string>()
-    if (instance) {
+    // Conversas agora são por sala (roomId, contactPhone) — usa a sala vinculada ao agente.
+    if (agent.boundRoomId) {
       const conversations = await prisma.conversation.findMany({
-        where: { instanceId: instance.id, contactPhone: { in: phones } },
+        where: { roomId: agent.boundRoomId, contactPhone: { in: phones } },
         select: { contactPhone: true, contactName: true },
       })
       conversationNameByPhone = new Map(

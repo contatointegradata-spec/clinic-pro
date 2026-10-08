@@ -30,8 +30,15 @@ export interface WhatsAppContactIdentity {
   displayName?: string;
 }
 
+// Escopo da busca de mapeamento LID → telefone: conversas da SALA (chave
+// atual do Atendimento) e, se houver, sessões antigas do Chatbot Light da instância.
+export interface ContactIdentityScope {
+  roomId?: string | null
+  instanceId?: string | null
+}
+
 export async function resolveWhatsAppContactIdentity(
-  whatsappInstanceId: string,
+  scope: ContactIdentityScope,
   remoteJid: string,
   msgRaw?: any
 ): Promise<WhatsAppContactIdentity> {
@@ -47,9 +54,9 @@ export async function resolveWhatsAppContactIdentity(
 
     // Tenta buscar se já existe mapeamento no banco (por exemplo, na tabela Conversation ou LightFlowSession)
     try {
-      const existingConv = await prisma.conversation.findFirst({
+      const existingConv = scope.roomId ? await prisma.conversation.findFirst({
         where: {
-          instanceId: whatsappInstanceId,
+          roomId: scope.roomId,
           lidJid: remoteJid,
           normalizedPhone: { not: null }
         },
@@ -57,14 +64,14 @@ export async function resolveWhatsAppContactIdentity(
           normalizedPhone: true,
           phoneJid: true
         }
-      })
+      }) : null
       if (existingConv && existingConv.normalizedPhone) {
         normalizedPhone = existingConv.normalizedPhone
         phoneJid = existingConv.phoneJid || `${normalizedPhone}@s.whatsapp.net`
-      } else {
+      } else if (scope.instanceId) {
         const lastSession = await prisma.lightFlowSession.findFirst({
           where: {
-            instanceId: whatsappInstanceId,
+            instanceId: scope.instanceId,
             contactPhone: remoteJid,
           },
           orderBy: { createdAt: 'desc' }
@@ -141,8 +148,11 @@ export async function runStartupDatabaseCleanup() {
       })
 
       for (const conv of conversations) {
+        // Chave da conversa agora é (roomId, contactPhone) — se já existe a
+        // versão correta na mesma sala, descarta a antiga em vez de renomear
+        // (renomear colidiria com o unique roomId_contactPhone).
         const existingCorrect = await prisma.conversation.findFirst({
-          where: { instanceId: conv.instanceId, contactPhone: lidWithSuffix }
+          where: { roomId: conv.roomId, contactPhone: lidWithSuffix }
         })
 
         if (existingCorrect) {
@@ -157,6 +167,14 @@ export async function runStartupDatabaseCleanup() {
               lidJid: lidWithSuffix,
               deliveryJid: lidWithSuffix
             }
+          }).catch(async (err: any) => {
+            // Corrida/legado: outra conversa já usa essa chave → descarta a antiga.
+            if (err?.code === 'P2002') {
+              await prisma.message.deleteMany({ where: { conversationId: conv.id } })
+              await prisma.conversation.delete({ where: { id: conv.id } })
+              return
+            }
+            throw err
           })
         }
       }

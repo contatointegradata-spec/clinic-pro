@@ -27,7 +27,7 @@ const ROUTE_LABELS: Record<string, string> = {
   notificacoes: 'Notificações', integracoes: 'Integrações', assinatura: 'Assinatura',
   pendente: 'Pagamento Pendente', chatbot: 'Chatbot IA', agente: 'Agente de IA', admin: 'Admin',
   sql: 'SQL Admin', gestao: 'Gestão', planos: 'Planos', 'minhas-salas': 'Minhas Salas',
-  desenvolvedor: 'Admin Desenvolvedor',
+  desenvolvedor: 'Admin Desenvolvedor', atendimento: 'Atendimento', crm: 'CRM',
 }
 
 const route = useRoute()

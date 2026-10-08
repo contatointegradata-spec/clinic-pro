@@ -14,6 +14,7 @@ const Usuarios = () => import('../pages/Usuarios.vue')
 const MinhasSalas = () => import('../pages/MinhasSalas.vue')
 const WhatsappChatbot = () => import('../pages/WhatsappChatbot.vue')
 const CRM = () => import('../pages/CRM.vue')
+const Atendimento = () => import('../pages/Atendimento.vue')
 const Estoque = () => import('../pages/Estoque.vue')
 
 const FinanceiroResumo = () => import('../pages/financeiro/Resumo.vue')
@@ -111,6 +112,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'minhas-salas', component: MinhasSalas, meta: { label: 'Minhas Salas', roles: ['SECRETARY'] } },
       { path: 'agente/chatbot', component: WhatsappChatbot, meta: { label: 'Agente de IA', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
       { path: 'agente/crm', component: CRM, meta: { label: 'CRM', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
+      { path: 'atendimento', component: Atendimento, meta: { label: 'Atendimento', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
 
       { path: 'configuracoes', redirect: '/configuracoes/perfil' },
       { path: 'configuracoes/perfil', component: Perfil, meta: { label: 'Perfil' } },

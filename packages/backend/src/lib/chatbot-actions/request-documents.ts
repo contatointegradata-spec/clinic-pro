@@ -1,4 +1,4 @@
-import { prisma } from '../prisma'
+import { notifyClinicTeam } from '../notifications'
 import type { SystemAction } from './types'
 
 // A ação não manda mensagem ao paciente — ela só registra a pendência pra
@@ -16,13 +16,12 @@ export const requestDocuments: SystemAction = {
   ],
   outputs: [{ key: 'solicitacaoRegistrada', label: 'Solicitação registrada?', required: true }],
   async execute(ctx, input) {
-    await prisma.notification.create({
-      data: {
-        userId: ctx.doctorId,
-        title: 'Documentos solicitados via chatbot',
-        message: `${input.nome ?? 'Paciente'} (${input.telefone ?? 's/ telefone'}) precisa enviar: ${input.documentos ?? 'documentos não especificados'}`,
-        type: 'INFO',
-      },
+    await notifyClinicTeam(ctx.doctorId, null, {
+      title: 'Documentos solicitados via chatbot',
+      message: `${input.nome ?? 'Paciente'} (${input.telefone ?? 's/ telefone'}) precisa enviar: ${input.documentos ?? 'documentos não especificados'}`,
+      type: 'INFO',
+      category: 'CRM',
+      link: '/agente/crm',
     })
     return { success: true, data: { solicitacaoRegistrada: true } }
   },

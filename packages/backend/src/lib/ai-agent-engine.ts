@@ -5,7 +5,8 @@ import { resolveChatbotLightSendTarget, sendRoomWhatsAppMessage, normalizeToWhat
 import { checkLunchOverlap } from '../routes/appointments'
 import { getLocalDateInTz } from './chatbot-light-guided-engine'
 import { findPatientByPhone, normalizePatientPhone } from './phone'
-import { createNotification } from '../routes/notifications'
+import { notifyAppointmentEvent } from './notifications'
+import { handoffToHuman, isConversationWithBot, linkConversationPatient, HANDOFF_TRANSITION_MESSAGE, HandoffTarget } from './attendance'
 import { logAudit } from './secretaryAccess'
 
 const MAX_TOOL_ITERATIONS = 3
@@ -225,7 +226,7 @@ async function createAppointmentTool(
         })
       }
 
-      await tx.appointment.create({
+      const appointment = await tx.appointment.create({
         data: {
           patientId: patient.id,
           doctorId,
@@ -239,10 +240,26 @@ async function createAppointmentTool(
         },
       })
 
-      return { success: true as const, message: `Consulta marcada com sucesso para ${args.date} às ${args.time}. Confirme isso pro paciente de forma natural.` }
+      return {
+        success: true as const,
+        message: `Consulta marcada com sucesso para ${args.date} às ${args.time}. Confirme isso pro paciente de forma natural.`,
+        appointmentId: appointment.id,
+        patientName: patient.name,
+      }
     }, { isolationLevel: 'Serializable' })
 
-    return result
+    if (result.success) {
+      await notifyAppointmentEvent({
+        kind: 'created',
+        appointmentId: result.appointmentId,
+        doctorId,
+        roomId: room.id,
+        patientName: result.patientName,
+        date: slotStart,
+        actorLabel: 'pelo Agente de IA',
+      }).catch(() => {})
+    }
+    return { success: result.success, message: result.message }
   } catch (err) {
     console.error('[ai-agent-engine] createAppointmentTool transaction error:', err)
     return { success: false, message: 'Não consegui confirmar o agendamento agora — peça pro paciente tentar de novo em instantes.' }
@@ -358,7 +375,15 @@ async function rescheduleAppointmentTool(
     }, { isolationLevel: 'Serializable' })
 
     if (result.success) {
-      await createNotification(doctorId, 'Consulta remarcada pelo Agente de IA', `O agente remarcou a consulta de ${result.patientName} para ${args.newDate} às ${args.newTime}.`).catch(() => {})
+      await notifyAppointmentEvent({
+        kind: 'rescheduled',
+        appointmentId: resolved.appointment.id,
+        doctorId,
+        roomId: room.id,
+        patientName: result.patientName,
+        date: slotStart,
+        actorLabel: 'pelo Agente de IA',
+      }).catch(() => {})
       await logAudit({
         userId: doctorId,
         action: 'AI_AGENT_APPOINTMENT_RESCHEDULED',
@@ -387,7 +412,16 @@ async function cancelAppointmentTool(doctorId: string, patientId: string, args: 
       data: { status: 'CANCELLED' },
       include: { patient: { select: { name: true } } },
     })
-    await createNotification(doctorId, 'Consulta cancelada pelo Agente de IA', `${updated.patient.name} cancelou a consulta pelo WhatsApp${args.reason ? ` (motivo: ${args.reason})` : ''}.`).catch(() => {})
+    await notifyAppointmentEvent({
+      kind: 'cancelled',
+      appointmentId: updated.id,
+      doctorId,
+      roomId: updated.roomId,
+      patientName: updated.patient.name,
+      date: updated.date,
+      actorLabel: 'pelo paciente via Agente de IA',
+      extra: args.reason ? `Motivo: ${args.reason}.` : undefined,
+    }).catch(() => {})
     await logAudit({
       userId: doctorId,
       action: 'AI_AGENT_APPOINTMENT_CANCELLED',
@@ -433,6 +467,7 @@ async function sendReadyDocumentTool(
   contactPhone: string,
   deliveryJid: string,
   args: SendDocArgs,
+  conversationId?: string | null,
 ): Promise<{ success: boolean; message: string }> {
   const docs = await findReadyDocuments(doctorId, patientId, args.documentId, args.documentName)
   if (docs.length === 0) return { success: false, message: 'Não encontrei nenhum documento pronto com esse nome pra esse paciente — use list_ready_documents pra ver o que está disponível.' }
@@ -447,7 +482,8 @@ async function sendReadyDocumentTool(
   try {
     const phoneCheck = await checkPhoneOnWhatsApp(target.instanceKey, contactPhone).catch(() => null)
     const sendJid = phoneCheck?.jid ?? normalizeToWhatsAppJid(deliveryJid)
-    await sendRoomWhatsAppMessage(target.instanceKey, sendJid, doc.content)
+    const sent = await sendRoomWhatsAppMessage(target.instanceKey, sendJid, doc.content, { conversationId })
+    if (!sent) throw new Error('send failed')
     await prisma.generatedDocument.update({ where: { id: doc.id }, data: { status: 'SENT', sentAt: new Date() } })
     return { success: true, message: `Documento "${doc.name}" enviado com sucesso. Confirme isso pro paciente de forma natural, sem repetir o conteúdo do documento.` }
   } catch (err) {
@@ -456,8 +492,26 @@ async function sendReadyDocumentTool(
   }
 }
 
-function buildTools(includeScheduling: boolean): AiTool[] {
+const TRANSFER_TOOL: AiTool = {
+  type: 'function',
+  function: {
+    name: 'transfer_to_human',
+    description: 'Transfere a conversa para a equipe humana da clínica e encerra a sua participação. Use quando o paciente pedir para falar com uma pessoa/atendente, fizer uma reclamação, trouxer dúvida clínica ou sintoma, pedir algo fora do seu escopo, ou quando você não conseguir resolver.',
+    parameters: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: 'Motivo curto da transferência (ex: "paciente pediu atendente", "dúvida sobre sintoma")' },
+        target: { type: 'string', enum: ['reception', 'doctor'], description: '"doctor" para dúvidas clínicas/sintomas/resultados de exame; "reception" para todo o resto' },
+      },
+      required: ['reason'],
+    },
+  },
+}
+
+function buildTools(includeScheduling: boolean, includeTransfer: boolean): AiTool[] {
+  const transferTools: AiTool[] = includeTransfer ? [TRANSFER_TOOL] : []
   const documentTools: AiTool[] = [
+    ...transferTools,
     {
       type: 'function',
       function: {
@@ -564,8 +618,15 @@ export async function handleAiAgentMessage(params: {
   contactPhone: string
   deliveryJid: string
   messageText: string
+  // Conversa do Atendimento — habilita transfer_to_human e a checagem de
+  // status (humano no controle → IA não responde).
+  conversationId?: string | null
 }): Promise<void> {
   const { chatbotId, doctorId, contactPhone, deliveryJid, messageText } = params
+  const conversationId = params.conversationId ?? null
+
+  // Humano assumiu/transferiu enquanto a mensagem chegava → IA fica quieta.
+  if (conversationId && !(await isConversationWithBot(conversationId))) return
   // contactPhone normalmente já é o telefone real (resolveWhatsAppContactIdentity
   // prioriza isso) — só cai pra "@lid" bruto quando a WhatsApp não mandou o
   // telefone junto da mensagem (raro, ver lib/whatsapp.ts). Nesse caso os
@@ -626,8 +687,15 @@ export async function handleAiAgentMessage(params: {
     }
   }
 
+  if (conversationId && patientId) {
+    await linkConversationPatient(conversationId, patientId).catch(() => {})
+  }
+
   let systemContent = chatbot.systemPrompt
   systemContent += `\n\n---\n# REGRAS DE CONVERSA (sempre válidas, independente do restante do prompt)\n- Leia o histórico da conversa antes de responder. Nunca repita uma pergunta, oferta ou instrução que o paciente já respondeu ou que já foi concluída (ex: depois de confirmar um agendamento, não volte a perguntar sobre horários).\n- Se a última mensagem do paciente for só um agradecimento ou encerramento (ex: "obrigado", "ok", "valeu"), responda de forma breve e natural, sem reabrir assuntos já resolvidos.\n- Mensagens curtas, no estilo de WhatsApp — evite blocos de texto longos. Uma pergunta por vez.\n- Pra entregar um documento (atestado, declaração etc), use só send_ready_document — nunca escreva ou invente o conteúdo de um documento você mesmo.`
+  if (conversationId) {
+    systemContent += `\n\n---\n# TRANSFERÊNCIA PARA A EQUIPE HUMANA\nUse a ferramenta transfer_to_human (e não responda mais nada depois dela) quando:\n- o paciente pedir para falar com uma pessoa, atendente, secretária ou com o médico;\n- o paciente fizer uma reclamação ou demonstrar insatisfação;\n- houver dúvida clínica, sintoma, pedido de orientação médica ou sobre resultado de exame (use target "doctor") — nunca dê orientação médica;\n- o assunto estiver fora do que você sabe ou pode fazer;\n- você não conseguir resolver o pedido depois de tentar.\nNesses casos não tente resolver sozinho nem invente informações.`
+  }
   if (room) {
     systemContent += `\n\n---\n# HORÁRIO DE FUNCIONAMENTO DA CLÍNICA\n${describeRoomSchedule(room)}\nData e hora atual: ${getLocalDateInTz().toLocaleString('pt-BR')}\nUse a ferramenta check_availability antes de propor um horário, e create_appointment só depois que o paciente confirmar nome, data e horário. Nunca invente horários — use sempre o resultado da ferramenta.\nSe o paciente quer ALTERAR ou CANCELAR uma consulta que já existe, use reschedule_appointment ou cancel_appointment — nunca create_appointment de novo (isso cria uma segunda consulta em vez de mudar a primeira). Se não tiver certeza de qual consulta ele quer mexer, use list_my_appointments primeiro.`
   }
@@ -644,7 +712,8 @@ export async function handleAiAgentMessage(params: {
   const messages: AiMessage[] = [{ role: 'system', content: systemContent }, ...historyMessages, { role: 'user', content: messageText }]
   // Ferramentas de documento ficam disponíveis mesmo sem sala vinculada —
   // não dependem de agenda. As de agenda continuam exigindo `room`.
-  const tools = buildTools(!!room)
+  const tools = buildTools(!!room, !!conversationId)
+  let handedOff = false
 
   // Se a IA falhar ou o loop de ferramentas esgotar sem produzir uma
   // resposta final, o paciente não pode simplesmente ficar sem resposta
@@ -664,12 +733,25 @@ export async function handleAiAgentMessage(params: {
           const noPatientMsg = 'Não consegui localizar o cadastro do paciente ainda — peça pra ele mandar outra mensagem em instantes.'
           let toolResult = 'Ferramenta desconhecida.'
 
-          if (call.function.name === 'list_ready_documents') {
+          if (call.function.name === 'transfer_to_human') {
+            if (!conversationId) {
+              toolResult = 'Transferência indisponível neste canal.'
+            } else {
+              const reason = typeof args.reason === 'string' ? args.reason : 'Transferência solicitada pelo Agente de IA'
+              const target: HandoffTarget = args.target === 'doctor' ? 'doctor' : 'reception'
+              handedOff = await handoffToHuman(conversationId, reason, target)
+              toolResult = handedOff ? 'Conversa transferida para a equipe.' : 'A conversa já está com a equipe humana.'
+              if (!handedOff) {
+                // Humano já no controle — encerra sem responder.
+                return
+              }
+            }
+          } else if (call.function.name === 'list_ready_documents') {
             toolResult = patientId ? await listReadyDocumentsTool(doctorId, patientId) : noPatientMsg
           } else if (call.function.name === 'send_ready_document') {
             toolResult = !patientId
               ? noPatientMsg
-              : (await sendReadyDocumentTool(doctorId, patientId, chatbotId, contactPhone, deliveryJid, args as SendDocArgs)).message
+              : (await sendReadyDocumentTool(doctorId, patientId, chatbotId, contactPhone, deliveryJid, args as SendDocArgs, conversationId)).message
           } else if (!room) {
             toolResult = 'Ferramenta indisponível — sem sala vinculada a este agente.'
           } else if (call.function.name === 'check_availability') {
@@ -693,6 +775,7 @@ export async function handleAiAgentMessage(params: {
           }
           messages.push({ role: 'tool', tool_call_id: call.id, content: toolResult })
         }
+        if (handedOff) break
         continue
       }
 
@@ -704,7 +787,10 @@ export async function handleAiAgentMessage(params: {
     finalText = FALLBACK_MESSAGE
   }
 
-  if (!finalText) {
+  if (handedOff) {
+    // Mensagem de transição fixa — a IA para de responder a partir daqui.
+    finalText = HANDOFF_TRANSITION_MESSAGE
+  } else if (!finalText) {
     console.warn('[ai-agent-engine] Loop de ferramentas esgotou sem resposta final — enviando fallback.', { chatbotId, contactPhone: normalizedPhone })
     finalText = FALLBACK_MESSAGE
   }
@@ -714,13 +800,17 @@ export async function handleAiAgentMessage(params: {
   const target = await resolveChatbotLightSendTarget(chatbotId)
   if (!target) return
 
-  if (chatbot.responseDelaySeconds > 0) {
+  if (chatbot.responseDelaySeconds > 0 && !handedOff) {
     await new Promise(resolve => setTimeout(resolve, chatbot.responseDelaySeconds * 1000))
   }
 
+  // Corrida: um humano pode ter assumido enquanto a IA pensava — aí a
+  // resposta da IA é descartada (a de transição do handoff sempre vai).
+  if (!handedOff && conversationId && !(await isConversationWithBot(conversationId))) return
+
   const phoneCheck = await checkPhoneOnWhatsApp(target.instanceKey, contactPhone).catch(() => null)
   const sendJid = phoneCheck?.jid ?? normalizeToWhatsAppJid(deliveryJid)
-  await sendRoomWhatsAppMessage(target.instanceKey, sendJid, finalText)
+  await sendRoomWhatsAppMessage(target.instanceKey, sendJid, finalText, { conversationId })
 
   await prisma.lightMessageLog.create({
     data: {

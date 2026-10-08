@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
-import { createNotification } from './notifications'
+import { notifyAppointmentEvent } from '../lib/notifications'
 import { fireWebhooks } from '../lib/webhook'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
@@ -261,14 +261,17 @@ router.post('/', async (req: AuthRequest, res) => {
       }
     }
 
-    await createNotification(
-      appointment.doctorId,
-      totalOccurrences > 1 ? `${totalOccurrences} agendamentos criados` : 'Novo agendamento',
-      totalOccurrences > 1
-        ? `${appointment.patient.name} – ${totalOccurrences} sessões semanais a partir de ${appointment.date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })}`
-        : `${appointment.patient.name} agendou ${appointment.type || 'consulta'} para ${appointment.date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })}`,
-      'INFO',
-    )
+    await notifyAppointmentEvent({
+      kind: 'created',
+      appointmentId: appointment.id,
+      doctorId: appointment.doctorId,
+      roomId: appointment.roomId ?? null,
+      patientName: appointment.patient.name,
+      date: appointment.date,
+      count: totalOccurrences,
+      // Quem criou não precisa ser avisado do que acabou de fazer.
+      excludeUserIds: [req.user!.userId],
+    })
 
     fireWebhooks(appointment.doctorId, 'appointment.created', {
       id: appointment.id,
@@ -563,6 +566,25 @@ router.put('/:id', async (req: AuthRequest, res) => {
       }).catch(err => console.error('[medicalRecord auto RESCHEDULE error]', err))
     }
 
+    // Notificações da equipe (agendamento remarcado/confirmado/cancelado).
+    {
+      const base = {
+        appointmentId: updated.id,
+        doctorId: updated.doctorId,
+        roomId: updated.roomId ?? null,
+        patientName: updated.patient.name,
+        date: updated.date,
+        excludeUserIds: [req.user!.userId],
+      }
+      if (data.status === 'CANCELLED' && current?.status !== 'CANCELLED') {
+        notifyAppointmentEvent({ ...base, kind: 'cancelled' }).catch(() => {})
+      } else if (data.status === 'CONFIRMED' && current?.status !== 'CONFIRMED') {
+        notifyAppointmentEvent({ ...base, kind: 'confirmed' }).catch(() => {})
+      } else if (current && data.date && (data.date as Date).getTime() !== current.date.getTime() && updated.status !== 'CANCELLED') {
+        notifyAppointmentEvent({ ...base, kind: 'rescheduled' }).catch(() => {})
+      }
+    }
+
     if (data.status === 'CANCELLED' && current?.status !== 'CANCELLED') {
       if (updated.patient?.phone) {
         const apptDateStr = updated.date.toLocaleDateString('pt-BR')
@@ -809,14 +831,6 @@ router.post('/:id/charge', async (req: AuthRequest, res) => {
         data:  { billedAt: now },
       }),
     ])
-
-    await createNotification(
-      appointment.doctorId,
-      'Cobrança registrada',
-      `${appointment.type || 'Consulta'} de ${appointment.patient.name} — R$ ${netAmount.toFixed(2)} lançado no financeiro`,
-      'SUCCESS',
-      '/financeiro',
-    )
 
     res.status(201).json({ transaction, appointmentId: appointment.id })
   } catch (error) {

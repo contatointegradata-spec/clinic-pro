@@ -1,15 +1,27 @@
 import { Router } from 'express'
-import { z } from 'zod'
+import { NotificationCategory } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
+
+export { createNotification, notifyClinicTeam } from '../lib/notifications'
 
 const router = Router()
 router.use(authenticate)
 
+const CATEGORIES = Object.values(NotificationCategory) as string[]
+
 router.get('/', async (req: AuthRequest, res) => {
   try {
+    const category = typeof req.query.category === 'string' ? req.query.category : undefined
+    if (category && !CATEGORIES.includes(category)) {
+      res.status(400).json({ message: 'Categoria inválida' })
+      return
+    }
     const notifications = await prisma.notification.findMany({
-      where: { userId: req.user!.userId },
+      where: {
+        userId: req.user!.userId,
+        ...(category ? { category: category as NotificationCategory } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     })
@@ -77,19 +89,5 @@ router.delete('/:id', async (req: AuthRequest, res) => {
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
-
-export const createNotification = async (
-  userId: string,
-  title: string,
-  message: string,
-  type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ALERT' = 'INFO',
-  link?: string,
-) => {
-  try {
-    await prisma.notification.create({ data: { userId, title, message, type, link } })
-  } catch {
-    // Notifications are non-critical — silently ignore errors
-  }
-}
 
 export default router

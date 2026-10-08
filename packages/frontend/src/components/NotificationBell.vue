@@ -1,20 +1,26 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
-import { Bell, CheckCheck, X, Info, CheckCircle, AlertTriangle } from 'lucide-vue-next'
+import { Bell, CheckCheck, X, CalendarDays, CalendarX2, Clock, Filter, MessageCircle, AlertTriangle } from 'lucide-vue-next'
+import type { Component } from 'vue'
 import { formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import api from '../lib/api'
-import type { Notification } from '../types'
+import type { Notification, NotificationCategory } from '../types'
 
 const props = defineProps<{ collapsed?: boolean }>()
 
-const TYPE_ICONS: Record<string, any> = { INFO: Info, SUCCESS: CheckCircle, WARNING: AlertTriangle, ALERT: AlertTriangle }
-const TYPE_COLORS: Record<string, string> = {
-  INFO: 'text-primary-600 bg-primary-50',
-  SUCCESS: 'text-emerald-600 bg-emerald-50',
-  WARNING: 'text-amber-600 bg-amber-50',
-  ALERT: 'text-red-600 bg-red-50',
+// Ícone/cor por categoria — notificações antigas (sem category) caem em SYSTEM.
+const CATEGORY_STYLE: Record<NotificationCategory, { icon: Component; color: string }> = {
+  AGENDAMENTO: { icon: CalendarDays, color: 'text-primary-600 bg-primary-50' },
+  CANCELAMENTO: { icon: CalendarX2, color: 'text-red-600 bg-red-50' },
+  FOLLOW_UP: { icon: Clock, color: 'text-amber-600 bg-amber-50' },
+  CRM: { icon: Filter, color: 'text-violet-600 bg-violet-50' },
+  ATENDIMENTO: { icon: MessageCircle, color: 'text-emerald-600 bg-emerald-50' },
+  SYSTEM: { icon: AlertTriangle, color: 'text-orange-600 bg-orange-50' },
+}
+function styleOf(n: Notification) {
+  return CATEGORY_STYLE[n.category ?? 'SYSTEM'] ?? CATEGORY_STYLE.SYSTEM
 }
 
 const open = ref(false)
@@ -73,13 +79,16 @@ onBeforeUnmount(() => {
 })
 
 async function markRead(n: Notification) {
-  if (!n.read) {
-    await api.patch(`/notifications/${n.id}/read`)
-    await load()
-  }
   if (n.link) {
-    router.push(n.link)
     open.value = false
+    router.push(n.link)
+  }
+  if (!n.read) {
+    // Otimista: some o destaque na hora, sincroniza em seguida.
+    n.read = true
+    unreadCount.value = Math.max(0, unreadCount.value - 1)
+    try { await api.patch(`/notifications/${n.id}/read`) } catch { /* recarrega abaixo */ }
+    await load()
   }
 }
 
@@ -102,6 +111,8 @@ async function removeNotification(n: Notification) {
         'w-full flex items-center gap-2.5 px-3 py-2 text-slate-500 hover:text-primary-700 hover:bg-primary-50 rounded-xl transition-all duration-200 text-sm relative',
         collapsed ? 'justify-center' : '',
       ]"
+      :aria-label="unreadCount > 0 ? `Notificações (${unreadCount} não lidas)` : 'Notificações'"
+      :aria-expanded="open"
       @click="open ? (open = false) : openPanel()"
     >
       <Bell class="w-4 h-4 flex-shrink-0" />
@@ -146,8 +157,8 @@ async function removeNotification(n: Notification) {
             :class="['flex gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors', !n.read ? 'bg-primary-50/40' : '']"
             @click="markRead(n)"
           >
-            <div :class="['w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5', TYPE_COLORS[n.type] || TYPE_COLORS.INFO]">
-              <component :is="TYPE_ICONS[n.type] || Info" class="w-4 h-4" />
+            <div :class="['w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5', styleOf(n).color]">
+              <component :is="styleOf(n).icon" class="w-4 h-4" />
             </div>
             <div class="flex-1 min-w-0">
               <p :class="['text-sm text-slate-900', !n.read ? 'font-semibold' : 'font-medium']">{{ n.title }}</p>
@@ -155,7 +166,7 @@ async function removeNotification(n: Notification) {
               <p class="text-xs text-slate-400 mt-1">{{ formatDistanceToNow(new Date(n.createdAt), { addSuffix: true, locale: ptBR }) }}</p>
             </div>
             <div v-if="!n.read" class="w-2 h-2 bg-primary-500 rounded-full flex-shrink-0 mt-2" />
-            <button class="p-0.5 text-slate-300 hover:text-red-400 flex-shrink-0 mt-0.5" @click.stop="removeNotification(n)">
+            <button class="p-0.5 text-slate-300 hover:text-red-400 flex-shrink-0 mt-0.5" aria-label="Remover notificação" @click.stop="removeNotification(n)">
               <X class="w-3.5 h-3.5" />
             </button>
           </div>

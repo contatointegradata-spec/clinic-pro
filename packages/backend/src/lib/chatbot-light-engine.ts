@@ -7,6 +7,7 @@ import { resolveTemplateVariables, resolveMessageText, TemplateContext } from '.
 import { isWithinBusinessHours, flowHasLeadCapture, BusinessHoursConfig } from './chatbot-light-business-hours'
 import { runBlockEngine } from './chatbot-block-engine'
 import { handleAiAgentMessage } from './ai-agent-engine'
+import { handoffToHuman } from './attendance'
 
 
 const lightFlowStateCache = new NodeCache({
@@ -101,6 +102,7 @@ function chatbotLightLog(
 export async function handleIncomingLightMessage(params: {
   socketInstanceKey: string;
   whatsappInstanceId: string;
+  roomId?: string | null;
   conversationId: string;
   remoteJid: string;
   deliveryJid: string;
@@ -124,7 +126,7 @@ export async function handleIncomingLightMessage(params: {
   const incomingText = normalizeText(messageText)
 
   // 3. Resolver identidade do contato
-  const identity = await resolveWhatsAppContactIdentity(whatsappInstanceId, params.remoteJid, msgRaw)
+  const identity = await resolveWhatsAppContactIdentity({ instanceId: whatsappInstanceId, roomId: params.roomId ?? null }, params.remoteJid, msgRaw)
   const { remoteJid, deliveryJid, lidJid, phoneJid, normalizedPhone } = identity
 
   // contactKey resolver
@@ -204,6 +206,7 @@ export async function handleIncomingLightMessage(params: {
         contactPhone: contactKey,
         deliveryJid,
         messageText,
+        conversationId,
       })
       return
     }
@@ -289,6 +292,8 @@ export async function handleIncomingLightMessage(params: {
         })
         chatbotLightLog('info', socketInstanceKey, 'chatbot_light.global_command', { command: 'atendente', sessionId: activeSession.id })
         await sendLightMessage(instance, sessionDeliveryJid, 'Certo. Vou transferir sua conversa para um de nossos atendentes. Por favor, aguarde.', 'fluxo_guiado')
+        // Atendimento: tira a conversa do bot e coloca na fila padrão.
+        if (conversationId) await handoffToHuman(conversationId, 'Paciente pediu atendente', 'reception').catch(() => false)
         return
       } else if (incomingText === 'voltar') {
         let prevStep = 'CHOOSE_PLAN'

@@ -430,9 +430,106 @@ export interface Notification {
   message: string
   read: boolean
   type: 'INFO' | 'SUCCESS' | 'WARNING' | 'ALERT'
+  /** Ausente em notificações antigas — tratar como SYSTEM. */
+  category?: NotificationCategory | null
   link?: string | null
   createdAt: string
 }
+
+export type NotificationCategory = 'AGENDAMENTO' | 'CANCELAMENTO' | 'FOLLOW_UP' | 'CRM' | 'ATENDIMENTO' | 'SYSTEM'
+
+// ─── Atendimento ──────────────────────────────────────────────────────────
+
+export type AttendanceStatus = 'BOT' | 'QUEUED' | 'IN_PROGRESS' | 'RESOLVED'
+export type AttendanceTab = 'mine' | 'queue' | 'bot' | 'all' | 'resolved'
+export type AttendanceQueueKind = 'RECEPTION' | 'DOCTOR' | 'CUSTOM'
+export type AttendanceMessageStatus = 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
+
+export interface AttendanceRef { id: string; name: string }
+export interface AttendanceColoredRef extends AttendanceRef { color: string | null }
+
+export interface ConversationListItem {
+  id: string
+  contactName: string | null
+  contactPhone: string
+  contactAvatar: string | null
+  room: AttendanceColoredRef
+  status: AttendanceStatus
+  queue: AttendanceColoredRef | null
+  assignedUser: AttendanceRef | null
+  unreadCount: number
+  lastMessage: string | null
+  lastMessageAt: string | null
+  lastMessageFromMe: boolean
+  queuedAt: string | null
+  patient: { id: string; name: string; leadStatus: string | null } | null
+}
+
+export interface ConversationDetail extends Omit<ConversationListItem, 'patient'> {
+  patient: {
+    id: string
+    name: string
+    leadStatus: string | null
+    nextAppointment: { id: string; date: string; status: string } | null
+  } | null
+  canReply: boolean
+  roomConnected: boolean
+  hasAiAgent: boolean
+}
+
+export interface AttendanceMessage {
+  id: string
+  conversationId: string
+  fromMe: boolean
+  isBot: boolean
+  isInternalNote: boolean
+  author: AttendanceRef | null
+  content: string
+  type: string
+  mediaUrl: string | null
+  /** Vem do backend como string; PENDING é só local (envio otimista). */
+  status: AttendanceMessageStatus | string
+  timestamp: string
+}
+
+export type ConversationEventType =
+  | 'CREATED' | 'BOT_STARTED' | 'HANDOFF_TO_HUMAN' | 'ASSUMED' | 'TRANSFERRED_QUEUE'
+  | 'TRANSFERRED_USER' | 'RETURNED_TO_BOT' | 'RESOLVED' | 'REOPENED' | 'NOTE'
+
+export interface ConversationEvent {
+  id: string
+  type: ConversationEventType
+  actor: AttendanceRef | null
+  fromQueue: AttendanceRef | null
+  toQueue: AttendanceRef | null
+  fromUser: AttendanceRef | null
+  toUser: AttendanceRef | null
+  note: string | null
+  createdAt: string
+}
+
+export interface AttendanceSummary {
+  mine: number
+  queued: number
+  bot: number
+  inProgress: number
+  resolvedToday: number
+  unreadMine: number
+}
+
+export interface AttendanceQueue {
+  id: string
+  name: string
+  color: string | null
+  kind: AttendanceQueueKind
+  isDefault: boolean
+  active: boolean
+  sortOrder: number
+  waitingCount: number
+  members: AttendanceRef[]
+}
+
+export interface AttendanceAgent { id: string; name: string; role: Role }
 
 export interface PaymentMethod {
   id: string

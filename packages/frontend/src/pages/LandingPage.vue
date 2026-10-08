@@ -4,7 +4,8 @@ import {
   Calendar, BellRing, Users, FileText, Wallet, Package, KanbanSquare, MapPin, FileSignature,
   ArrowRight, Check, ChevronDown, Menu, X, Clock, CircleX, Sparkles, ShieldCheck, LockKeyhole,
   Stethoscope, Brain, Smile, Activity, Apple, HeartPulse, UserPlus, Zap, TrendingUp, Smartphone,
-  MessageSquare, Calculator, Gift, Receipt, UserCheck,
+  MessageSquare, Calculator, Gift, Receipt, UserCheck, Bot, Headset, ArrowRightLeft, CheckCheck,
+  StickyNote, CircleCheck,
 } from 'lucide-vue-next'
 import ClinicLogo from '../components/ui/ClinicLogo.vue'
 
@@ -17,6 +18,7 @@ const openFaq = ref<number | null>(0)
 
 const NAV = [
   { href: '#como-funciona', label: 'Como funciona' },
+  { href: '#atendimento', label: 'Atendimento' },
   { href: '#funcionalidades', label: 'Funcionalidades' },
   { href: '#preco', label: 'Preço' },
   { href: '#duvidas', label: 'Dúvidas' },
@@ -58,16 +60,53 @@ const AUTOMATIONS = [
   { icon: Gift, label: 'Mensagem de aniversário' },
 ]
 
+// Trio comercial: Atendimento + Agente de IA + CRM
+const ATTENDANCE_FLOW = [
+  { icon: MessageSquare, title: 'O paciente chama no WhatsApp', desc: 'A qualquer hora, no número da clínica que ele já conhece. A conversa já aparece vinculada à ficha do paciente.' },
+  { icon: Bot, title: 'A IA atende e agenda', desc: 'O Agente de IA responde na hora, mostra horários livres, agenda, remarca ou cancela a consulta.' },
+  { icon: ArrowRightLeft, title: 'Precisa de uma pessoa? Vai para a fila certa', desc: 'Dúvida clínica, reclamação ou pedido para falar com alguém: a conversa é transferida para a Recepção ou para o médico — e a IA para de responder.' },
+  { icon: KanbanSquare, title: 'Tudo registrado no CRM', desc: 'Cada contato vira um lead no funil, com histórico do atendimento e alerta de follow-up para ninguém ficar esquecido.' },
+]
+
+const TRIO = [
+  {
+    icon: Headset,
+    title: 'Atendimento',
+    desc: 'Secretária e médico respondem o WhatsApp da clínica dentro da plataforma, em tempo real.',
+    items: ['Filas de Recepção, Médico e personalizadas', 'Transferência entre secretária e médico', 'Observações internas que o paciente não vê', 'Linha do tempo de cada atendimento'],
+    addon: false,
+  },
+  {
+    icon: Bot,
+    title: 'Agente de IA',
+    desc: 'Atende 24 horas, agenda e envia documentos — e sabe a hora de chamar a sua equipe.',
+    items: ['Agenda, remarca e cancela consultas', 'Transfere para um humano quando precisa', 'Pausa enquanto sua equipe está na conversa', 'Pode receber a conversa de volta depois'],
+    addon: true,
+  },
+  {
+    icon: KanbanSquare,
+    title: 'CRM',
+    desc: 'Todo contato do WhatsApp vira lead e você vê quem está perto de agendar.',
+    items: ['Funil: novo, em contato, convertido…', 'Métricas de conversão', 'Alertas de follow-up pendente', 'Conversa ligada à ficha do paciente'],
+    addon: false,
+  },
+]
+
+const SMART_NOTIFICATIONS = ['Novos agendamentos', 'Cancelamentos', 'Follow-ups pendentes', 'Pendências do CRM']
+
 const FEATURES = [
   { icon: Calendar, title: 'Agenda inteligente', desc: 'Dia, semana ou mês. Consultas organizadas por sala, profissional e tipo de atendimento, sem conflitos de horário.' },
+  { icon: Headset, title: 'Central de atendimento', desc: 'O WhatsApp da clínica dentro da plataforma, com filas, transferência entre secretária e médico e observações internas.' },
   { icon: MessageSquare, title: 'Chatbot de WhatsApp', desc: 'Fluxos de atendimento automáticos que agendam, confirmam e cancelam consultas pelo WhatsApp da clínica.' },
   { icon: Users, title: 'Cadastro de pacientes', desc: 'Ficha completa, histórico de atendimentos e pré-cadastro rápido direto da agenda.' },
   { icon: FileText, title: 'Prontuário eletrônico', desc: 'Anamneses, evoluções e registros de cada atendimento em um histórico seguro e fácil de consultar.' },
   { icon: Wallet, title: 'Gestão financeira', desc: 'Receitas, despesas, extrato, fluxo de caixa, contas bancárias, centros de custo e análises por período.' },
-  { icon: KanbanSquare, title: 'CRM de pacientes', desc: 'Acompanhe cada contato em um funil visual, do primeiro “oi” até a consulta agendada.' },
+  { icon: KanbanSquare, title: 'CRM de pacientes', desc: 'Cada contato do WhatsApp vira lead em um funil visual, com métricas de conversão e alertas de follow-up.' },
+  { icon: BellRing, title: 'Notificações inteligentes', desc: 'Só o que importa: novos agendamentos, cancelamentos, follow-ups e pendências do CRM. Sem aviso a cada mensagem.' },
   { icon: Package, title: 'Controle de estoque', desc: 'Materiais e insumos com entradas, saídas e alerta de estoque baixo.' },
   { icon: MapPin, title: 'Salas e equipe', desc: 'Vários consultórios na mesma conta, com secretárias e permissões de acesso por função.' },
   { icon: FileSignature, title: 'Documentos e relatórios', desc: 'Modelos de documentos e relatórios exportáveis em PDF e Excel.' },
+  { icon: Bot, title: 'Agente de IA', desc: 'Atende 24h no WhatsApp, agenda consultas e transfere para a sua equipe quando o paciente precisa de uma pessoa.', addon: true },
 ]
 
 const AUDIENCE = [
@@ -83,6 +122,7 @@ const FOR_YOU = [
   'Você atende sozinho(a) ou com uma secretária e quer parar de perder tempo com tarefas manuais',
   'Tem consultório próprio ou divide salas e precisa de uma agenda única e organizada',
   'Usa caderno, Google Agenda e WhatsApp e já percebeu que isso não escala',
+  'Perde paciente porque a mensagem ficou sem resposta no celular de alguém',
   'Quer saber quanto entra e quanto sai da clínica sem montar planilha',
 ]
 
@@ -90,9 +130,11 @@ const VS_SIMPLE = [
   { item: 'Agenda online', simple: true, us: true },
   { item: 'Lembretes automáticos no WhatsApp', simple: true, us: true },
   { item: 'Chatbot que agenda pelo WhatsApp', simple: false, us: true },
+  { item: 'Central de atendimento com filas e transferência', simple: false, us: true },
   { item: 'Prontuário eletrônico', simple: false, us: true },
   { item: 'Financeiro e fluxo de caixa', simple: false, us: true },
-  { item: 'CRM e controle de estoque', simple: false, us: true },
+  { item: 'CRM com funil e alertas de follow-up', simple: false, us: true },
+  { item: 'Controle de estoque', simple: false, us: true },
   { item: 'Múltiplas salas e secretárias', simple: false, us: true },
 ]
 
@@ -107,9 +149,12 @@ const PLAN_ITEMS = [
   'Agenda com múltiplas salas',
   'Lembretes automáticos no WhatsApp (24h e 2h antes)',
   'Chatbot de atendimento no WhatsApp',
+  'Central de atendimento: filas, transferência e observações internas',
   'Prontuário eletrônico',
   'Gestão financeira completa',
-  'CRM de pacientes e controle de estoque',
+  'CRM com funil, métricas e alertas de follow-up',
+  'Notificações só do que importa',
+  'Controle de estoque',
   'Secretárias com permissões de acesso',
   'Relatórios em PDF e Excel',
   'Atualizações e suporte incluídos',
@@ -121,9 +166,11 @@ const FAQ = [
   { q: 'Tenho fidelidade ou multa para cancelar?', a: 'Não. A assinatura é mensal e você cancela quando quiser, sem multa e sem contrato anual.' },
   { q: 'Meus pacientes precisam instalar algum aplicativo?', a: 'Não. Eles conversam com a clínica pelo próprio WhatsApp que já usam. Você também não instala nada: a ClinIQ Pro funciona no navegador do computador, tablet ou celular.' },
   { q: 'Já uso Google Agenda e WhatsApp. Por que pagar?', a: 'Porque eles não enviam lembretes sozinhos, não respondem o paciente quando você está ocupado, não guardam prontuário e não mostram quanto a clínica faturou. A ClinIQ Pro faz tudo isso em um só lugar.' },
-  { q: 'Posso cadastrar minha secretária?', a: 'Sim. Adicione secretárias à equipe e defina exatamente o que cada uma pode ver e fazer — agenda, pacientes, financeiro e mais.' },
+  { q: 'Posso cadastrar minha secretária?', a: 'Sim. Adicione secretárias à equipe e defina exatamente o que cada uma pode ver e fazer — agenda, pacientes, financeiro, conversas do WhatsApp e mais.' },
+  { q: 'A IA substitui minha secretária?', a: 'Não. O Agente de IA trabalha junto com a sua equipe: resolve o que é rotina, como agendar e remarcar, e transfere a conversa para a fila da Recepção ou do médico quando o paciente precisa de uma pessoa. Enquanto alguém da equipe está na conversa, a IA não responde.' },
+  { q: 'Secretária e médico conseguem atender o mesmo WhatsApp?', a: 'Sim. Pela central de atendimento, os dois respondem o WhatsApp da clínica sem sair do sistema, transferem conversas entre si e deixam observações internas que o paciente não vê. Cada secretária só acessa as conversas das salas liberadas para ela.' },
   { q: 'Os dados dos meus pacientes ficam seguros?', a: 'Sim. O acesso é protegido por login e permissões por função, a conexão é criptografada e cada clínica só enxerga os próprios dados.' },
-  { q: 'Existem recursos adicionais?', a: 'Sim. Integrações avançadas — Agente de IA para atendimento no WhatsApp, Google Agenda, Gmail e webhooks — podem ser contratadas à parte, quando a sua clínica precisar.' },
+  { q: 'Existem recursos adicionais?', a: 'Sim. Integrações avançadas — Agente de IA para atendimento no WhatsApp, Google Agenda, Gmail e webhooks — podem ser contratadas à parte, quando a sua clínica precisar. Sem o Agente de IA, as mensagens dos pacientes chegam direto na fila da sua equipe.' },
 ]
 
 const PREVIEW_APPOINTMENTS = [
@@ -343,6 +390,156 @@ function toggleFaq(i: number) {
       </div>
     </section>
 
+    <!-- ATENDIMENTO + AGENTE DE IA + CRM -->
+    <section id="atendimento" class="relative overflow-hidden text-white scroll-mt-16" style="background: linear-gradient(160deg, #0d2847 0%, #0a3a6e 55%, #0c4a8f 100%)" aria-labelledby="atendimento-titulo">
+      <div class="absolute -bottom-40 -left-32 w-[420px] h-[420px] rounded-full bg-sky-400/10 blur-3xl pointer-events-none" />
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 py-20 relative">
+        <div class="text-center max-w-2xl mx-auto">
+          <p class="text-sm font-semibold text-sky-300 uppercase tracking-wider">Atendimento + Agente de IA + CRM</p>
+          <h2 id="atendimento-titulo" class="mt-2 text-3xl sm:text-4xl font-bold tracking-tight">Nenhum paciente sem resposta. Nenhuma conversa perdida.</h2>
+          <p class="mt-4 text-primary-100 text-lg">
+            A IA resolve a rotina a qualquer hora, sua equipe assume quando precisa e tudo fica registrado.
+            Secretária e médico no mesmo lugar, sem passar celular de mão em mão.
+          </p>
+        </div>
+
+        <div class="mt-14 grid lg:grid-cols-2 gap-12 items-center">
+          <!-- Fluxo -->
+          <ol class="space-y-6">
+            <li v-for="(f, i) in ATTENDANCE_FLOW" :key="f.title" class="flex gap-4">
+              <div class="flex flex-col items-center">
+                <span class="w-11 h-11 rounded-2xl bg-white/10 border border-white/15 flex items-center justify-center flex-shrink-0">
+                  <component :is="f.icon" class="w-5 h-5 text-sky-300" aria-hidden="true" />
+                </span>
+                <span v-if="i < ATTENDANCE_FLOW.length - 1" class="mt-2 w-px flex-1 bg-white/15" aria-hidden="true" />
+              </div>
+              <div class="pb-1">
+                <p class="text-xs font-semibold text-sky-300">Passo {{ i + 1 }}</p>
+                <h3 class="mt-0.5 font-semibold text-lg">{{ f.title }}</h3>
+                <p class="mt-1 text-sm text-slate-300 leading-relaxed">{{ f.desc }}</p>
+              </div>
+            </li>
+          </ol>
+
+          <!-- Prévia ilustrativa de uma conversa na central de atendimento -->
+          <figure class="relative sm:pt-8 sm:pr-4">
+            <figcaption class="sr-only">
+              Exemplo ilustrativo: a paciente pede uma consulta pelo WhatsApp, o Agente de IA oferece horários,
+              transfere a dúvida sobre medicação da fila Recepção para a Dra. Ana, que confirma a consulta.
+            </figcaption>
+            <div aria-hidden="true" class="bg-white text-slate-900 rounded-2xl shadow-2xl shadow-black/30 overflow-hidden">
+              <div class="px-4 py-3 border-b border-slate-100 flex flex-wrap items-center gap-x-3 gap-y-2">
+                <span class="w-9 h-9 rounded-full bg-primary-100 text-primary-700 font-semibold text-sm flex items-center justify-center flex-shrink-0">MS</span>
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-semibold text-slate-800 truncate">Mariana S.</p>
+                  <p class="text-[11px] text-slate-400 truncate">WhatsApp · Sala 1</p>
+                </div>
+                <div class="flex gap-1.5">
+                  <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 border border-slate-200 rounded-lg px-2 py-1">
+                    <ArrowRightLeft class="w-3 h-3" /> Transferir
+                  </span>
+                  <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-emerald-600 rounded-lg px-2 py-1">
+                    <CircleCheck class="w-3 h-3" /> Resolver
+                  </span>
+                </div>
+                <div class="w-full flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+                  <span class="bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">Em atendimento</span>
+                  <span class="bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">Recepção → Dra. Ana</span>
+                </div>
+              </div>
+
+              <div class="bg-slate-50 px-3 sm:px-4 py-4 space-y-2.5 text-[13px] leading-snug">
+                <div class="max-w-[85%] bg-white border border-slate-100 rounded-2xl rounded-tl-sm px-3 py-2 shadow-sm">
+                  Oi! Queria marcar uma consulta para essa semana.
+                  <span class="block text-right text-[10px] text-slate-400 mt-0.5">09:12</span>
+                </div>
+                <div class="ml-auto max-w-[85%] bg-emerald-50 border border-emerald-100 rounded-2xl rounded-tr-sm px-3 py-2">
+                  <span class="inline-flex items-center gap-1 text-[10px] font-bold text-violet-700 bg-violet-100 rounded px-1.5 py-0.5 mb-1"><Bot class="w-3 h-3" /> IA</span>
+                  <span class="block">Olá, Mariana! Tenho quinta às 14h ou sexta às 9h30. Qual prefere?</span>
+                  <span class="flex justify-end items-center gap-0.5 text-[10px] text-slate-400 mt-0.5">09:12 <CheckCheck class="w-3 h-3 text-sky-500" /></span>
+                </div>
+                <div class="max-w-[85%] bg-white border border-slate-100 rounded-2xl rounded-tl-sm px-3 py-2 shadow-sm">
+                  Quinta às 14h. Posso tomar o remédio novo antes da consulta?
+                  <span class="block text-right text-[10px] text-slate-400 mt-0.5">09:13</span>
+                </div>
+                <p class="text-center text-[11px] text-slate-500">
+                  <span class="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-full px-2.5 py-0.5">
+                    <ArrowRightLeft class="w-3 h-3" /> IA transferiu para Recepção · dúvida clínica
+                  </span>
+                </p>
+                <div class="mx-auto max-w-[90%] bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-amber-900">
+                  <span class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-amber-700"><StickyNote class="w-3 h-3" /> Observação interna</span>
+                  Dra. Ana, pode responder sobre a medicação? Consulta já reservada.
+                </div>
+                <div class="ml-auto max-w-[85%] bg-emerald-50 border border-emerald-100 rounded-2xl rounded-tr-sm px-3 py-2">
+                  <span class="block text-[10px] font-bold text-emerald-700 mb-0.5">Dra. Ana</span>
+                  Consulta confirmada na quinta, 14h. Sobre o remédio, já te explico por aqui.
+                  <span class="flex justify-end items-center gap-0.5 text-[10px] text-slate-400 mt-0.5">09:20 <CheckCheck class="w-3 h-3 text-sky-500" /></span>
+                </div>
+              </div>
+
+              <div class="px-3 py-2.5 border-t border-slate-100 flex items-center gap-2">
+                <span class="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 rounded-lg px-2 py-1.5 flex-shrink-0"><StickyNote class="w-3 h-3" /> Observação</span>
+                <span class="flex-1 min-w-0 truncate text-xs text-slate-400 bg-slate-50 rounded-lg px-3 py-1.5">Escreva uma mensagem…</span>
+                <span class="w-8 h-8 rounded-lg bg-primary-600 text-white flex items-center justify-center flex-shrink-0"><ArrowRight class="w-4 h-4" /></span>
+              </div>
+            </div>
+            <div aria-hidden="true" class="hidden sm:flex absolute top-0 right-0 bg-white text-slate-900 rounded-xl shadow-lg border border-slate-200/80 px-4 py-3 items-center gap-3">
+              <div class="w-9 h-9 rounded-lg bg-emerald-50 flex items-center justify-center">
+                <KanbanSquare class="w-5 h-5 text-emerald-600" />
+              </div>
+              <div>
+                <p class="text-xs text-slate-400">CRM</p>
+                <p class="text-sm font-semibold text-slate-800">Lead convertido</p>
+              </div>
+            </div>
+          </figure>
+        </div>
+
+        <!-- O trio -->
+        <div class="mt-16 grid md:grid-cols-3 gap-5">
+          <div v-for="t in TRIO" :key="t.title" class="rounded-2xl bg-white/5 border border-white/10 p-6 flex flex-col">
+            <div class="flex items-center justify-between gap-3">
+              <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-500 to-sky-600 flex items-center justify-center shadow-md shadow-black/20">
+                <component :is="t.icon" class="w-5 h-5 text-white" aria-hidden="true" />
+              </div>
+              <span v-if="t.addon" class="text-[11px] font-semibold text-sky-200 border border-sky-300/30 rounded-full px-2.5 py-1">Recurso adicional</span>
+            </div>
+            <h3 class="mt-4 font-semibold text-lg">{{ t.title }}</h3>
+            <p class="mt-1.5 text-sm text-slate-300 leading-relaxed">{{ t.desc }}</p>
+            <ul class="mt-4 space-y-2">
+              <li v-for="item in t.items" :key="item" class="flex gap-2 text-sm text-slate-200">
+                <Check class="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" aria-hidden="true" />
+                {{ item }}
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Notificações inteligentes -->
+        <div class="mt-8 rounded-2xl bg-white/5 border border-white/10 p-5 sm:p-6 flex flex-col md:flex-row md:items-center gap-4">
+          <div class="flex items-center gap-3 md:w-64 flex-shrink-0">
+            <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+              <BellRing class="w-5 h-5 text-sky-300" aria-hidden="true" />
+            </div>
+            <p class="font-semibold leading-snug">Notificações só do que importa</p>
+          </div>
+          <ul class="flex flex-wrap gap-2 flex-1">
+            <li v-for="n in SMART_NOTIFICATIONS" :key="n" class="bg-white/10 text-white rounded-full px-3.5 py-1.5 text-sm font-medium">{{ n }}</li>
+          </ul>
+          <p class="text-sm text-slate-300 md:max-w-[14rem]">Sem um aviso a cada mensagem: você vê o que precisa de ação.</p>
+        </div>
+
+        <div class="mt-10 text-center">
+          <router-link to="/cadastro" class="inline-flex items-center gap-2 bg-white text-primary-700 hover:bg-primary-50 font-semibold px-6 py-3 rounded-xl transition-colors">
+            Testar a central de atendimento grátis
+            <ArrowRight class="w-4 h-4" />
+          </router-link>
+          <p class="mt-3 text-xs text-primary-200">O Agente de IA é contratado à parte. Sem ele, as mensagens chegam direto na fila da sua equipe.</p>
+        </div>
+      </div>
+    </section>
+
     <!-- PASSOS -->
     <section class="max-w-6xl mx-auto px-4 sm:px-6 py-20">
       <div class="text-center max-w-2xl mx-auto">
@@ -377,7 +574,10 @@ function toggleFaq(i: number) {
             <div class="w-11 h-11 rounded-xl bg-primary-50 flex items-center justify-center mb-4">
               <component :is="f.icon" class="w-5 h-5 text-primary-600" />
             </div>
-            <h3 class="font-semibold text-slate-900">{{ f.title }}</h3>
+            <h3 class="font-semibold text-slate-900 flex flex-wrap items-center gap-2">
+              {{ f.title }}
+              <span v-if="f.addon" class="text-[11px] font-semibold text-primary-700 bg-primary-50 rounded-full px-2 py-0.5">Adicional</span>
+            </h3>
             <p class="text-sm text-slate-500 mt-1.5 leading-relaxed">{{ f.desc }}</p>
           </div>
         </div>
@@ -460,6 +660,7 @@ function toggleFaq(i: number) {
               <ArrowRight class="w-4 h-4" />
             </router-link>
             <p class="mt-3 text-center text-xs text-slate-400">Sem cartão de crédito no teste. Cancele quando quiser.</p>
+            <p class="mt-2 text-center text-xs text-slate-400">Agente de IA disponível como recurso adicional.</p>
           </div>
         </div>
         <div class="mt-10 flex flex-wrap justify-center gap-x-6 gap-y-2 text-sm text-slate-500">
@@ -479,15 +680,15 @@ function toggleFaq(i: number) {
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-7">
           <p class="font-semibold text-slate-500">Sem a ClinIQ Pro</p>
           <p class="mt-3 text-slate-600 leading-relaxed">
-            O mesmo caos de sempre: horas no WhatsApp, pacientes que esquecem a consulta, horários vazios
+            O mesmo caos de sempre: horas no WhatsApp, mensagens esquecidas no celular, pacientes que esquecem a consulta, horários vazios
             e o financeiro anotado em algum lugar. E a sensação de que deveria existir um jeito mais fácil.
           </p>
         </div>
         <div class="rounded-2xl border-2 border-primary-200 bg-primary-50/50 p-7">
           <p class="font-semibold text-primary-700">Com a ClinIQ Pro</p>
           <p class="mt-3 text-slate-700 leading-relaxed">
-            Lembretes saindo sozinhos, pacientes agendando pelo WhatsApp a qualquer hora, prontuário organizado
-            e o faturamento do mês na tela. Você atendendo — não administrando.
+            Lembretes saindo sozinhos, pacientes agendando pelo WhatsApp a qualquer hora, nenhuma mensagem sem resposta,
+            secretária e médico atendendo no mesmo lugar e o faturamento do mês na tela. Você atendendo — não administrando.
           </p>
         </div>
       </div>

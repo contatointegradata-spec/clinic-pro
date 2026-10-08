@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
-import { createNotification } from './notifications'
 import { logAudit } from '../lib/secretaryAccess'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
@@ -418,14 +417,6 @@ router.post('/:id/charge', requireRole('ADMIN', 'DOCTOR'), async (req: AuthReque
         data: { billedAt: now },
       }),
     ])
-
-    await createNotification(
-      record.doctorId,
-      'Cobrança registrada',
-      `Procedimentos de ${record.patient.name} — R$ ${amount.toFixed(2)} lançado no financeiro`,
-      'SUCCESS',
-      '/financeiro',
-    )
 
     await logAudit({
       userId: req.user!.userId,

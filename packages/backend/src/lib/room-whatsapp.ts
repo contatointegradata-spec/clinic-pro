@@ -9,6 +9,7 @@ import {
   DisconnectReason,
   useMultiFileAuthState,
   fetchLatestBaileysVersion,
+  generateMessageIDV2,
   type WAMessage,
   proto,
 } from '@whiskeysockets/baileys'
@@ -22,7 +23,8 @@ import pino from 'pino'
 import { resolveTemplateVariables, TemplateContext } from './chatbot-light-variables'
 import { resolveWhatsAppContactIdentity } from './whatsapp'
 import { handleIncomingLightMessage } from './chatbot-light-engine'
-import { createNotification } from '../routes/notifications'
+import { createNotification, notifyAppointmentEvent, notifyClinicTeam } from './notifications'
+import { getRoomBotTarget, ingestWhatsAppMessage, recordPlatformOutbound } from './attendance'
 
 const SESSIONS_DIR = path.resolve(process.env.SESSIONS_DIR ?? path.join(process.cwd(), 'sessions'))
 const logger = pino({ level: process.env.WA_LOG_LEVEL || 'warn' })
@@ -96,215 +98,126 @@ function toLong(v: unknown): number {
   return Number(v) || 0
 }
 
-/**
- * Processa uma mensagem recebida via Baileys: resolve identidade do contato,
- * grava/atualiza Conversation + Message, notifica o médico e repassa ao motor
- * do Chatbot Light. Ponto único de ingestão para toda conexão de Sala.
- */
-async function handleIncomingMessage(instanceId: string, msg: WAMessage): Promise<void> {
-  const remoteJid = msg.key.remoteJid ?? ''
-  const fromMe = msg.key.fromMe ?? false
-  const pushName = msg.pushName ?? ''
-  const mc = msg.message ?? {}
+type ParsedContent = {
+  content: string
+  type: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT' | 'STICKER' | 'LOCATION'
+  mediaUrl: string | null
+}
 
-  let content = ''
-  let messageType: 'TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO' | 'DOCUMENT' | 'STICKER' | 'LOCATION' = 'TEXT'
-  let mediaUrl: string | undefined
+function parseMessageContent(msg: WAMessage): ParsedContent | null {
+  let mc = msg.message ?? {}
+  // Mensagens temporárias / visualização única vêm embrulhadas.
+  mc = mc.ephemeralMessage?.message ?? mc.viewOnceMessage?.message ?? mc.viewOnceMessageV2?.message ?? mc
 
-  if (mc.conversation) {
-    content = mc.conversation
-  } else if (mc.extendedTextMessage?.text) {
-    content = mc.extendedTextMessage.text
-  } else if (mc.imageMessage) {
-    content = mc.imageMessage.caption ?? ''
-    messageType = 'IMAGE'
-    mediaUrl = mc.imageMessage.url ?? undefined
-  } else if (mc.audioMessage) {
-    content = '[Áudio]'
-    messageType = 'AUDIO'
-  } else if (mc.videoMessage) {
-    content = mc.videoMessage.caption ?? '[Vídeo]'
-    messageType = 'VIDEO'
-  } else if (mc.documentMessage) {
-    content = mc.documentMessage.fileName ?? '[Documento]'
-    messageType = 'DOCUMENT'
-    mediaUrl = mc.documentMessage.url ?? undefined
-  } else if (mc.stickerMessage) {
-    content = '[Sticker]'
-    messageType = 'STICKER'
-  } else if (mc.locationMessage) {
+  if (mc.conversation) return { content: mc.conversation, type: 'TEXT', mediaUrl: null }
+  if (mc.extendedTextMessage?.text) return { content: mc.extendedTextMessage.text, type: 'TEXT', mediaUrl: null }
+  if (mc.imageMessage) return { content: mc.imageMessage.caption ?? '', type: 'IMAGE', mediaUrl: mc.imageMessage.url ?? null }
+  if (mc.audioMessage) return { content: '[Áudio]', type: 'AUDIO', mediaUrl: null }
+  if (mc.videoMessage) return { content: mc.videoMessage.caption ?? '[Vídeo]', type: 'VIDEO', mediaUrl: null }
+  if (mc.documentMessage) return { content: mc.documentMessage.fileName ?? '[Documento]', type: 'DOCUMENT', mediaUrl: mc.documentMessage.url ?? null }
+  if (mc.stickerMessage) return { content: '[Sticker]', type: 'STICKER', mediaUrl: null }
+  if (mc.locationMessage) {
     const loc = mc.locationMessage
-    content = `[Localização] Lat: ${loc.degreesLatitude}, Lng: ${loc.degreesLongitude}`
-    messageType = 'LOCATION'
-  } else if (mc.buttonsResponseMessage?.selectedButtonId) {
-    content = mc.buttonsResponseMessage.selectedButtonId
-    messageType = 'TEXT'
-  } else if (mc.listResponseMessage?.singleSelectReply?.selectedRowId) {
-    content = mc.listResponseMessage.singleSelectReply.selectedRowId
-    messageType = 'TEXT'
-  } else {
-    return // tipo desconhecido, ignora
+    return { content: `[Localização] Lat: ${loc.degreesLatitude}, Lng: ${loc.degreesLongitude}`, type: 'LOCATION', mediaUrl: null }
   }
+  if (mc.buttonsResponseMessage?.selectedButtonId) return { content: mc.buttonsResponseMessage.selectedButtonId, type: 'TEXT', mediaUrl: null }
+  if (mc.listResponseMessage?.singleSelectReply?.selectedRowId) {
+    return { content: mc.listResponseMessage.singleSelectReply.selectedRowId, type: 'TEXT', mediaUrl: null }
+  }
+  return null // tipo desconhecido (reação, protocolo, edição...) — ignora
+}
 
-  const identity = await resolveWhatsAppContactIdentity(instanceId, remoteJid, msg)
+/** Só conversas individuais: ignora grupos, Status (@broadcast) e canais (@newsletter). */
+function isIndividualJid(jid: string | null | undefined): jid is string {
+  return !!jid && !jid.endsWith('@g.us') && !jid.endsWith('@broadcast') && !jid.endsWith('@newsletter')
+}
+
+interface RoomConnectionRef {
+  roomId: string
+  doctorId: string
+  instanceKey: string
+}
+
+/**
+ * Ponto único de ingestão de TODA conexão de Sala (com ou sem Agente de IA):
+ * resolve a identidade do contato e grava Conversation/Message via módulo
+ * Atendimento (lib/attendance.ts), que também decide o roteamento
+ * (BOT x fila). Retorna o resultado da ingestão (null se ignorada).
+ */
+async function handleIncomingMessage(
+  connection: RoomConnectionRef,
+  msg: WAMessage,
+  options: { skipRouting?: boolean } = {},
+): Promise<{ conversationId: string; dispatchToBot: boolean; identity: Awaited<ReturnType<typeof resolveWhatsAppContactIdentity>>; parsed: ParsedContent } | null> {
+  const remoteJid = msg.key.remoteJid
+  if (!isIndividualJid(remoteJid)) return null
+  const parsed = parseMessageContent(msg)
+  if (!parsed) return null
+
+  const fromMe = msg.key.fromMe ?? false
+  // Em mensagens fromMe o senderPn/pushName são do PRÓPRIO número — não servem
+  // pra identificar o contato; a identidade vem do remoteJid/conversa existente.
+  const identity = await resolveWhatsAppContactIdentity({ roomId: connection.roomId }, remoteJid, fromMe ? undefined : msg)
   const contactPhone = identity.normalizedPhone || identity.lidJid || remoteJid
-  const isGroup = remoteJid.endsWith('@g.us')
 
-  // Para msgs de grupo: quem enviou (msg.pushName = nome, msg.key.participant = JID do membro)
-  const senderName = pushName || null
-  // O "lastMessageSender" só é relevante em grupos — em privado o contact já é a pessoa
-  const lastMessageSender = isGroup ? senderName : null
-  const instance = await prisma.whatsAppInstance.findUnique({ where: { id: instanceId } })
-  if (!instance) return
+  const timestamp = msg.messageTimestamp ? new Date(toLong(msg.messageTimestamp) * 1000) : new Date()
 
-  // Categorização: grupos → GRUPOS; individuais → fluxo normal
-  const convCategory = isGroup ? 'GRUPOS' : (fromMe ? 'ATENDIMENTO' : 'AGUARDANDO')
-  const convStatus   = fromMe ? 'OPEN' : (isGroup ? 'OPEN' : 'WAITING')
-
-  let conversation = await prisma.conversation.findFirst({
-    where: { instanceId, contactPhone },
-  })
-
-  const isNew = !conversation
-
-  if (!conversation) {
-    conversation = await prisma.conversation.create({
-      data: {
-        instanceId,
-        contactPhone,
-        // Para grupos: contactName = null aqui (será preenchido durante sync de histórico)
-        // Para privado: contactName = nome do contato (pushName) ou padrão
-        contactName: isGroup ? null : (senderName || (identity.lidJid ? 'Contato WhatsApp' : null)),
-        isGroup,
-        lastMessage: content,
-        lastMessageSender,
-        lastMessageAt: new Date(),
-        unreadCount: fromMe ? 0 : 1,
-        status: convStatus,
-        category: convCategory,
-        remoteJid: identity.remoteJid,
-        deliveryJid: identity.deliveryJid,
-        lidJid: identity.lidJid || null,
-        phoneJid: identity.phoneJid || null,
-        normalizedPhone: identity.normalizedPhone || null
-      },
-    })
-  } else {
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        lastMessage: content,
-        lastMessageSender,
-        lastMessageAt: new Date(),
-        // Para privados: atualiza nome com pushName. Para grupos: não sobrescreve nome do grupo
-        ...(!isGroup && senderName && { contactName: senderName }),
-        unreadCount: fromMe ? conversation.unreadCount : { increment: 1 },
-        remoteJid: identity.remoteJid,
-        deliveryJid: identity.deliveryJid,
-        lidJid: identity.lidJid || null,
-        phoneJid: identity.phoneJid || null,
-        normalizedPhone: identity.normalizedPhone || null
-      },
-    })
-  }
-
-  // Timestamp real da mensagem WA
-  const msgTimestamp = msg.messageTimestamp
-    ? new Date(toLong(msg.messageTimestamp) * 1000)
-    : new Date()
-
-  // senderName em grupos = pushName (quem enviou no grupo)
-  const senderNameForMsg = isGroup
-    ? (msg.pushName || msg.key.participant?.replace('@s.whatsapp.net', '') || null)
-    : null
-
-  await prisma.message.create({
-    data: {
-      conversationId: conversation.id,
-      waMessageId: msg.key.id ?? null,
-      fromMe,
-      senderName: senderNameForMsg,
-      content,
-      type: messageType,
-      mediaUrl: mediaUrl ?? null,
-      status: fromMe ? 'SENT' : 'DELIVERED',
-      isBot: false,
-      timestamp: msgTimestamp,
-    },
-  }).catch(async (err) => {
-    // Unique constraint on waMessageId — mensagem já existe, ignora
-    if (err?.code === 'P2002') return
-    throw err
-  })
-
-  if (!fromMe && !isGroup) {
-    await prisma.notification.create({
-      data: {
-        userId: instance.doctorId,
-        title: `Nova mensagem de ${pushName || contactPhone}`,
-        message: content.slice(0, 100),
-        type: 'INFO',
-        link: '/chatbot',
-      },
-    }).catch(() => {})
-  }
-
-  logRoom('info', instance.instanceKey, 'whatsapp.message.saved', {
-    messageId: msg.key.id,
-    conversationId: conversation.id,
+  const result = await ingestWhatsAppMessage({
+    roomId: connection.roomId,
+    doctorId: connection.doctorId,
     contactPhone,
+    pushName: fromMe ? null : (msg.pushName || null),
+    identity,
+    waMessageId: msg.key.id ?? null,
+    fromMe,
+    content: parsed.content,
+    type: parsed.type,
+    mediaUrl: parsed.mediaUrl,
+    timestamp,
+    skipRouting: options.skipRouting,
   })
+  if (!result || result.duplicate) return null
 
-  logRoom('info', instance.instanceKey, 'whatsapp.message.light_engine_called', {
+  return { conversationId: result.conversationId, dispatchToBot: result.dispatchToBot, identity, parsed }
+}
+
+/**
+ * Encaminha a mensagem do contato para o Chatbot/Agente de IA vinculado à
+ * sala (LightChatbot.boundRoomId). Só é chamado quando a conversa está em
+ * status BOT — com humano no controle (QUEUED/IN_PROGRESS) o bot não responde.
+ */
+async function dispatchToRoomBot(
+  connection: RoomConnectionRef,
+  msg: WAMessage,
+  ingested: NonNullable<Awaited<ReturnType<typeof handleIncomingMessage>>>,
+): Promise<void> {
+  const target = await getRoomBotTarget(connection.roomId)
+  if (!target) return
+
+  logRoom('info', connection.instanceKey, 'whatsapp.message.light_engine_called', {
     messageId: msg.key.id,
-    contactPhone,
+    conversationId: ingested.conversationId,
   })
   await handleIncomingLightMessage({
-    socketInstanceKey: instance.instanceKey,
-    whatsappInstanceId: instance.id,
-    conversationId: conversation.id,
-    remoteJid,
-    deliveryJid: identity.deliveryJid,
-    lidJid: identity.lidJid,
-    phoneJid: identity.phoneJid,
-    normalizedPhone: identity.normalizedPhone,
+    socketInstanceKey: connection.instanceKey,
+    whatsappInstanceId: target.instanceId,
+    roomId: connection.roomId,
+    conversationId: ingested.conversationId,
+    remoteJid: ingested.identity.remoteJid,
+    deliveryJid: ingested.identity.deliveryJid,
+    lidJid: ingested.identity.lidJid,
+    phoneJid: ingested.identity.phoneJid,
+    normalizedPhone: ingested.identity.normalizedPhone,
     messageId: msg.key.id!,
-    messageText: content,
-    msgRaw: msg
+    messageText: ingested.parsed.content,
+    msgRaw: msg,
   })
 }
 
-/**
- * Encaminha mensagens recebidas pela Sala para o motor do Chatbot Light,
- * quando a Sala estiver vinculada a um chatbot (LightChatbot.boundRoomId —
- * cada chatbot pode ter sua própria sala/número, multi-chatbot jul/2026).
- * Reaproveita o mesmo pipeline de persistência de Conversation/Message usado
- * pela conexão própria do Chatbot Light.
- */
-async function dispatchToChatbotLight(instanceKey: string, msg: WAMessage): Promise<void> {
-  const connection = await prisma.roomWhatsAppConnection.findUnique({
-    where: { instanceKey },
-    select: { roomId: true, doctorId: true },
-  })
-  if (!connection) return
-
-  // Uma sala pertence a no máximo 1 chatbot (boundRoomId é @unique) — resolve
-  // diretamente qual chatbot é dono desta sala, sem passar mais por um
-  // "instance único do médico".
-  const chatbot = await prisma.lightChatbot.findUnique({
-    where: { boundRoomId: connection.roomId },
-    select: { id: true, active: true },
-  })
-  if (!chatbot || !chatbot.active) return
-
-  const instance = await prisma.whatsAppInstance.findUnique({
-    where: { chatbotId: chatbot.id },
-    select: { id: true },
-  })
-  if (!instance) return
-
-  await handleIncomingMessage(instance.id, msg)
-}
+// IDs de mensagens enviadas pela própria plataforma (bot/humano/lembretes) —
+// o eco delas no messages.upsert (fromMe) não pode ser espelhado de novo como
+// "enviada pelo celular". TTL generoso pra cobrir eco atrasado/offline.
+const platformSentIds = new NodeCache({ stdTTL: 6 * 60 * 60, checkperiod: 600 })
 
 function logRoom(level: 'info' | 'warn' | 'error', instanceKey: string, event: string, meta?: Record<string, unknown>) {
   const ts = new Date().toISOString()
@@ -336,6 +249,51 @@ async function getCachedBaileysVersion(): Promise<[number, number, number]> {
     if (lastKnownBaileysVersion) return lastKnownBaileysVersion
     // Fallback fixo conhecido — evita travar a conexão caso a rede/GitHub estejam fora.
     return [2, 3000, 1023223821]
+  }
+}
+
+/** Processa a resposta SIM/NÃO de uma confirmação de consulta pendente. */
+async function processConfirmationReply(
+  instanceKey: string,
+  fromJid: string,
+  pending: PendingConfirmationData,
+  isSim: boolean,
+): Promise<void> {
+  try {
+    const appointment = await prisma.appointment.findUnique({
+      where: { id: pending.appointmentId },
+      select: { id: true, date: true, roomId: true, doctorId: true },
+    })
+    if (isSim) {
+      await prisma.appointment.update({ where: { id: pending.appointmentId }, data: { status: 'CONFIRMED' } })
+      await sendRoomWhatsAppMessage(instanceKey, fromJid, `Perfeito, ${pending.patientName}! Sua consulta foi confirmada. Até logo! 😊`)
+      if (appointment) {
+        await notifyAppointmentEvent({
+          kind: 'confirmed',
+          appointmentId: appointment.id,
+          doctorId: appointment.doctorId,
+          roomId: appointment.roomId,
+          patientName: pending.patientName,
+          date: appointment.date,
+          actorLabel: 'pelo WhatsApp',
+        })
+      }
+      logRoom('info', instanceKey, 'confirmation.sim', { appointmentId: pending.appointmentId })
+    } else {
+      await sendRoomWhatsAppMessage(instanceKey, fromJid, pending.declineContent)
+      await notifyClinicTeam(appointment?.doctorId ?? pending.doctorId, appointment?.roomId ?? null, {
+        title: 'Consulta não confirmada',
+        message: `${pending.patientName} não confirmou a consulta. Entre em contato para reagendar.`,
+        type: 'WARNING',
+        category: 'AGENDAMENTO',
+        link: '/agenda',
+        entityType: 'appointment',
+        entityId: pending.appointmentId,
+      })
+      logRoom('info', instanceKey, 'confirmation.nao', { appointmentId: pending.appointmentId })
+    }
+  } catch (err) {
+    logRoom('error', instanceKey, 'confirmation.process_error', { error: String(err) })
   }
 }
 
@@ -478,82 +436,62 @@ export async function startRoomSession(connectionId: string, instanceKey: string
       }
     })
 
-    // ── SIM/NÃO interactive confirmation + Chatbot Light dispatch ─────────────
+    // ── Ingestão (Atendimento) + SIM/NÃO de confirmação + Agente de IA ───────
     sock.ev.on('messages.upsert', async ({ messages: msgs, type }) => {
-      if (type !== 'notify') return
+      let connection: RoomConnectionRef | null = null
       for (const msg of msgs) {
-        if (!msg.message || msg.key.fromMe) continue
-        const fromJid = msg.key.remoteJid
-        // @g.us = grupo; status@broadcast = Status/Stories de contatos salvos
-        // (a WhatsApp expõe isso como "mensagem" normal em messages.upsert) —
-        // sem esse segundo filtro, o agente respondia à legenda de status
-        // de qualquer contato salvo no número conectado.
-        if (!fromJid || fromJid.endsWith('@g.us') || fromJid.endsWith('@broadcast')) continue
+        try {
+          if (!msg.message) continue
+          const fromJid = msg.key.remoteJid
+          // @g.us = grupo; status@broadcast = Status/Stories de contatos salvos
+          // (a WhatsApp expõe isso como "mensagem" normal em messages.upsert) —
+          // sem esse filtro, o agente respondia à legenda de status de qualquer
+          // contato salvo no número conectado.
+          if (!isIndividualJid(fromJid)) continue
 
-        const textContent = (
-          msg.message.conversation ||
-          msg.message.extendedTextMessage?.text ||
-          ''
-        ).trim()
+          const fromMe = !!msg.key.fromMe
+          // Recebidas: só 'notify' (tempo real). Enviadas pelo celular: 'notify'
+          // (online) ou 'append' (sincronizadas depois) — dedupe por waMessageId.
+          if (!fromMe && type !== 'notify') continue
+          if (fromMe && msg.key.id && platformSentIds.has(msg.key.id)) continue
 
-        const phone = fromJid.split('@')[0].split(':')[0]
-        const pending = textContent ? pendingConfirmations.get<PendingConfirmationData>(phone) : undefined
+          if (!connection) {
+            connection = await prisma.roomWhatsAppConnection.findUnique({
+              where: { instanceKey },
+              select: { roomId: true, doctorId: true, instanceKey: true },
+            })
+            if (!connection) return
+          }
 
-        let consumedByConfirmation = false
+          if (fromMe) {
+            await handleIncomingMessage(connection, msg)
+            continue
+          }
 
-        if (pending && textContent) {
-          const normalized = normalizeConfirmText(textContent)
-          const isSim = SIM_WORDS.has(normalized)
-          const isNao = NAO_WORDS.has(normalized)
+          const textContent = (msg.message.conversation || msg.message.extendedTextMessage?.text || '').trim()
+          const phone = fromJid.split('@')[0].split(':')[0]
+          const pending = textContent ? pendingConfirmations.get<PendingConfirmationData>(phone) : undefined
+          const normalized = pending ? normalizeConfirmText(textContent) : ''
+          const isSim = !!pending && SIM_WORDS.has(normalized)
+          const isNao = !!pending && NAO_WORDS.has(normalized)
+          const consumedByConfirmation = isSim || isNao
 
-          if (isSim || isNao) {
-            consumedByConfirmation = true
+          // Grava SEMPRE (histórico do Atendimento); resposta de confirmação não
+          // abre atendimento nem vai pro bot.
+          const ingested = await handleIncomingMessage(connection, msg, { skipRouting: consumedByConfirmation })
+          if (!ingested) continue // duplicada / tipo ignorado
+
+          if (consumedByConfirmation && pending) {
             pendingConfirmations.del(phone)
-
-            try {
-              if (isSim) {
-                await prisma.appointment.update({
-                  where: { id: pending.appointmentId },
-                  data: { status: 'CONFIRMED' },
-                })
-                await sock.sendMessage(fromJid, {
-                  text: `Perfeito, ${pending.patientName}! Sua consulta foi confirmada. Até logo! 😊`,
-                })
-                await prisma.notification.create({
-                  data: {
-                    userId: pending.doctorId,
-                    title: 'Consulta confirmada',
-                    message: `${pending.patientName} confirmou a consulta pelo WhatsApp.`,
-                    type: 'SUCCESS',
-                    link: '/agenda',
-                  },
-                })
-                logRoom('info', instanceKey, 'confirmation.sim', { phone, appointmentId: pending.appointmentId })
-              } else {
-                await sock.sendMessage(fromJid, { text: pending.declineContent })
-                await prisma.notification.create({
-                  data: {
-                    userId: pending.doctorId,
-                    title: 'Consulta não confirmada',
-                    message: `${pending.patientName} não confirmou a consulta. Entre em contato para reagendar.`,
-                    type: 'WARNING',
-                    link: '/agenda',
-                  },
-                })
-                logRoom('info', instanceKey, 'confirmation.nao', { phone, appointmentId: pending.appointmentId })
-              }
-            } catch (err) {
-              logRoom('error', instanceKey, 'confirmation.process_error', { error: String(err) })
-            }
+            await processConfirmationReply(instanceKey, fromJid, pending, isSim)
+            continue
           }
-        }
 
-        if (!consumedByConfirmation) {
-          try {
-            await dispatchToChatbotLight(instanceKey, msg)
-          } catch (err) {
-            logRoom('error', instanceKey, 'light_dispatch.failed', { error: String(err) })
+          if (ingested.dispatchToBot) {
+            await dispatchToRoomBot(connection, msg, ingested)
           }
+        } catch (err) {
+          logRoom('error', instanceKey, 'message.ingest_failed', { messageId: msg.key.id, error: String(err) })
         }
       }
     })
@@ -690,26 +628,43 @@ export async function checkPhoneOnWhatsApp(
   }
 }
 
+export interface SendRoomMessageOptions {
+  // true (padrão) → grava a mensagem enviada como bot (isBot) na conversa da
+  // sala, se existir, e emite no stream do Atendimento. O envio humano do
+  // Atendimento passa false e grava por conta própria (com authorUserId).
+  mirror?: boolean
+  // Conversa alvo, quando o chamador já sabe (evita busca por telefone).
+  conversationId?: string | null
+  isBot?: boolean
+}
+
 /**
- * Envia uma mensagem de texto pelo socket de uma sala (usado pelo Chatbot Light
- * quando sua conexão está vinculada a uma Sala, eliminando a conexão própria).
+ * Envia uma mensagem de texto pelo socket de uma sala (Chatbot Light, Agente
+ * de IA, lembretes automáticos e respostas humanas do Atendimento).
  */
 export async function sendRoomWhatsAppMessage(
   instanceKey: string,
   jid: string,
   content: string,
+  options: SendRoomMessageOptions = {},
 ): Promise<{ waMessageId: string; resolvedJid: string } | null> {
   const sock = roomSockets.get(instanceKey)
   if (!sock) {
-    logRoom('warn', instanceKey, 'message.no_socket', { jid })
+    logRoom('warn', instanceKey, 'message.no_socket')
     return null
   }
 
   const resolvedJid = normalizeToWhatsAppJid(jid)
+  // ID gerado antes do envio e registrado como "enviado pela plataforma" —
+  // o eco fromMe que o Baileys emite no messages.upsert é ignorado pela
+  // ingestão (senão viraria uma 2ª mensagem "enviada pelo celular").
+  const messageId = generateMessageIDV2(sock.user?.id)
+  platformSentIds.set(messageId, true)
   try {
-    logRoom('info', instanceKey, 'message.sending', { resolvedJid, source: 'CHATBOT_LIGHT' })
-    const result = await sock.sendMessage(resolvedJid, { text: content })
+    logRoom('info', instanceKey, 'message.sending', { resolvedJid })
+    const result = await sock.sendMessage(resolvedJid, { text: content }, { messageId })
     if (!result?.key.id) return null
+    if (result.key.id !== messageId) platformSentIds.set(result.key.id, true)
 
     // Cache the sent message so Baileys can answer WhatsApp MD retry requests.
     // Without this, recipients see "Aguardando mensagem" when the server retries.
@@ -717,11 +672,43 @@ export async function sendRoomWhatsAppMessage(
       roomSentMsgCache.set(result.key.id, result.message as proto.IMessage)
     }
 
-    logRoom('info', instanceKey, 'message.sent', { messageId: result.key.id, resolvedJid, source: 'CHATBOT_LIGHT' })
+    logRoom('info', instanceKey, 'message.sent', { messageId: result.key.id, resolvedJid })
+
+    if (options.mirror !== false) {
+      const connection = await prisma.roomWhatsAppConnection.findUnique({
+        where: { instanceKey },
+        select: { roomId: true, doctorId: true },
+      }).catch(() => null)
+      if (connection) {
+        await recordPlatformOutbound({
+          roomId: connection.roomId,
+          doctorId: connection.doctorId,
+          conversationId: options.conversationId ?? null,
+          jid: resolvedJid,
+          content,
+          waMessageId: result.key.id,
+          isBot: options.isBot ?? true,
+        })
+      }
+    }
     return { waMessageId: result.key.id, resolvedJid }
   } catch (err) {
     logRoom('error', instanceKey, 'message.send_failed', { resolvedJid, error: String(err) })
     return null
+  }
+}
+
+/** Conexão WhatsApp da sala e se está realmente conectada (socket vivo). */
+export async function getRoomConnectionInfo(roomId: string | null): Promise<{ instanceKey: string; connected: boolean } | null> {
+  if (!roomId) return null
+  const connection = await prisma.roomWhatsAppConnection.findUnique({
+    where: { roomId },
+    select: { instanceKey: true, status: true },
+  })
+  if (!connection) return null
+  return {
+    instanceKey: connection.instanceKey,
+    connected: connection.status === 'CONNECTED' && roomSockets.has(connection.instanceKey),
   }
 }
 
@@ -857,13 +844,16 @@ export function startRoomHealthWatchdog(): void {
             where: { id: conn.id },
             data: { status: 'QUARANTINED', failureCycles: nextCycle, reconnectAttempts: 0 },
           }).catch(() => {})
-          await createNotification(
-            conn.doctorId,
-            'WhatsApp desconectado',
-            `A conexão do WhatsApp${conn.room ? ` da sala "${conn.room.name}"` : ''} não conseguiu se recuperar sozinha e foi colocada em quarentena. Escaneie o QR code novamente para reconectar.`,
-            'ALERT',
-            '/configuracoes/salas',
-          ).catch(() => {})
+          await createNotification({
+            userId: conn.doctorId,
+            title: 'WhatsApp desconectado',
+            message: `A conexão do WhatsApp${conn.room ? ` da sala "${conn.room.name}"` : ''} não conseguiu se recuperar sozinha e foi colocada em quarentena. Escaneie o QR code novamente para reconectar.`,
+            type: 'ALERT',
+            link: '/configuracoes/salas',
+            category: 'SYSTEM',
+            entityType: 'room',
+            entityId: conn.id,
+          })
           continue
         }
 
