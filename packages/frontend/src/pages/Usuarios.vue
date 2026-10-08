@@ -14,7 +14,7 @@ import { useQuery } from '../composables/useQuery'
 
 const roleConfig: Record<string, { label: string; className: string }> = {
   ADMIN: { label: 'Admin', className: 'bg-purple-100 text-purple-700' },
-  DOCTOR: { label: 'Médico', className: 'bg-primary-100 text-primary-700' },
+  DOCTOR: { label: 'Especialista', className: 'bg-primary-100 text-primary-700' },
   SECRETARY: { label: 'Secretária', className: 'bg-emerald-100 text-emerald-700' },
 }
 
@@ -111,7 +111,7 @@ async function toggleActive(u: User) {
       </div>
       <div class="card text-center py-4">
         <p class="text-3xl font-bold text-primary-700">{{ stats.doctors }}</p>
-        <p class="text-sm text-slate-500 mt-1">Médicos</p>
+        <p class="text-sm text-slate-500 mt-1">Especialistas</p>
       </div>
       <div class="card text-center py-4">
         <p class="text-3xl font-bold text-emerald-700">{{ stats.secretaries }}</p>

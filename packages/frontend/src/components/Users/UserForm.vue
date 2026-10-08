@@ -167,7 +167,7 @@ function handleSubmit() {
       <label class="label">Perfil de Acesso *</label>
       <select v-model="form.role" class="input-field">
         <option value="SECRETARY">Secretária</option>
-        <option value="DOCTOR">Médico</option>
+        <option value="DOCTOR">Especialista (dentista, esteta…)</option>
         <option value="ADMIN">Administrador</option>
       </select>
       <div v-if="form.role" class="mt-2 p-3 bg-slate-50 rounded-lg">

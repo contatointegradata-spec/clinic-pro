@@ -1153,7 +1153,7 @@ const listRows = computed<{ day: Date; rows: ListRow[] }[]>(() => {
       </div>
       <form class="space-y-4" @submit="handleBlockSubmit">
         <div v-if="authStore.user?.role === 'ADMIN'">
-          <label class="label">Médico</label>
+          <label class="label">Especialista</label>
           <select v-model="blockDoctorId" class="input-field">
             <option v-for="d in doctors" :key="d.id" :value="d.id">{{ d.name }}</option>
           </select>

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { z } from 'zod'
 import { Eye, EyeOff, Lock, Mail, User, Phone, Stethoscope, AlertCircle, ArrowRight, Check } from 'lucide-vue-next'
 import api from '../lib/api'
+import { greetingName } from '../lib/firstName'
 import toast from '../lib/toast'
 import { useAuthStore } from '../stores/auth'
 import ClinicLogo from '../components/ui/ClinicLogo.vue'
@@ -24,8 +25,8 @@ type Field = keyof z.infer<typeof signupSchema>
 
 const BENEFITS = [
   `${TRIAL_DAYS} dias de acesso completo, sem cartão de crédito`,
-  'Lembretes automáticos de consulta no WhatsApp',
-  'Agenda, prontuário e financeiro em um só lugar',
+  'Lembretes e convites de retorno automáticos no WhatsApp',
+  'Procedimentos, insumos e financeiro em um só lugar',
   `Depois, apenas R$ ${PRICE}/mês — cancele quando quiser`,
 ]
 
@@ -62,7 +63,7 @@ async function onSubmit() {
     const res = await api.post('/auth/register', { ...rest, ...(specialty ? { specialty } : {}) })
     const { token, refreshToken, user } = res.data
     authStore.setAuth(user, token, refreshToken)
-    toast.success(`Bem-vindo(a), ${user.name.split(' ')[0]}! Seu teste grátis de ${TRIAL_DAYS} dias começou.`, { duration: 5000 })
+    toast.success(`Bem-vindo(a), ${greetingName(user.name)}! Seu teste grátis de ${TRIAL_DAYS} dias começou.`, { duration: 5000 })
     router.push('/dashboard')
   } catch (error: any) {
     formError.value = error?.response?.data?.message || 'Não foi possível criar sua conta. Tente novamente.'
@@ -75,19 +76,19 @@ async function onSubmit() {
 <template>
   <div class="min-h-screen flex flex-col lg:flex-row bg-slate-50">
     <!-- LADO ESQUERDO -->
-    <div class="hidden lg:flex lg:w-[46%] relative overflow-hidden flex-col text-white" style="background: linear-gradient(145deg, #0d2847 0%, #0a3a6e 35%, #0c4a8f 65%, #0a3a6e 100%)">
-      <div class="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-[0.12] pointer-events-none" style="background: radial-gradient(circle, #38bdf8, transparent 70%)" />
+    <div class="hidden lg:flex lg:w-[46%] relative overflow-hidden flex-col text-white" style="background: linear-gradient(145deg, #2E1C20 0%, #4A2C32 35%, #6C3D44 65%, #4A2C32 100%)">
+      <div class="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-[0.12] pointer-events-none" style="background: radial-gradient(circle, #C9A96E, transparent 70%)" />
       <div class="relative z-10 flex flex-col h-full p-10 xl:p-14">
         <router-link to="/"><ClinicLogo /></router-link>
         <div class="my-auto">
-          <h1 class="text-3xl xl:text-4xl font-bold tracking-tight leading-tight">
-            Sua clínica organizada em minutos.
+          <h1 class="font-display text-3xl xl:text-4xl font-semibold tracking-tight leading-tight">
+            Sua clínica de odontologia e estética organizada em minutos.
           </h1>
           <p class="mt-4 text-primary-100 text-lg">Crie sua conta e comece agora o seu teste grátis.</p>
           <ul class="mt-8 space-y-4">
             <li v-for="b in BENEFITS" :key="b" class="flex gap-3">
               <span class="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center flex-shrink-0">
-                <Check class="w-4 h-4 text-sky-300" />
+                <Check class="w-4 h-4 text-gold-300" />
               </span>
               <span class="text-primary-50">{{ b }}</span>
             </li>
@@ -105,7 +106,7 @@ async function onSubmit() {
           <span class="inline-flex items-center bg-primary-50 text-primary-700 border border-primary-100 px-3 py-1 rounded-full text-xs font-semibold">
             {{ TRIAL_DAYS }} dias grátis · sem cartão
           </span>
-          <h2 class="mt-4 text-2xl sm:text-[1.7rem] font-bold text-slate-900 tracking-tight">Crie sua conta grátis</h2>
+          <h2 class="mt-4 font-display text-2xl sm:text-[1.8rem] font-semibold text-slate-900 tracking-tight">Crie sua conta grátis</h2>
           <p class="mt-1.5 text-slate-500 text-sm">Leva menos de 2 minutos.</p>
         </div>
 
@@ -141,7 +142,7 @@ async function onSubmit() {
               <label for="signup-specialty" class="block text-sm font-medium text-slate-700 mb-1.5">Especialidade <span class="text-slate-400 font-normal">(opcional)</span></label>
               <div class="relative group">
                 <Stethoscope class="absolute left-3.5 top-1/2 -translate-y-1/2 w-[18px] h-[18px] text-slate-400 group-focus-within:text-primary-500" />
-                <input id="signup-specialty" v-model="form.specialty" type="text" placeholder="Ex.: Psicologia" :class="inputClass('specialty')" />
+                <input id="signup-specialty" v-model="form.specialty" type="text" placeholder="Ex.: Harmonização orofacial" :class="inputClass('specialty')" />
               </div>
             </div>
           </div>

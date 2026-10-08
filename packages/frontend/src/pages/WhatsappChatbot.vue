@@ -307,7 +307,7 @@ const NOTIF_VARIABLE_CHIPS = [
   { key: '{nome}', label: 'Nome' },
   { key: '{data}', label: 'Data' },
   { key: '{hora}', label: 'Hora' },
-  { key: '{medico}', label: 'Médico' },
+  { key: '{medico}', label: 'Profissional' },
   { key: '{clinica}', label: 'Clínica' },
   { key: '{tipo_atendimento}', label: 'Tipo' },
   { key: '{status}', label: 'Status' },

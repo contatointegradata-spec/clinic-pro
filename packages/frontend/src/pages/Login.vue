@@ -9,6 +9,7 @@ import {
   Shield, Sparkles,
 } from 'lucide-vue-next'
 import api from '../lib/api'
+import { greetingName } from '../lib/firstName'
 import toast from '../lib/toast'
 import { useAuthStore } from '../stores/auth'
 import ClinicLogo from '../components/ui/ClinicLogo.vue'
@@ -22,16 +23,16 @@ const loginSchema = z.object({
 function getGreeting(name: string) {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Bom dia' : hour < 18 ? 'Boa tarde' : 'Boa noite'
-  return `${greeting}, ${name.split(' ')[0]}!`
+  return `${greeting}, ${greetingName(name)}!`
 }
 
 const FLOATING_CARDS = [
-  { icon: BarChart3, title: 'Dashboard', subtitle: 'Visão geral em tempo real', accentBg: 'bg-violet-500/15', accentText: 'text-violet-300' },
-  { icon: CalendarCheck, title: 'Agenda', subtitle: 'Consultas organizadas', accentBg: 'bg-sky-500/15', accentText: 'text-sky-300' },
-  { icon: FileText, title: 'Prontuário', subtitle: 'Histórico completo do paciente', accentBg: 'bg-emerald-500/15', accentText: 'text-emerald-300' },
-  { icon: DollarSign, title: 'Financeiro', subtitle: 'Controle de pagamentos', accentBg: 'bg-teal-500/15', accentText: 'text-teal-300' },
-  { icon: MessageSquare, title: 'WhatsApp', subtitle: 'Atendimento integrado', accentBg: 'bg-green-500/15', accentText: 'text-green-300' },
-  { icon: MapPin, title: 'Gestão de Salas', subtitle: 'Múltiplos consultórios', accentBg: 'bg-amber-500/15', accentText: 'text-amber-300' },
+  { icon: CalendarCheck, title: 'Agenda', subtitle: 'Por sala e profissional', accentBg: 'bg-primary-400/15', accentText: 'text-primary-200' },
+  { icon: MessageSquare, title: 'WhatsApp', subtitle: 'Avaliações e retornos', accentBg: 'bg-sage-400/15', accentText: 'text-sage-200' },
+  { icon: FileText, title: 'Prontuário', subtitle: 'Procedimentos e evoluções', accentBg: 'bg-gold-400/15', accentText: 'text-gold-200' },
+  { icon: DollarSign, title: 'Financeiro', subtitle: 'Caixa e NFS-e', accentBg: 'bg-primary-400/15', accentText: 'text-primary-200' },
+  { icon: BarChart3, title: 'Dashboard', subtitle: 'Visão geral em tempo real', accentBg: 'bg-gold-400/15', accentText: 'text-gold-200' },
+  { icon: MapPin, title: 'Salas e equipe', subtitle: 'Múltiplos consultórios', accentBg: 'bg-sage-400/15', accentText: 'text-sage-200' },
 ]
 
 const authStore = useAuthStore()
@@ -117,13 +118,13 @@ function closeForgotModal() {
 <template>
   <div class="min-h-screen flex flex-col lg:flex-row bg-slate-50">
     <!-- LEFT COLUMN -->
-    <div class="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col" style="background: linear-gradient(145deg, #0d2847 0%, #0a3a6e 35%, #0c4a8f 65%, #0a3a6e 100%)">
+    <div class="hidden lg:flex lg:w-[52%] relative overflow-hidden flex-col" style="background: linear-gradient(145deg, #2E1C20 0%, #4A2C32 35%, #6C3D44 65%, #4A2C32 100%)">
       <div class="absolute inset-0 pointer-events-none overflow-hidden">
-        <div class="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-[0.12]" style="background: radial-gradient(circle, #38bdf8, transparent 70%)" />
-        <div class="absolute -bottom-40 -left-40 w-[500px] h-[500px] rounded-full opacity-[0.08]" style="background: radial-gradient(circle, #60a5fa, transparent 70%)" />
+        <div class="absolute -top-40 -right-40 w-[500px] h-[500px] rounded-full opacity-[0.12]" style="background: radial-gradient(circle, #C9A96E, transparent 70%)" />
+        <div class="absolute -bottom-40 -left-40 w-[500px] h-[500px] rounded-full opacity-[0.08]" style="background: radial-gradient(circle, #DFAEB5, transparent 70%)" />
         <div class="absolute inset-0 opacity-[0.04]" style="background-image: linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px); background-size: 60px 60px" />
-        <div class="absolute top-24 right-24 w-2 h-2 bg-sky-300/50 rounded-full animate-pulse-soft" />
-        <div class="absolute bottom-32 left-1/4 w-1.5 h-1.5 bg-blue-300/40 rounded-full animate-float" />
+        <div class="absolute top-24 right-24 w-2 h-2 bg-gold-300/50 rounded-full animate-pulse-soft" />
+        <div class="absolute bottom-32 left-1/4 w-1.5 h-1.5 bg-primary-300/40 rounded-full animate-float" />
       </div>
 
       <div class="relative z-10 flex flex-col justify-between h-full p-10 xl:p-14">
@@ -131,19 +132,19 @@ function closeForgotModal() {
           <div class="flex items-center gap-3.5 mb-14 transition-all duration-700" :class="mounted ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4'">
             <ClinicLogo icon-only size="lg" dark />
             <div>
-              <h1 class="text-white font-bold text-2xl tracking-tight">ClinIQ <span class="text-sky-300 font-light">Pro</span></h1>
-              <p class="text-blue-200/70 text-xs tracking-wide">Gestão Clínica Inteligente</p>
+              <h1 class="text-white font-display font-semibold text-2xl tracking-tight">ClinIQ <span class="text-gold-300 font-light">Pro</span></h1>
+              <p class="text-primary-200/70 text-xs tracking-wide">Odontologia &amp; Estética</p>
             </div>
           </div>
 
           <div class="max-w-lg mb-10 transition-all duration-700 delay-150" :class="mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'">
-            <h2 class="text-white text-3xl xl:text-[2.5rem] font-bold leading-[1.15] mb-5">
-              Sua clínica organizada
-              <span class="bg-gradient-to-r from-sky-300 via-blue-200 to-emerald-300 bg-clip-text text-transparent">do WhatsApp ao financeiro</span>
+            <h2 class="text-white font-display text-3xl xl:text-[2.5rem] font-semibold leading-[1.15] mb-5">
+              Sua clínica de odontologia e estética
+              <span class="italic bg-gradient-to-r from-gold-300 via-primary-200 to-gold-200 bg-clip-text text-transparent">do WhatsApp ao financeiro</span>
             </h2>
-            <p class="text-blue-100/70 text-base leading-relaxed max-w-md">
-              Centralize agenda, atendimento, pacientes, equipe, pré-agendamentos,
-              financeiro e relatórios em uma única plataforma inteligente.
+            <p class="text-primary-100/70 text-base leading-relaxed max-w-md">
+              Agenda, atendimento no WhatsApp, prontuário com procedimentos, estoque de insumos
+              e financeiro em uma única plataforma.
             </p>
           </div>
         </div>
@@ -162,7 +163,7 @@ function closeForgotModal() {
                 </div>
                 <div class="min-w-0 flex-1">
                   <p class="text-white/90 text-[13px] font-medium truncate">{{ card.title }}</p>
-                  <p class="text-blue-200/60 text-[11px]">{{ card.subtitle }}</p>
+                  <p class="text-primary-200/60 text-[11px]">{{ card.subtitle }}</p>
                 </div>
               </div>
             </div>
@@ -172,23 +173,23 @@ function closeForgotModal() {
         <div class="transition-all duration-700" :class="mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'" style="transition-delay: 1000ms">
           <div class="flex items-center gap-2 mb-4">
             <Shield class="w-4 h-4 text-emerald-300/80" />
-            <p class="text-blue-200/60 text-xs">Dados protegidos com criptografia de ponta a ponta</p>
+            <p class="text-primary-200/60 text-xs">Dados protegidos com criptografia de ponta a ponta</p>
           </div>
           <div class="border-t border-white/[0.08] pt-4">
-            <p class="text-blue-300/40 text-xs">© {{ new Date().getFullYear() }} ClinIQ Pro · Todos os direitos reservados</p>
+            <p class="text-primary-300/40 text-xs">© {{ new Date().getFullYear() }} ClinIQ Pro · Todos os direitos reservados</p>
           </div>
         </div>
       </div>
     </div>
 
     <!-- RIGHT COLUMN -->
-    <div class="flex-1 flex flex-col items-center justify-center p-5 sm:p-8 lg:p-12 bg-white relative min-h-screen lg:min-h-0">
+    <div class="flex-1 flex flex-col items-center justify-center p-5 sm:p-8 lg:p-12 bg-slate-50 relative min-h-screen lg:min-h-0">
       <div class="w-full max-w-[420px] relative z-10 transition-all duration-700 delay-100" :class="mounted ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'">
         <div class="flex items-center gap-3 mb-10 lg:hidden">
           <ClinicLogo icon-only size="lg" dark />
           <div>
-            <h1 class="text-slate-900 font-bold text-xl tracking-tight">ClinIQ <span class="text-primary-600 font-light">Pro</span></h1>
-            <p class="text-slate-400 text-xs tracking-wide">Gestão Clínica Inteligente</p>
+            <h1 class="text-slate-900 font-display font-semibold text-xl tracking-tight">ClinIQ <span class="text-primary-600 font-light">Pro</span></h1>
+            <p class="text-slate-400 text-xs tracking-wide">Odontologia &amp; Estética</p>
           </div>
         </div>
 
@@ -198,7 +199,7 @@ function closeForgotModal() {
               <Sparkles class="w-4 h-4 text-primary-600" />
             </div>
           </div>
-          <h2 class="text-2xl sm:text-[1.7rem] font-bold text-slate-900 mb-1.5 tracking-tight">Bem-vindo(a) à ClinIQ Pro</h2>
+          <h2 class="font-display text-2xl sm:text-[1.8rem] font-semibold text-slate-900 mb-1.5 tracking-tight">Bem-vindo(a) à ClinIQ Pro</h2>
           <p class="text-slate-500 text-sm">Acesse sua clínica e continue de onde parou.</p>
         </div>
 
@@ -336,18 +337,18 @@ function closeForgotModal() {
           <!-- Logo com Ondas Radiantes e Brilho Primário -->
           <div class="relative mb-6">
             <div class="absolute -inset-6 bg-primary-500/25 rounded-full blur-2xl animate-pulse-soft" />
-            <div class="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 via-primary-600 to-sky-600 flex items-center justify-center shadow-2xl shadow-primary-500/50 border border-white/20">
+            <div class="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 via-primary-600 to-gold-600 flex items-center justify-center shadow-2xl shadow-primary-500/50 border border-white/20">
               <svg class="w-10 h-10 text-white" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="12" cy="12" r="7.3" stroke="currentColor" stroke-width="2" fill="none" />
-                <path d="M5.5 12 H9 L10.6 8 L13.2 16 L14.8 12 H18.5" stroke="#bbdcfd" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round" />
+                <path d="M5.5 12 H9 L10.6 8 L13.2 16 L14.8 12 H18.5" stroke="#EBDAB6" stroke-width="1.7" fill="none" stroke-linecap="round" stroke-linejoin="round" />
                 <circle cx="18.7" cy="6.3" r="2.1" fill="currentColor" />
               </svg>
             </div>
-            <div class="absolute -inset-2 rounded-2xl border border-sky-400/40 animate-ping-once pointer-events-none" />
+            <div class="absolute -inset-2 rounded-2xl border border-gold-400/40 animate-ping-once pointer-events-none" />
           </div>
 
-          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-500/15 text-sky-300 border border-primary-400/30 mb-3 shadow-sm">
-            <Sparkles class="w-3.5 h-3.5 text-sky-300" />
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-primary-500/15 text-gold-300 border border-primary-400/30 mb-3 shadow-sm">
+            <Sparkles class="w-3.5 h-3.5 text-gold-300" />
             <span>Acesso Autorizado</span>
           </div>
 
@@ -360,9 +361,9 @@ function closeForgotModal() {
 
           <!-- Barra de Progresso Animada -->
           <div class="w-full h-1.5 bg-white/10 rounded-full overflow-hidden relative mb-2.5">
-            <div class="h-full bg-gradient-to-r from-sky-400 via-primary-500 to-sky-300 rounded-full animate-progress-fill" />
+            <div class="h-full bg-gradient-to-r from-gold-400 via-primary-500 to-gold-300 rounded-full animate-progress-fill" />
           </div>
-          <span class="text-[11px] text-slate-400 font-medium tracking-wide">ClinIQ Pro · Gestão Clínica Inteligente</span>
+          <span class="text-[11px] text-slate-400 font-medium tracking-wide">ClinIQ Pro · Odontologia &amp; Estética</span>
         </div>
       </div>
     </Transition>

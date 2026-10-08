@@ -8,7 +8,7 @@
   }
 
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'DM Sans', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     scroll-behavior: smooth;
@@ -19,7 +19,7 @@
     @apply text-slate-900;
     margin: 0;
     padding: 0;
-    background: linear-gradient(180deg, #f6f9fd 0%, #eef5fc 100%);
+    background: #FAF7F4;
     min-height: 100vh;
   }
 
@@ -122,7 +122,7 @@
   }
 
   .btn-primary:not(:disabled):hover {
-    box-shadow: 0 4px 16px -2px rgb(5 105 194 / 0.35);
+    box-shadow: 0 4px 16px -2px rgb(183 110 121 / 0.35);
   }
 
   .btn-secondary {
@@ -181,7 +181,7 @@
      PAGE TITLES
   ───────────────────────────────────────── */
   .page-title {
-    @apply text-2xl font-semibold text-slate-900 tracking-tight;
+    @apply font-display text-2xl font-semibold text-slate-900 tracking-tight;
   }
 
   .page-subtitle {
@@ -195,9 +195,9 @@
     @apply rounded-xl overflow-hidden relative;
     background: linear-gradient(
       90deg,
-      #f1f5f9 25%,
-      #e8edf5 37%,
-      #f1f5f9 63%
+      #F3EEE9 25%,
+      #E8E0D8 37%,
+      #F3EEE9 63%
     );
     background-size: 400% 100%;
     animation: shimmer 1.6s ease-in-out infinite;
@@ -460,24 +460,24 @@
   }
 
   .text-gradient-brand {
-    @apply bg-gradient-to-r from-primary-600 to-cyan-500 bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-primary-600 to-gold-500 bg-clip-text text-transparent;
   }
 
   /* ── Sombras coloridas ── */
   .shadow-blue-glow {
-    box-shadow: 0 4px 20px -4px rgb(5 105 194 / 0.35);
+    box-shadow: 0 4px 20px -4px rgb(183 110 121 / 0.35);
   }
 
   .shadow-cyan-glow {
-    box-shadow: 0 4px 20px -4px rgb(6 182 212 / 0.35);
+    box-shadow: 0 4px 20px -4px rgb(201 169 110 / 0.35);
   }
 
   .shadow-emerald-glow {
-    box-shadow: 0 4px 20px -4px rgb(16 185 129 / 0.3);
+    box-shadow: 0 4px 20px -4px rgb(127 163 138 / 0.3);
   }
 
   .shadow-purple-glow {
-    box-shadow: 0 4px 20px -4px rgb(139 92 246 / 0.3);
+    box-shadow: 0 4px 20px -4px rgb(150 108 138 / 0.3);
   }
 
   /* ── Transition spring ── */
@@ -503,12 +503,12 @@
 
   /* ── Ring elevado ── */
   .ring-glow-blue {
-    box-shadow: 0 0 0 3px rgb(17 134 227 / 0.25);
+    box-shadow: 0 0 0 3px rgb(183 110 121 / 0.25);
   }
 
   /* ── Background patterns ── */
   .bg-dots {
-    background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+    background-image: radial-gradient(circle, #D6CBC0 1px, transparent 1px);
     background-size: 20px 20px;
   }
 

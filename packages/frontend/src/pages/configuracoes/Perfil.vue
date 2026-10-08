@@ -43,7 +43,7 @@ type FormData = z.infer<typeof schema>
 
 const roleLabels: Record<string, { label: string; color: string; bg: string; border: string }> = {
   ADMIN: { label: 'Administrador', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200' },
-  DOCTOR: { label: 'Médico', color: 'text-primary-700', bg: 'bg-primary-50', border: 'border-primary-200' },
+  DOCTOR: { label: 'Especialista', color: 'text-primary-700', bg: 'bg-primary-50', border: 'border-primary-200' },
   SECRETARY: { label: 'Secretária', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
 }
 

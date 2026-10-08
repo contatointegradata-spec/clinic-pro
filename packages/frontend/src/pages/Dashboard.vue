@@ -7,6 +7,7 @@ import {
   ArrowRight, Zap, Stethoscope, BarChart3, Cake, MessageCircle,
 } from 'lucide-vue-next'
 import api from '../lib/api'
+import { greetingName } from '../lib/firstName'
 import { useAuthStore } from '../stores/auth'
 import type { Appointment, AppointmentStats, Patient } from '../types'
 import StatusBadge from '../components/ui/StatusBadge.vue'
@@ -93,8 +94,8 @@ const quickLinks = [
             <span class="tracking-wide uppercase text-[10.5px]">ClinIQ Pro</span>
           </div>
 
-          <h1 class="text-2xl sm:text-3xl font-bold text-slate-900 tracking-tight leading-tight">
-            {{ getGreeting() }}, {{ authStore.user?.name?.split(' ')[0] }}! 👋
+          <h1 class="font-display text-2xl sm:text-3xl font-semibold text-slate-900 tracking-tight leading-tight">
+            {{ getGreeting() }}, {{ greetingName(authStore.user?.name) }}! 👋
           </h1>
           <p class="text-slate-500 text-sm mt-1">
             {{ dateCapitalized }} · <span class="text-slate-400">Visão geral da sua clínica</span>
