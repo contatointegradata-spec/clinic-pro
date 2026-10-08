@@ -23,6 +23,7 @@ const props = defineProps<{
   patients: Patient[]
   currentUser: AuthUser | null
   loading: boolean
+  defaultType?: TransactionType
 }>()
 
 const emit = defineEmits<{ submit: [data: FormData] }>()
@@ -49,7 +50,7 @@ const form = reactive<{
 }>({
   doctorId: props.currentUser?.role === 'DOCTOR' ? props.currentUser.id : '',
   patientId: '',
-  type: 'INCOME',
+  type: props.defaultType ?? 'INCOME',
   amount: '',
   description: '',
   date: format(new Date(), 'yyyy-MM-dd'),
@@ -62,8 +63,8 @@ const errors = reactive<Partial<Record<keyof FormData, string>>>({})
 // Mirrors the original react-hook-form `useEffect` that resets the form
 // whenever the `transaction` prop changes (edit vs. new).
 watch(
-  () => props.transaction,
-  (transaction) => {
+  () => [props.transaction, props.defaultType] as const,
+  ([transaction]) => {
     if (transaction) {
       form.doctorId = transaction.doctorId
       form.patientId = transaction.patientId || ''
@@ -74,6 +75,13 @@ watch(
       form.status = transaction.status
       form.category = transaction.category || ''
     } else {
+      // Novo lançamento: limpa o que sobrou de uma edição anterior e respeita o tipo pedido.
+      form.patientId = ''
+      form.type = props.defaultType ?? 'INCOME'
+      form.amount = ''
+      form.description = ''
+      form.status = 'PENDING'
+      form.category = ''
       form.date = format(new Date(), 'yyyy-MM-dd')
     }
   },

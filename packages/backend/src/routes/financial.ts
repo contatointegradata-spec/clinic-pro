@@ -83,6 +83,8 @@ router.get('/', async (req: AuthRequest, res) => {
         financialCategory: { select: { id: true, name: true, color: true } },
         costCenter: { select: { id: true, name: true } },
         bankAccount: { select: { id: true, name: true } },
+        patient: { select: { id: true, name: true } },
+        nfse: { select: { id: true, status: true, numeroNfse: true } },
       },
       orderBy: { date: 'desc' },
     })
@@ -584,12 +586,30 @@ router.get('/payment-methods', async (req: AuthRequest, res) => {
   }
 })
 
-router.post('/', async (req, res) => {
+// Médico dono do lançamento: DOCTOR é sempre ele mesmo (ignora doctorId do
+// corpo — antes qualquer médico conseguia lançar na conta de outro); ADMIN
+// precisa informar doctorId.
+function ownerDoctorId(req: AuthRequest, bodyDoctorId?: string): string | null {
+  if (req.user!.role === 'DOCTOR') return req.user!.userId
+  return bodyDoctorId || null
+}
+
+// Escopo de leitura/escrita de um lançamento existente.
+function txScope(req: AuthRequest): Prisma.TransactionWhereInput {
+  return req.user!.role === 'DOCTOR' ? { doctorId: req.user!.userId } : {}
+}
+
+router.post('/', async (req: AuthRequest, res) => {
   try {
-    const data = transactionSchema.parse(req.body)
+    const data = transactionSchema.extend({ doctorId: z.string().optional() }).parse(req.body)
+    const doctorId = ownerDoctorId(req, data.doctorId)
+    if (!doctorId) {
+      res.status(400).json({ message: 'doctorId obrigatório para ADMIN' })
+      return
+    }
 
     const transaction = await prisma.transaction.create({
-      data: { ...data, date: new Date(data.date) },
+      data: { ...data, doctorId, date: new Date(data.date), ...(data.status === 'PAID' ? { paidAt: new Date() } : {}) },
       include: {
         doctor: { select: { id: true, name: true } },
         appointment: {
@@ -620,30 +640,66 @@ router.post('/', async (req, res) => {
   }
 })
 
-router.put('/:id', async (req, res) => {
+// Campos editáveis — whitelist (antes o corpo inteiro ia direto pro update,
+// permitindo trocar doctorId/appointmentId de qualquer lançamento).
+const transactionUpdateSchema = transactionSchema.omit({ doctorId: true, appointmentId: true }).partial().extend({
+  notes: z.string().max(2000).nullable().optional(),
+})
+
+// Lançamento com NFS-e autorizada/em processamento não pode mudar valor/tipo
+// nem ser excluído — cancele a nota antes.
+async function liveInvoiceFor(transactionId: string) {
+  return prisma.nfse.findFirst({ where: { transactionId, status: { in: ['AUTHORIZED', 'PROCESSING'] } }, select: { id: true, status: true } })
+}
+
+router.put('/:id', async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
-    const data = { ...req.body }
-    if (data.date) data.date = new Date(data.date)
+    const existing = await prisma.transaction.findFirst({ where: { id: req.params.id, ...txScope(req) } })
+    if (!existing) {
+      res.status(404).json({ message: 'Lançamento não encontrado' })
+      return
+    }
+    const data = transactionUpdateSchema.parse(req.body)
+    const changesMoney = (data.amount !== undefined && data.amount !== existing.amount) || (data.type !== undefined && data.type !== existing.type) || data.status === 'CANCELLED'
+    if (changesMoney && await liveInvoiceFor(existing.id)) {
+      res.status(409).json({ message: 'Este lançamento tem nota fiscal emitida. Cancele a nota antes de alterar valor, tipo ou cancelar o lançamento.' })
+      return
+    }
 
     const transaction = await prisma.transaction.update({
-      where: { id },
-      data,
+      where: { id: existing.id },
+      data: {
+        ...data,
+        ...(data.date ? { date: new Date(data.date) } : {}),
+        ...(data.status === 'PAID' && existing.status !== 'PAID' ? { paidAt: new Date() } : {}),
+      },
       include: {
         doctor: { select: { id: true, name: true } },
       },
     })
 
     res.json(transaction)
-  } catch {
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
-    await prisma.transaction.delete({ where: { id } })
+    const existing = await prisma.transaction.findFirst({ where: { id: req.params.id, ...txScope(req) }, select: { id: true } })
+    if (!existing) {
+      res.status(404).json({ message: 'Lançamento não encontrado' })
+      return
+    }
+    if (await liveInvoiceFor(existing.id)) {
+      res.status(409).json({ message: 'Este lançamento tem nota fiscal emitida. Cancele a nota antes de excluir.' })
+      return
+    }
+    await prisma.transaction.delete({ where: { id: existing.id } })
     res.json({ message: 'Transação removida com sucesso' })
   } catch {
     res.status(500).json({ message: 'Erro interno do servidor' })

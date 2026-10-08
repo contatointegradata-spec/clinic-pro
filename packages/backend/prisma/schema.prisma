@@ -171,6 +171,10 @@ model User {
   conversationEventsFrom  ConversationEvent[]           @relation("ConversationEventFromUser")
   conversationEventsTo    ConversationEvent[]           @relation("ConversationEventToUser")
 
+  nfseConfig           NfseConfig?                 @relation("DoctorNfseConfig")
+  nfses                Nfse[]                      @relation("DoctorNfses")
+  nfsesCreated         Nfse[]                      @relation("UserNfsesCreated")
+
   @@map("TBLUSUARIO")
 }
 
@@ -271,6 +275,8 @@ model Patient {
   @@index([leadStatus])
   @@index([doctorId, phoneKey])
   @@index([whatsappLid])
+  nfses              Nfse[]
+
   @@map("TBLPACIENTE")
 }
 
@@ -539,6 +545,7 @@ model Transaction {
   costCenter        CostCenter?        @relation("CostCenterTransactions", fields: [costCenterId], references: [id])
   bankAccount       BankAccount?       @relation("BankAccountTransactions", fields: [bankAccountId], references: [id])
   paymentMethodRef  PaymentMethod?     @relation("TransactionPaymentMethod", fields: [paymentMethodId], references: [id])
+  nfse              Nfse?
 
   @@map("TBLTRANSACAO")
 }
@@ -1786,4 +1793,115 @@ model LegacyActionMapping {
   @@index([chatbotId])
   @@index([legacyActionId])
   @@map("TBLLEGACYACTIONMAPPING")
+}
+
+// ─── NFS-e (Emissor Público Nacional — Sefin Nacional) ────────────────────────
+// Emissão via API REST do Sistema Nacional NFS-e: a DPS (XML assinado com o
+// certificado A1 do prestador) é enviada GZip+Base64 em POST /nfse por mTLS.
+// Ver lib/nfse/*. Cada nota AUTORIZADA em PRODUCAO é cobrada pela plataforma
+// (Nfse.billableCents — preço em lib/billing-config.ts NFSE_UNIT_PRICE_CENTS).
+
+enum NfseAmbiente {
+  PRODUCAO
+  HOMOLOGACAO
+}
+
+enum NfseStatus {
+  PROCESSING
+  AUTHORIZED
+  REJECTED
+  CANCELLED
+  ERROR
+}
+
+// Configuração fiscal do prestador (um por médico).
+model NfseConfig {
+  id                   String       @id @default(uuid())
+  doctorId             String       @unique
+  ambiente             NfseAmbiente @default(HOMOLOGACAO)
+  // Prestador
+  tipoDocumento        String       @default("CPF") // CPF | CNPJ
+  documento            String       @default("")
+  inscricaoMunicipal   String?
+  razaoSocial          String       @default("")
+  email                String?
+  telefone             String?
+  codigoMunicipio      String       @default("") // IBGE 7 dígitos
+  // Regime tributário (leiaute DPS: opSimpNac 1=não optante, 2=MEI, 3=ME/EPP)
+  opcaoSimplesNacional Int          @default(1)
+  regimeApuracaoSN     Int? // regApTribSN (só p/ opSimpNac=3)
+  regimeEspecial       Int          @default(0) // regEspTrib
+  // Serviço padrão
+  codigoTributacaoNacional  String  @default("040101") // cTribNac (6 dígitos)
+  codigoTributacaoMunicipal String?
+  codigoNbs                 String?
+  descricaoServicoPadrao    String  @default("Consulta médica")
+  aliquotaIss               Decimal? @db.Decimal(5, 2)
+  percentualTributosSN      Decimal? @db.Decimal(5, 2) // pTotTribSN
+  // Numeração da DPS
+  serie                String       @default("1")
+  proximoNumero        Int          @default(1)
+  // Certificado A1 (PKCS#12) — cifrado em repouso (AES-256-GCM, lib/nfse/crypto.ts)
+  certPfxEnc           String?      @db.Text
+  certPasswordEnc      String?      @db.Text
+  certSubject          String?
+  certDocumento        String?
+  certValidFrom        DateTime?
+  certValidTo          DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  doctor User @relation("DoctorNfseConfig", fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@map("TBLNFSECONFIG")
+}
+
+model Nfse {
+  id                 String       @id @default(uuid())
+  doctorId           String
+  ambiente           NfseAmbiente
+  status             NfseStatus   @default(PROCESSING)
+  // Identificação da DPS / NFS-e
+  serie              String
+  numeroDps          Int
+  idDps              String // "DPS" + cMun(7) + tpInsc(1) + inscFed(14) + série(5) + nDPS(15)
+  chaveAcesso        String?      @unique
+  numeroNfse         String?
+  // Origem
+  transactionId      String?      @unique
+  patientId          String?
+  // Tomador (snapshot no momento da emissão)
+  tomadorTipoDoc     String? // CPF | CNPJ
+  tomadorDocumento   String?
+  tomadorNome        String
+  tomadorEmail       String?
+  // Serviço
+  valorCents         Int
+  descricao          String       @db.Text
+  codigoTributacao   String
+  competencia        DateTime
+  // Payloads e retorno da Sefin
+  dpsXml             String?      @db.Text
+  nfseXml            String?      @db.Text
+  mensagens          Json?
+  // Cancelamento
+  cancelMotivo       String?
+  cancelJustificativa String?
+  cancelledAt        DateTime?
+  // Cobrança da plataforma (só autorizadas em PRODUCAO)
+  billableCents      Int          @default(0)
+  issuedAt           DateTime?
+  createdById        String?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  doctor      User         @relation("DoctorNfses", fields: [doctorId], references: [id])
+  createdBy   User?        @relation("UserNfsesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  transaction Transaction? @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  patient     Patient?     @relation(fields: [patientId], references: [id], onDelete: SetNull)
+
+  @@unique([doctorId, ambiente, serie, numeroDps])
+  @@index([doctorId, status, createdAt])
+  @@index([doctorId, issuedAt])
+  @@map("TBLNFSE")
 }

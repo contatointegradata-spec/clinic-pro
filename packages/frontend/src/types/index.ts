@@ -180,6 +180,7 @@ export interface Transaction {
   doctor: { id: string; name: string }
   appointment?: { id: string; patient: { id: string; name: string } } | null
   patient?: { id: string; name: string } | null
+  nfse?: { id: string; status: NfseStatus; numeroNfse: string | null } | null
 }
 
 export interface MedicalRecordProcedure {
@@ -716,4 +717,88 @@ export interface RoomAnalytics {
 export interface CourtesyAnalytics {
   count: number
   notCharged: number
+}
+
+// ─── NFS-e (Emissor Público Nacional) ─────────────────────────────────────────
+
+export type NfseStatus = 'PROCESSING' | 'AUTHORIZED' | 'REJECTED' | 'CANCELLED' | 'ERROR'
+export type NfseAmbiente = 'PRODUCAO' | 'HOMOLOGACAO'
+
+export interface NfseMessage {
+  codigo: string | null
+  descricao: string
+  complemento: string | null
+}
+
+export interface NfseConfig {
+  id: string
+  doctorId: string
+  ambiente: NfseAmbiente
+  tipoDocumento: 'CPF' | 'CNPJ'
+  documento: string
+  inscricaoMunicipal: string | null
+  razaoSocial: string
+  email: string | null
+  telefone: string | null
+  codigoMunicipio: string
+  opcaoSimplesNacional: number
+  regimeApuracaoSN: number | null
+  regimeEspecial: number
+  codigoTributacaoNacional: string
+  codigoTributacaoMunicipal: string | null
+  codigoNbs: string | null
+  descricaoServicoPadrao: string
+  aliquotaIss: number | null
+  percentualTributosSN: number | null
+  serie: string
+  proximoNumero: number
+  certSubject: string | null
+  certDocumento: string | null
+  certValidFrom: string | null
+  certValidTo: string | null
+  hasCertificate: boolean
+  certDocMismatch: boolean
+  missing: string[]
+  unitPriceCents: number
+}
+
+export interface Nfse {
+  id: string
+  doctorId: string
+  ambiente: NfseAmbiente
+  status: NfseStatus
+  serie: string
+  numeroDps: number
+  idDps: string
+  chaveAcesso: string | null
+  numeroNfse: string | null
+  transactionId: string | null
+  patientId: string | null
+  tomadorTipoDoc: 'CPF' | 'CNPJ' | null
+  tomadorDocumento: string | null
+  tomadorNome: string
+  tomadorEmail: string | null
+  valorCents: number
+  descricao: string
+  codigoTributacao: string
+  competencia: string
+  mensagens: NfseMessage[] | null
+  cancelMotivo: string | null
+  cancelJustificativa: string | null
+  cancelledAt: string | null
+  billableCents: number
+  issuedAt: string | null
+  createdAt: string
+  hasXml: boolean
+  transaction?: { id: string; description: string; date: string; amount: number } | null
+  createdBy?: { id: string; name: string } | null
+}
+
+export interface NfseUsage {
+  month: string
+  unitPriceCents: number
+  billedCount: number
+  billedCents: number
+  invoicedCents: number
+  byStatus: Partial<Record<NfseStatus, number>>
 }

@@ -110,6 +110,7 @@ export async function mergePatients(
       consents: (await tx.patientConsent.updateMany({ where: { patientId: dropId }, data: { patientId: keepId } })).count,
       generatedDocuments: (await tx.generatedDocument.updateMany({ where: { patientId: dropId }, data: { patientId: keepId } })).count,
       conversations: (await tx.conversation.updateMany({ where: { patientId: dropId }, data: { patientId: keepId } })).count,
+      nfses: (await tx.nfse.updateMany({ where: { patientId: dropId }, data: { patientId: keepId } })).count,
       plans: 0,
     }
 

@@ -19,12 +19,7 @@ const Estoque = () => import('../pages/Estoque.vue')
 
 const FinanceiroResumo = () => import('../pages/financeiro/Resumo.vue')
 const FluxoCaixa = () => import('../pages/financeiro/FluxoCaixa.vue')
-const Extrato = () => import('../pages/financeiro/Extrato.vue')
-const Receitas = () => import('../pages/financeiro/Receitas.vue')
-const Despesas = () => import('../pages/financeiro/Despesas.vue')
-const AnaliseReceitas = () => import('../pages/financeiro/AnaliseReceitas.vue')
-const AnaliseDespesas = () => import('../pages/financeiro/AnaliseDespesas.vue')
-const AnaliseAvancada = () => import('../pages/financeiro/AnaliseAvancada.vue')
+const NotasFiscais = () => import('../pages/financeiro/NotasFiscais.vue')
 const FormasPagamento = () => import('../pages/configuracoes/FormasPagamento.vue')
 const ContasBancarias = () => import('../pages/financeiro/ContasBancarias.vue')
 const CentrosCusto = () => import('../pages/financeiro/CentrosCusto.vue')
@@ -89,18 +84,21 @@ const routes: RouteRecordRaw[] = [
       { path: 'prontuario', component: Prontuario, meta: { label: 'Prontuário' } },
       { path: 'estoque', component: Estoque, meta: { label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
 
-      { path: 'financeiro', redirect: '/financeiro/resumo' },
-      { path: 'financeiro/resumo', component: FinanceiroResumo, meta: { label: 'Resumo', secretaryPermission: 'financeiro' } },
-      { path: 'financeiro/fluxo-caixa', component: FluxoCaixa, meta: { label: 'Fluxo de Caixa', secretaryPermission: 'financeiro' } },
-      { path: 'financeiro/extrato', component: Extrato, meta: { label: 'Extrato', secretaryPermission: 'financeiro' } },
-      { path: 'financeiro/receitas', component: Receitas, meta: { label: 'Receitas', secretaryPermission: 'financeiro' } },
-      { path: 'financeiro/despesas', component: Despesas, meta: { label: 'Despesas', secretaryPermission: 'financeiro' } },
-      { path: 'financeiro/analise-receitas', component: AnaliseReceitas, meta: { label: 'Análise de Receitas', secretaryPermission: 'financeiro' } },
-      { path: 'financeiro/analise-despesas', component: AnaliseDespesas, meta: { label: 'Análise de Despesas', secretaryPermission: 'financeiro' } },
-      { path: 'financeiro/analise-avancada', component: AnaliseAvancada, meta: { label: 'Análise Avançada', roles: ['ADMIN', 'DOCTOR'] } },
-      { path: 'financeiro/formas-pagamento', component: FormasPagamento, meta: { label: 'Formas de Pagamento', roles: ['ADMIN', 'DOCTOR'] } },
-      { path: 'financeiro/contas-bancarias', component: ContasBancarias, meta: { label: 'Contas Bancárias', roles: ['ADMIN', 'DOCTOR'] } },
-      { path: 'financeiro/centros-custo', component: CentrosCusto, meta: { label: 'Centros de Custo', roles: ['ADMIN', 'DOCTOR'] } },
+      // Financeiro enxuto: Painel · Fluxo de caixa · Notas fiscais. Rotas antigas redirecionam.
+      { path: 'financeiro', redirect: '/financeiro/painel' },
+      { path: 'financeiro/painel', component: FinanceiroResumo, meta: { label: 'Painel financeiro', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/fluxo-caixa', component: FluxoCaixa, meta: { label: 'Fluxo de caixa', secretaryPermission: 'financeiro' } },
+      { path: 'financeiro/notas-fiscais', component: NotasFiscais, meta: { label: 'Notas fiscais', roles: ['ADMIN', 'DOCTOR'] } },
+      { path: 'financeiro/resumo', redirect: '/financeiro/painel' },
+      { path: 'financeiro/analise-receitas', redirect: '/financeiro/painel' },
+      { path: 'financeiro/analise-despesas', redirect: '/financeiro/painel' },
+      { path: 'financeiro/analise-avancada', redirect: '/financeiro/painel' },
+      { path: 'financeiro/extrato', redirect: '/financeiro/fluxo-caixa' },
+      { path: 'financeiro/receitas', redirect: '/financeiro/fluxo-caixa' },
+      { path: 'financeiro/despesas', redirect: '/financeiro/fluxo-caixa' },
+      { path: 'financeiro/formas-pagamento', redirect: '/configuracoes/formas-pagamento' },
+      { path: 'financeiro/contas-bancarias', redirect: '/configuracoes/contas-bancarias' },
+      { path: 'financeiro/centros-custo', redirect: '/configuracoes/centros-custo' },
 
       { path: 'usuarios', component: Usuarios, meta: { label: 'Usuários', roles: ['ADMIN'] } },
       { path: 'admin/gestao', component: AdminGestao, meta: { label: 'Gestão', roles: ['ADMIN'] } },
@@ -124,6 +122,8 @@ const routes: RouteRecordRaw[] = [
       { path: 'configuracoes/salas', component: Salas, meta: { label: 'Salas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' } },
       { path: 'configuracoes/documentos', component: Documentos, meta: { label: 'Documentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' } },
       { path: 'configuracoes/formas-pagamento', component: FormasPagamento, meta: { label: 'Formas de Pagamento', roles: ['ADMIN', 'DOCTOR'] } },
+      { path: 'configuracoes/contas-bancarias', component: ContasBancarias, meta: { label: 'Contas Bancárias', roles: ['ADMIN', 'DOCTOR'] } },
+      { path: 'configuracoes/centros-custo', component: CentrosCusto, meta: { label: 'Centros de Custo', roles: ['ADMIN', 'DOCTOR'] } },
       { path: 'configuracoes/notificacoes', component: ConfigNotificacoes, meta: { label: 'Notificações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'notifications' } },
       { path: 'configuracoes/integracoes', component: Integracoes, meta: { label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'integrations', secretaryPermission: INTEGRATION_PERMISSION_KEYS } },
       { path: 'configuracoes/assinatura', component: Assinatura, meta: { label: 'Assinatura' } },

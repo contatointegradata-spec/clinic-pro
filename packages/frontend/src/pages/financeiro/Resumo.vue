@@ -9,11 +9,15 @@ import {
   Plus,
   BarChart3,
   ArrowUpRight,
+  FileCheck2,
+  ChevronRight,
 } from 'lucide-vue-next'
+import { RouterLink } from 'vue-router'
 import toast from '../../lib/toast'
 import api from '../../lib/api'
 import { useAuthStore } from '../../stores/auth'
-import type { Transaction, FinancialResponse, MonthlyData, User, Patient } from '../../types'
+import type { Transaction, FinancialResponse, MonthlyData, User, Patient, NfseUsage } from '../../types'
+import { centsToBRL } from '../../components/Financial/nfse'
 import Modal from '../../components/ui/Modal.vue'
 import TransactionForm from '../../components/Financial/TransactionForm.vue'
 import PageHeader from '../../components/ui/PageHeader.vue'
@@ -88,6 +92,12 @@ const chartMax = computed(() =>
 
 const summary = computed(() => financialData.value?.summary)
 
+// Notas fiscais do mês (uso e custo de emissão)
+const { data: nfseUsage } = useQuery<NfseUsage>({
+  key: 'nfse-usage',
+  queryFn: () => api.get('/nfse/usage').then(r => r.data),
+})
+
 const summaryCards = computed(() => [
   {
     icon: TrendingUp,
@@ -158,16 +168,16 @@ async function handleSave(data: Record<string, unknown>) {
 
 <template>
   <div class="space-y-6 page-stagger">
-    <PageHeader title="Resumo Financeiro" :subtitle="`${format(dateRange.startDate, 'MMM yyyy')} — visão geral do período`">
+    <PageHeader title="Painel financeiro" :subtitle="`${format(dateRange.startDate, 'MMM yyyy')} — visão geral do período`">
       <template #actions>
         <div class="flex items-center gap-2">
           <button class="btn-secondary" @click="handleNew('EXPENSE')">
             <ArrowUpRight class="w-4 h-4 rotate-90" />
-            Lançar Repasse
+            Nova despesa
           </button>
           <button class="btn-primary" @click="handleNew('INCOME')">
             <Plus class="w-4 h-4" />
-            Nova Transação
+            Nova receita
           </button>
         </div>
       </template>
@@ -202,6 +212,32 @@ async function handleSave(data: Record<string, unknown>) {
         </div>
       </div>
     </div>
+
+    <!-- Notas fiscais do mês -->
+    <RouterLink to="/financeiro/notas-fiscais" class="card-hover flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center flex-shrink-0">
+        <FileCheck2 class="w-5 h-5 text-primary-600" />
+      </div>
+      <div class="flex-1 min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div>
+          <p class="text-xs text-slate-500 uppercase tracking-wide">Notas autorizadas</p>
+          <p class="text-lg font-bold text-slate-900 tabular-nums">{{ nfseUsage?.byStatus.AUTHORIZED ?? 0 }}</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-500 uppercase tracking-wide">Valor em notas</p>
+          <p class="text-lg font-bold text-emerald-600 tabular-nums">{{ centsToBRL(nfseUsage?.invoicedCents ?? 0) }}</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-500 uppercase tracking-wide">Custo de emissão</p>
+          <p class="text-lg font-bold text-slate-900 tabular-nums">{{ centsToBRL(nfseUsage?.billedCents ?? 0) }}</p>
+        </div>
+        <div>
+          <p class="text-xs text-slate-500 uppercase tracking-wide">Pendências</p>
+          <p class="text-lg font-bold text-amber-600 tabular-nums">{{ (nfseUsage?.byStatus.REJECTED ?? 0) + (nfseUsage?.byStatus.PROCESSING ?? 0) + (nfseUsage?.byStatus.ERROR ?? 0) }}</p>
+        </div>
+      </div>
+      <ChevronRight class="w-4 h-4 text-slate-300 flex-shrink-0" />
+    </RouterLink>
 
     <!-- Annual chart -->
     <div class="card">
@@ -244,8 +280,13 @@ async function handleSave(data: Record<string, unknown>) {
     <!-- Recent transactions -->
     <div v-if="recentTransactions.length > 0" class="card p-0 overflow-hidden">
       <div class="px-6 py-4 border-b border-slate-100">
-        <h2 class="font-semibold text-slate-900">Transações Recentes</h2>
-        <p class="text-xs text-slate-400 mt-0.5">Últimas {{ recentTransactions.length }} movimentações do período</p>
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="font-semibold text-slate-900">Movimentações recentes</h2>
+            <p class="text-xs text-slate-400 mt-0.5">Últimas {{ recentTransactions.length }} do período</p>
+          </div>
+          <RouterLink to="/financeiro/fluxo-caixa" class="text-xs font-medium text-primary-600 hover:underline">Ver fluxo de caixa</RouterLink>
+        </div>
       </div>
       <div class="divide-y divide-slate-50">
         <div v-for="tx in recentTransactions" :key="tx.id" class="flex items-center gap-4 px-6 py-3 hover:bg-slate-50/60 transition-colors">
@@ -276,11 +317,12 @@ async function handleSave(data: Record<string, unknown>) {
 
     <Modal
       :is-open="modalOpen"
-      :title="editTx ? 'Editar Transação' : defaultType === 'INCOME' ? 'Nova Receita' : 'Lançar Repasse'"
+      :title="editTx ? 'Editar lançamento' : defaultType === 'INCOME' ? 'Nova receita' : 'Nova despesa'"
       @close="closeModal"
     >
       <TransactionForm
         :transaction="editTx"
+        :default-type="defaultType"
         :doctors="doctors"
         :patients="patients"
         :current-user="authStore.user"

@@ -15,6 +15,8 @@ import {
   Shield,
   Sparkles,
   Code2,
+  Building2,
+  FolderTree,
 } from 'lucide-vue-next'
 import { INTEGRATION_PERMISSION_KEYS } from '../composables/useSecretaryPermissions'
 
@@ -42,6 +44,8 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
   { to: '/configuracoes/salas', icon: MapPin, label: 'Clínica', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' },
   { to: '/configuracoes/documentos', icon: FileText, label: 'Documentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' },
   { to: '/configuracoes/formas-pagamento', icon: Wallet, label: 'Formas de Pagamento', shortLabel: 'Pagamento', roles: ['ADMIN', 'DOCTOR'] },
+  { to: '/configuracoes/contas-bancarias', icon: Building2, label: 'Contas Bancárias', shortLabel: 'Contas', roles: ['ADMIN', 'DOCTOR'] },
+  { to: '/configuracoes/centros-custo', icon: FolderTree, label: 'Centros de Custo', shortLabel: 'Centros', roles: ['ADMIN', 'DOCTOR'] },
   { to: '/configuracoes/notificacoes', icon: Bell, label: 'Notificações', shortLabel: 'Alertas', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformGate: 'notifications' },
   { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: INTEGRATION_PERMISSION_KEYS, platformGate: 'integrations' },
   { to: '/configuracoes/assinatura', icon: Sparkles, label: 'Assinatura', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },

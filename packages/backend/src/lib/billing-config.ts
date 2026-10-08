@@ -75,3 +75,7 @@ export function resolveIntegrationAddonType(providerProductId: string): string |
   }
   return null
 }
+
+// NFS-e: cobrança por nota AUTORIZADA em produção (homologação não é cobrada;
+// nota cancelada continua cobrada — a emissão aconteceu). Ver lib/nfse/service.ts.
+export const NFSE_UNIT_PRICE_CENTS = Number(process.env.NFSE_UNIT_PRICE_CENTS) || 20

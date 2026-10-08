@@ -2,9 +2,8 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  Home, ChevronRight, DollarSign, LayoutDashboard, ArrowLeftRight, Receipt,
-  TrendingUp, TrendingDown, BarChart3, PieChart, LineChart, Wallet, Building2,
-  FolderTree, PanelLeftClose, PanelLeft, LogOut,
+  Home, ChevronRight, DollarSign, LayoutDashboard, ArrowLeftRight, FileCheck2,
+  PanelLeftClose, PanelLeft, LogOut,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
 import NotificationBell from '../NotificationBell.vue'
@@ -16,42 +15,18 @@ const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
-const PAINEL_SECTIONS = [
+// Financeiro enxuto: só o essencial. Formas de pagamento, contas bancárias e
+// centros de custo ficam em Configurações.
+const sections = computed(() => [
   {
-    label: 'Painel',
+    label: 'Financeiro',
     items: [
-      { to: '/financeiro/resumo', label: 'Resumo', icon: LayoutDashboard },
+      { to: '/financeiro/painel', label: 'Painel', icon: LayoutDashboard },
       { to: '/financeiro/fluxo-caixa', label: 'Fluxo de caixa', icon: ArrowLeftRight },
+      ...(authStore.user?.role === 'SECRETARY' ? [] : [{ to: '/financeiro/notas-fiscais', label: 'Notas fiscais', icon: FileCheck2 }]),
     ],
   },
-  {
-    label: 'Transações',
-    items: [
-      { to: '/financeiro/extrato', label: 'Extrato', icon: Receipt },
-      { to: '/financeiro/receitas', label: 'Receitas', icon: TrendingUp },
-      { to: '/financeiro/despesas', label: 'Despesas', icon: TrendingDown },
-    ],
-  },
-  {
-    label: 'Relatórios',
-    items: [
-      { to: '/financeiro/analise-receitas', label: 'Análise de receitas', icon: BarChart3 },
-      { to: '/financeiro/analise-despesas', label: 'Análise de despesas', icon: PieChart },
-      { to: '/financeiro/analise-avancada', label: 'Análise avançada', icon: LineChart },
-    ],
-  },
-]
-
-const CONFIG_SECTION = {
-  label: 'Configurações',
-  items: [
-    { to: '/financeiro/formas-pagamento', label: 'Formas de pagamento', icon: Wallet },
-    { to: '/financeiro/contas-bancarias', label: 'Contas bancárias', icon: Building2 },
-    { to: '/financeiro/centros-custo', label: 'Centros de custo', icon: FolderTree },
-  ],
-}
-
-const sections = computed(() => authStore.user?.role === 'SECRETARY' ? PAINEL_SECTIONS : [...PAINEL_SECTIONS, CONFIG_SECTION])
+])
 const initials = computed(() => authStore.user?.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() || 'U')
 
 function isActive(to: string) {

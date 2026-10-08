@@ -23,6 +23,8 @@ import chatbotLightRoutes from './routes/chatbot-light'
 import aiAgentRoutes from './routes/ai-agent'
 import myRoomsRoutes from './routes/my-rooms'
 import attendanceRoutes, { attendanceStreamRouter } from './routes/attendance'
+import nfseRoutes from './routes/nfse'
+import { startNfseSyncJob } from './lib/nfse/service'
 import { startNotificationJobs } from './lib/notification-jobs'
 import { startPatientIdentityJobs } from './lib/patient-identity'
 import { reconcileAllLidConversations } from './lib/attendance'
@@ -148,6 +150,7 @@ app.use('/api/users', userRoutes)
 app.use('/api/appointments', authenticate, requireActiveSubscription, appointmentRoutes)
 app.use('/api/patients', authenticate, requireActiveSubscription, patientRoutes)
 app.use('/api/financial', authenticate, requireActiveSubscription, financialRoutes)
+app.use('/api/nfse', authenticate, requireActiveSubscription, nfseRoutes)
 app.use('/api/doctors', doctorRoutes)
 app.use('/api/health-plans', authenticate, requireActiveSubscription, healthPlanRoutes)
 app.use('/api/medical-records', authenticate, requireActiveSubscription, medicalRecordRoutes)
@@ -236,6 +239,9 @@ app.listen(PORT, () => {
 
   // Notificações periódicas (follow-up de leads, pré-agendamentos, fila de atendimento)
   startNotificationJobs()
+
+  // NFS-e: reconcilia emissões sem resposta conclusiva da Sefin
+  startNfseSyncJob()
 
   // Identidade do paciente: phoneKey, leads com LID e fusão automática segura
   // de duplicados (inicialização + a cada 30 min) — ver lib/patient-identity.ts
