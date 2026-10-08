@@ -1,0 +1,147 @@
+-- Migration: odonto_estetica
+-- Recursos para odontologia e estética:
+-- - odontograma (TBLODONTOGRAMA)
+-- - mapa de aplicação de harmonização/estética (TBLMAPAAPLICACAO)
+-- - fotos de antes e depois (TBLFOTOPACIENTE)
+-- - orçamento / plano de tratamento com pacotes de sessões (TBLORCAMENTO, TBLORCAMENTOITEM)
+-- - retorno programado por procedimento (TBLRETORNOPROGRAMADO + returnIntervalDays)
+--
+-- Idempotente (IF NOT EXISTS), no padrão das migrations >= 20260628 que
+-- rodam via `prisma migrate deploy` (ver scripts/migrate.sh).
+
+ALTER TABLE "TBLTIPOAGENDAMENTO" ADD COLUMN IF NOT EXISTS "returnIntervalDays" INTEGER;
+
+CREATE TABLE IF NOT EXISTS "TBLODONTOGRAMA" (
+    "id" TEXT NOT NULL,
+    "patientId" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "tooth" TEXT NOT NULL,
+    "faces" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "condition" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'EXISTENTE',
+    "notes" TEXT,
+    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "TBLODONTOGRAMA_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "TBLODONTOGRAMA_patientId_idx" ON "TBLODONTOGRAMA"("patientId");
+
+CREATE TABLE IF NOT EXISTS "TBLMAPAAPLICACAO" (
+    "id" TEXT NOT NULL,
+    "patientId" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "area" TEXT NOT NULL,
+    "product" TEXT NOT NULL,
+    "productId" TEXT,
+    "quantity" DOUBLE PRECISION,
+    "unit" TEXT,
+    "lot" TEXT,
+    "technique" TEXT,
+    "notes" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "TBLMAPAAPLICACAO_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "TBLMAPAAPLICACAO_patientId_idx" ON "TBLMAPAAPLICACAO"("patientId");
+
+CREATE TABLE IF NOT EXISTS "TBLFOTOPACIENTE" (
+    "id" TEXT NOT NULL,
+    "patientId" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "takenAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "category" TEXT NOT NULL DEFAULT 'ANTES',
+    "area" TEXT,
+    "procedure" TEXT,
+    "notes" TEXT,
+    "mimeType" TEXT NOT NULL,
+    "width" INTEGER,
+    "height" INTEGER,
+    "data" BYTEA NOT NULL,
+    "thumbnail" BYTEA NOT NULL,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TBLFOTOPACIENTE_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "TBLFOTOPACIENTE_patientId_takenAt_idx" ON "TBLFOTOPACIENTE"("patientId", "takenAt");
+
+CREATE TABLE IF NOT EXISTS "TBLORCAMENTO" (
+    "id" TEXT NOT NULL,
+    "patientId" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'RASCUNHO',
+    "notes" TEXT,
+    "discount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "validUntil" TIMESTAMP(3),
+    "approvalToken" TEXT NOT NULL,
+    "sentAt" TIMESTAMP(3),
+    "approvedAt" TIMESTAMP(3),
+    "approvedName" TEXT,
+    "approvalChannel" TEXT,
+    "approvalIp" TEXT,
+    "rejectedAt" TIMESTAMP(3),
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "TBLORCAMENTO_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TBLORCAMENTO_approvalToken_key" ON "TBLORCAMENTO"("approvalToken");
+CREATE INDEX IF NOT EXISTS "TBLORCAMENTO_patientId_idx" ON "TBLORCAMENTO"("patientId");
+CREATE INDEX IF NOT EXISTS "TBLORCAMENTO_doctorId_status_idx" ON "TBLORCAMENTO"("doctorId", "status");
+
+CREATE TABLE IF NOT EXISTS "TBLORCAMENTOITEM" (
+    "id" TEXT NOT NULL,
+    "planId" TEXT NOT NULL,
+    "appointmentTypeId" TEXT,
+    "name" TEXT NOT NULL,
+    "region" TEXT,
+    "quantity" INTEGER NOT NULL DEFAULT 1,
+    "unitPrice" DOUBLE PRECISION NOT NULL,
+    "completedQty" INTEGER NOT NULL DEFAULT 0,
+    "position" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "TBLORCAMENTOITEM_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "TBLORCAMENTOITEM_planId_idx" ON "TBLORCAMENTOITEM"("planId");
+
+CREATE TABLE IF NOT EXISTS "TBLRETORNOPROGRAMADO" (
+    "id" TEXT NOT NULL,
+    "patientId" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "appointmentTypeId" TEXT,
+    "procedureName" TEXT NOT NULL,
+    "dueDate" TIMESTAMP(3) NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'PENDENTE',
+    "sourceAppointmentId" TEXT,
+    "notifiedAt" TIMESTAMP(3),
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "TBLRETORNOPROGRAMADO_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "TBLRETORNOPROGRAMADO_sourceAppointmentId_key" ON "TBLRETORNOPROGRAMADO"("sourceAppointmentId");
+CREATE INDEX IF NOT EXISTS "TBLRETORNOPROGRAMADO_doctorId_status_dueDate_idx" ON "TBLRETORNOPROGRAMADO"("doctorId", "status", "dueDate");
+CREATE INDEX IF NOT EXISTS "TBLRETORNOPROGRAMADO_patientId_idx" ON "TBLRETORNOPROGRAMADO"("patientId");
+
+-- Chaves estrangeiras (ON DELETE CASCADE no paciente). DO-block para ser idempotente.
+DO $$ BEGIN
+  ALTER TABLE "TBLODONTOGRAMA" ADD CONSTRAINT "TBLODONTOGRAMA_patientId_fkey" FOREIGN KEY ("patientId") REFERENCES "TBLPACIENTE"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "TBLMAPAAPLICACAO" ADD CONSTRAINT "TBLMAPAAPLICACAO_patientId_fkey" FOREIGN KEY ("patientId") REFERENCES "TBLPACIENTE"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "TBLFOTOPACIENTE" ADD CONSTRAINT "TBLFOTOPACIENTE_patientId_fkey" FOREIGN KEY ("patientId") REFERENCES "TBLPACIENTE"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "TBLORCAMENTO" ADD CONSTRAINT "TBLORCAMENTO_patientId_fkey" FOREIGN KEY ("patientId") REFERENCES "TBLPACIENTE"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "TBLORCAMENTOITEM" ADD CONSTRAINT "TBLORCAMENTOITEM_planId_fkey" FOREIGN KEY ("planId") REFERENCES "TBLORCAMENTO"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  ALTER TABLE "TBLRETORNOPROGRAMADO" ADD CONSTRAINT "TBLRETORNOPROGRAMADO_patientId_fkey" FOREIGN KEY ("patientId") REFERENCES "TBLPACIENTE"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

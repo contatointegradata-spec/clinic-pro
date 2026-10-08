@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { z } from 'zod'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
@@ -122,6 +123,13 @@ function toggleExpanded(id: string) {
 
 function selectPatient(p: Patient) {
   selectedPatient.value = p
+}
+
+// ?paciente=<id> (ex.: vindo da Ficha clínica) já abre o prontuário da paciente.
+const prontuarioRoute = useRoute()
+const preselectId = typeof prontuarioRoute.query.paciente === 'string' ? prontuarioRoute.query.paciente : null
+if (preselectId) {
+  api.get<Patient>(`/patients/${preselectId}`).then(r => { selectedPatient.value = r.data }).catch(() => {})
 }
 
 // ─── Queries ────────────────────────────────────────────────────────────────
@@ -346,8 +354,14 @@ async function handleCharged() {
   <div class="space-y-4 page-stagger">
     <PageHeader
       title="Prontuário Eletrônico"
-      subtitle="Registros médicos organizados por paciente"
-    />
+      subtitle="Evoluções, anamneses e procedimentos por paciente"
+    >
+      <template v-if="selectedPatient" #actions>
+        <router-link :to="`/pacientes/${selectedPatient.id}/clinico`" class="btn-secondary text-sm">
+          Ficha clínica · odontograma, fotos e orçamentos
+        </router-link>
+      </template>
+    </PageHeader>
 
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 min-h-[min(600px,70vh)]">
       <!-- Patient list -->

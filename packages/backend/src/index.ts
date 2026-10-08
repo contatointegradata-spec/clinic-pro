@@ -2,6 +2,8 @@ import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import authRoutes from './routes/auth'
+import clinicalRoutes from './routes/clinical'
+import publicPlanRoutes from './routes/public-plans'
 import userRoutes from './routes/users'
 import appointmentRoutes from './routes/appointments'
 import patientRoutes from './routes/patients'
@@ -138,6 +140,10 @@ app.use('/api', generalRateLimiter)
 // Captura o corpo bruto da requisição (necessário pra validar a assinatura
 // HMAC do webhook da Kiwify, que precisa dos bytes originais, não do JSON já
 // reserializado). Custo desprezível para as demais rotas.
+// Fotos clínicas chegam em base64 (já redimensionadas no navegador) — limite
+// maior só nesta rota; o parser global abaixo ignora corpos já lidos.
+app.use('/api/clinical/patients/:patientId/photos', express.json({ limit: '12mb' }))
+
 app.use(express.json({
   verify: (req, _res, buf) => {
     (req as Request & { rawBody?: Buffer }).rawBody = buf
@@ -165,6 +171,9 @@ app.use('/api/documents', authenticate, requireActiveSubscription, documentRoute
 app.use('/api/notifications', authenticate, requireActiveSubscription, notificationRoutes)
 app.use('/api/payment-methods', authenticate, requireActiveSubscription, paymentMethodRoutes)
 app.use('/api/stock', authenticate, requireActiveSubscription, stockRoutes)
+app.use('/api/clinical', authenticate, requireActiveSubscription, clinicalRoutes)
+// Orçamento público: a paciente aprova pelo link, sem login.
+app.use('/api/public/treatment-plans', publicPlanRoutes)
 app.use('/api/integrations', authenticate, requireActiveSubscription, integrationRoutes)
 app.use('/api/integration-addons', authenticate, requireActiveSubscription, integrationAddonRoutes)
 app.use('/api/chatbot-light', authenticate, requireActiveSubscription, chatbotLightRoutes)

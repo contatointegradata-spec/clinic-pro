@@ -13,6 +13,7 @@ const schema = z.object({
   name: z.string().min(2, 'Nome obrigatório'),
   baseValue: z.coerce.number().min(0).optional().or(z.literal('')),
   hasReturns: z.boolean().default(false),
+  returnIntervalDays: z.preprocess(v => (v === '' || v == null ? null : v), z.coerce.number().int().min(1, 'Mínimo 1 dia').max(3650).nullable()),
 })
 
 type FormData = z.infer<typeof schema>
@@ -38,6 +39,7 @@ const form = reactive({
   name: '',
   baseValue: '' as number | '',
   hasReturns: false,
+  returnIntervalDays: null as number | null,
 })
 const errors = reactive<Partial<Record<keyof FormData, string>>>({})
 
@@ -45,6 +47,7 @@ watch(editType, (t) => {
   form.name = t?.name || ''
   form.baseValue = t?.baseValue ?? ''
   form.hasReturns = t?.hasReturns ?? false
+  form.returnIntervalDays = t?.returnIntervalDays ?? null
   errors.name = undefined
   errors.baseValue = undefined
 }, { immediate: true })
@@ -94,6 +97,14 @@ async function handleToggle(id: string) {
     toggling.value = false
   }
 }
+
+const RETURN_PRESETS = [
+  { label: 'Sem retorno', days: null },
+  { label: '30 dias', days: 30 },
+  { label: '4 meses', days: 120 },
+  { label: '6 meses', days: 180 },
+  { label: '1 ano', days: 365 },
+]
 
 function formatValue(v: number) {
   return v.toFixed(2).replace('.', ',')
@@ -176,6 +187,9 @@ function formatValue(v: number) {
                 <RefreshCw class="w-3 h-3" />
                 Disponibiliza Retornos
               </span>
+              <span v-if="t.returnIntervalDays" class="inline-flex items-center gap-1 text-xs bg-primary-50 text-primary-700 px-2 py-0.5 rounded-full font-medium">
+                Retorno em {{ t.returnIntervalDays }} dias
+              </span>
               <span v-if="!t.active" class="text-xs bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Inativo</span>
             </div>
             <p v-if="t.baseValue != null && t.baseValue > 0" class="text-sm text-slate-500 flex items-center gap-1 mt-0.5">
@@ -242,6 +256,29 @@ function formatValue(v: number) {
           <p class="text-xs text-slate-400 mt-1">
             Valor padrão para este tipo de atendimento. O desconto do plano do paciente será aplicado automaticamente.
           </p>
+        </div>
+
+        <!-- Retorno programado (odontologia / estética) -->
+        <div class="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
+          <div>
+            <p class="font-semibold text-sm text-slate-700">Retorno programado</p>
+            <p class="text-xs text-slate-500 mt-0.5">
+              Ao concluir este procedimento na agenda, a paciente entra na lista de Retornos para daqui a X dias
+              (ex.: reaplicação de toxina, manutenção do aparelho, limpeza).
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              v-for="opt in RETURN_PRESETS" :key="opt.label" type="button"
+              :class="['text-xs font-semibold px-2.5 py-1.5 rounded-lg border transition-colors', form.returnIntervalDays === opt.days ? 'bg-primary-600 text-white border-primary-600' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-300']"
+              @click="form.returnIntervalDays = opt.days"
+            >{{ opt.label }}</button>
+            <div class="flex items-center gap-1.5">
+              <input v-model.number="form.returnIntervalDays" type="number" min="1" class="input-field w-24 py-1.5" placeholder="Dias" />
+              <span class="text-xs text-slate-500">dias</span>
+            </div>
+          </div>
+          <p v-if="errors.returnIntervalDays" class="text-xs text-red-600">{{ errors.returnIntervalDays }}</p>
         </div>
 
         <!-- Retornos recorrentes toggle -->

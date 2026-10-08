@@ -1068,4 +1068,12 @@ export async function checkScheduledReminders() {
       })
     }
   }
+  // 6. Retorno programado por procedimento (PROCEDURE_RETURN_DUE) — ver
+  // lib/scheduled-returns.ts. Import dinâmico: aquele módulo importa este.
+  try {
+    const { processDueReturns } = await import('./scheduled-returns')
+    await processDueReturns(now)
+  } catch (err) {
+    console.error('[checkScheduledReminders] Erro nos retornos programados:', err)
+  }
 }

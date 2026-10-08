@@ -6,7 +6,7 @@ import { ptBR } from 'date-fns/locale'
 import {
   Plus, Search, Phone, Mail, Edit2, Users, Calendar, UserCircle2,
   AlertTriangle, CheckCircle2, Clock, UserX, CheckCheck, ChevronRight,
-  Download, ShieldOff, GitMerge,
+  Download, ShieldOff, GitMerge, Sparkles,
 } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
@@ -626,6 +626,14 @@ watch(
                     <CheckCheck class="w-3 h-3" />
                     Finalizar
                   </button>
+                  <router-link
+                    :to="`/pacientes/${p.id}/clinico`"
+                    class="px-2 py-1 text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-lg transition-all flex items-center gap-1"
+                    title="Odontograma, harmonização, fotos, orçamentos e retornos"
+                  >
+                    <Sparkles class="w-3 h-3" />
+                    Ficha clínica
+                  </router-link>
                   <button
                     class="p-1.5 text-slate-300 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all duration-150 active:scale-90"
                     title="Editar"
@@ -748,6 +756,15 @@ watch(
               </span>
               <ChevronRight class="w-3.5 h-3.5 text-slate-300" />
             </div>
+          </div>
+          <div v-if="!isPreCad(p)" class="mt-2 pt-2 border-t border-slate-100" @click.stop>
+            <router-link
+              :to="`/pacientes/${p.id}/clinico`"
+              class="w-full text-center text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-lg py-1.5 transition-all flex items-center justify-center gap-1"
+            >
+              <Sparkles class="w-3 h-3" />
+              Ficha clínica
+            </router-link>
           </div>
           <div v-if="isPreCad(p)" class="mt-2 pt-2 border-t border-slate-100" @click.stop>
             <button

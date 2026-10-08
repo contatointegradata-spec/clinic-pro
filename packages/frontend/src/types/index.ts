@@ -626,6 +626,7 @@ export interface AppointmentType {
   name: string
   baseValue?: number | null
   hasReturns: boolean
+  returnIntervalDays?: number | null
   active: boolean
   createdAt: string
 }

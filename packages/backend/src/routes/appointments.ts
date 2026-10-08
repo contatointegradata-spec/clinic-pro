@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { notifyAppointmentEvent } from '../lib/notifications'
 import { fireWebhooks } from '../lib/webhook'
+import { onAppointmentCompleted, onAppointmentScheduled } from '../lib/scheduled-returns'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 import { tryRoomWhatsAppConfirmation, sendRoomWhatsAppMessage, checkPhoneOnWhatsApp, normalizeToWhatsAppJid } from '../lib/room-whatsapp'
@@ -357,6 +358,9 @@ router.post('/', async (req: AuthRequest, res) => {
       repeatCount: totalOccurrences,
     }).catch(() => {})
 
+    onAppointmentScheduled({ patientId: appointment.patientId, type: appointment.type })
+      .catch(err => console.error('[scheduledReturn on create]', err))
+
     res.status(201).json(totalOccurrences > 1 ? created : appointment)
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -597,6 +601,14 @@ router.put('/:id', async (req: AuthRequest, res) => {
     })
 
     if (beingCompleted) {
+      onAppointmentCompleted({
+        id: updated.id,
+        patientId: updated.patientId,
+        doctorId: updated.doctorId,
+        date: updated.date,
+        type: updated.type,
+      }).catch(err => console.error('[scheduledReturn on complete]', err))
+
       fireWebhooks(updated.doctorId, 'appointment.completed', {
         id: updated.id,
         patientName: updated.patient.name,

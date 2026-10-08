@@ -83,6 +83,13 @@ export const LIGHT_CAMPAIGN_PRESETS: CampaignPreset[] = [
   },
   {
     module: 'pacientes',
+    triggerEvent: 'PROCEDURE_RETURN_DUE',
+    name: 'Retorno programado de procedimento',
+    category: 'pacientes',
+    content: 'Olá {nome}! Já está chegando a hora do seu retorno de {tipo_atendimento} com {medico}. Vamos agendar? É só responder por aqui com o melhor dia e horário. 😊',
+  },
+  {
+    module: 'pacientes',
     triggerEvent: 'PATIENT_BIRTHDAY',
     name: 'Mensagem de aniversário',
     category: 'pacientes',

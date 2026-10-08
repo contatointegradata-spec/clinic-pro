@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   format, startOfWeek, addDays, addWeeks, subWeeks, subDays, isSameDay, parseISO,
 } from 'date-fns'
@@ -237,6 +238,20 @@ const { data: wsStatus, refetch: refetchWsStatus } = useQuery<{ status?: string 
 let wsStatusInterval: ReturnType<typeof setInterval> | undefined
 onMounted(() => {
   wsStatusInterval = setInterval(() => refetchWsStatus(), 30000)
+})
+
+// ?paciente=<id> (ex.: botão "Agendar" de um retorno programado) abre um
+// agendamento novo já com a paciente selecionada.
+const agendaRoute = useRoute()
+const agendaRouter = useRouter()
+const prefillPatientId = ref<string | null>(null)
+onMounted(() => {
+  const pid = agendaRoute.query.paciente
+  if (typeof pid === 'string' && pid) {
+    prefillPatientId.value = pid
+    openNewAppointment()
+    agendaRouter.replace({ query: { ...agendaRoute.query, paciente: undefined } })
+  }
 })
 onBeforeUnmount(() => {
   if (wsStatusInterval) clearInterval(wsStatusInterval)
@@ -589,6 +604,7 @@ function openNewAppointment() {
 function closeAppointmentModal() {
   modalOpen.value = false
   selectedAppt.value = null
+  prefillPatientId.value = null
 }
 
 function forceSaveOverlap() {
@@ -1137,6 +1153,7 @@ const listRows = computed<{ day: Date; rows: ListRow[] }[]>(() => {
         :rooms="myRooms"
         :current-user="authStore.user"
         :loading="savingAppt"
+        :default-patient-id="selectedAppt ? null : prefillPatientId"
         @submit="handleFormSubmit"
         @delete="handleFormDelete"
         @patient-created="handlePatientCreated"

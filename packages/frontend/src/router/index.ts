@@ -5,6 +5,10 @@ import { INTEGRATION_PERMISSION_KEYS } from '../composables/useSecretaryPermissi
 const AppShell = () => import('../components/layout/AppShell.vue')
 const Login = () => import('../pages/Login.vue')
 const Cadastro = () => import('../pages/Cadastro.vue')
+const OrcamentoPublico = () => import('../pages/OrcamentoPublico.vue')
+const PacienteClinico = () => import('../pages/PacienteClinico.vue')
+const Orcamentos = () => import('../pages/Orcamentos.vue')
+const Retornos = () => import('../pages/Retornos.vue')
 const LandingPage = () => import('../pages/LandingPage.vue')
 const Dashboard = () => import('../pages/Dashboard.vue')
 const Agenda = () => import('../pages/Agenda.vue')
@@ -58,6 +62,8 @@ const routes: RouteRecordRaw[] = [
     component: Login,
     meta: { guestOnly: true },
   },
+  // Orçamento público — a paciente aprova pelo link, sem login.
+  { path: '/orcamento/:token', component: OrcamentoPublico },
   {
     path: '/cadastro',
     component: Cadastro,
@@ -81,6 +87,9 @@ const routes: RouteRecordRaw[] = [
       { path: 'dashboard', component: Dashboard, meta: { label: 'Dashboard' } },
       { path: 'agenda', component: Agenda, meta: { label: 'Agenda' } },
       { path: 'pacientes', component: Pacientes, meta: { label: 'Pacientes' } },
+      { path: 'pacientes/:id/clinico', component: PacienteClinico, meta: { label: 'Ficha clínica' } },
+      { path: 'orcamentos', component: Orcamentos, meta: { label: 'Orçamentos' } },
+      { path: 'retornos', component: Retornos, meta: { label: 'Retornos' } },
       { path: 'prontuario', component: Prontuario, meta: { label: 'Prontuário' } },
       { path: 'estoque', component: Estoque, meta: { label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
 

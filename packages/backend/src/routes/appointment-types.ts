@@ -10,6 +10,8 @@ const typeSchema = z.object({
   name: z.string().min(2, 'Nome obrigatório'),
   baseValue: z.coerce.number().min(0).optional().or(z.literal('')),
   hasReturns: z.boolean().optional().default(false),
+  // Retorno programado (dias). null/'' = sem retorno automático.
+  returnIntervalDays: z.coerce.number().int().min(1).max(3650).nullable().optional().or(z.literal('')),
 })
 
 /**
@@ -97,6 +99,7 @@ router.post('/', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res: R
         name: data.name,
         baseValue: data.baseValue === '' ? null : data.baseValue,
         hasReturns: data.hasReturns ?? false,
+        returnIntervalDays: data.returnIntervalDays === '' ? null : data.returnIntervalDays ?? null,
         ...(doctorId ? { doctorId } : {}),
       },
     })
@@ -135,6 +138,7 @@ router.put('/:id', requireRole('ADMIN', 'DOCTOR'), async (req: AuthRequest, res:
         ...(data.name && { name: data.name }),
         baseValue: data.baseValue === '' ? null : data.baseValue,
         ...(data.hasReturns !== undefined && { hasReturns: data.hasReturns }),
+        ...(data.returnIntervalDays !== undefined && { returnIntervalDays: data.returnIntervalDays === '' ? null : data.returnIntervalDays }),
       },
     })
     res.json(type)

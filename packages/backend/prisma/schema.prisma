@@ -267,6 +267,11 @@ model Patient {
   consents           PatientConsent[]
   generatedDocuments GeneratedDocument[]
   conversations      Conversation[]      @relation("PatientConversations")
+  dentalChart        DentalChartEntry[]
+  aestheticApps      AestheticApplication[]
+  photos             PatientPhoto[]
+  treatmentPlans     TreatmentPlan[]
+  scheduledReturns   ScheduledReturn[]
 
   @@index([doctorId])
   @@index([status])
@@ -477,6 +482,9 @@ model AppointmentType {
   name       String
   baseValue  Float?
   hasReturns Boolean  @default(false)
+  // Retorno programado: ao concluir um atendimento deste tipo, cria um
+  // ScheduledReturn para daqui a N dias (ex.: toxina 120, limpeza 180).
+  returnIntervalDays Int?
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -1904,4 +1912,152 @@ model Nfse {
   @@index([doctorId, status, createdAt])
   @@index([doctorId, issuedAt])
   @@map("TBLNFSE")
+}
+
+// ─── Odontologia & Estética ───────────────────────────────────────────────────
+// Status/condições são String (não enum) de propósito: a lista evolui com o
+// produto sem precisar de ALTER TYPE. Valores válidos ficam nas rotas (zod).
+
+// Odontograma — uma linha por registro em um dente (numeração FDI: 11–48
+// permanentes, 51–85 decíduos). O estado atual de um dente é o registro mais
+// recente; o histórico completo fica preservado.
+model DentalChartEntry {
+  id          String   @id @default(uuid())
+  patientId   String
+  doctorId    String
+  tooth       String
+  faces       String[] @default([])
+  condition   String
+  status      String   @default("EXISTENTE")
+  notes       String?
+  date        DateTime @default(now())
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("TBLODONTOGRAMA")
+}
+
+// Mapa de aplicação (harmonização/estética): área, produto, quantidade e lote
+// de cada aplicação — rastreabilidade de toxina, preenchedores, bioestimuladores.
+model AestheticApplication {
+  id          String   @id @default(uuid())
+  patientId   String
+  doctorId    String
+  date        DateTime @default(now())
+  area        String
+  product     String
+  productId   String?
+  quantity    Float?
+  unit        String?
+  lot         String?
+  technique   String?
+  notes       String?
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("TBLMAPAAPLICACAO")
+}
+
+// Fotos clínicas (antes/depois). Guardadas no próprio Postgres (já
+// redimensionadas no navegador) para entrar no mesmo backup do prontuário.
+model PatientPhoto {
+  id          String   @id @default(uuid())
+  patientId   String
+  doctorId    String
+  takenAt     DateTime @default(now())
+  category    String   @default("ANTES")
+  area        String?
+  procedure   String?
+  notes       String?
+  mimeType    String
+  width       Int?
+  height      Int?
+  data        Bytes
+  thumbnail   Bytes
+  createdById String
+  createdAt   DateTime @default(now())
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId, takenAt])
+  @@map("TBLFOTOPACIENTE")
+}
+
+// Orçamento / plano de tratamento. Itens com quantity > 1 funcionam como
+// pacote de sessões (completedQty conta as sessões já realizadas).
+model TreatmentPlan {
+  id              String    @id @default(uuid())
+  patientId       String
+  doctorId        String
+  title           String
+  status          String    @default("RASCUNHO")
+  notes           String?
+  discount        Float     @default(0)
+  validUntil      DateTime?
+  approvalToken   String    @unique
+  sentAt          DateTime?
+  approvedAt      DateTime?
+  approvedName    String?
+  approvalChannel String?
+  approvalIp      String?
+  rejectedAt      DateTime?
+  createdById     String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  patient Patient             @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  items   TreatmentPlanItem[]
+
+  @@index([patientId])
+  @@index([doctorId, status])
+  @@map("TBLORCAMENTO")
+}
+
+model TreatmentPlanItem {
+  id                String  @id @default(uuid())
+  planId            String
+  appointmentTypeId String?
+  name              String
+  region            String?
+  quantity          Int     @default(1)
+  unitPrice         Float
+  completedQty      Int     @default(0)
+  position          Int     @default(0)
+
+  plan TreatmentPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@map("TBLORCAMENTOITEM")
+}
+
+// Retorno programado por procedimento (reaplicação de toxina, manutenção,
+// limpeza…). Criado ao concluir um atendimento cujo tipo tem
+// returnIntervalDays, ou manualmente.
+model ScheduledReturn {
+  id                  String    @id @default(uuid())
+  patientId           String
+  doctorId            String
+  appointmentTypeId   String?
+  procedureName       String
+  dueDate             DateTime
+  status              String    @default("PENDENTE")
+  sourceAppointmentId String?   @unique
+  notifiedAt          DateTime?
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, status, dueDate])
+  @@index([patientId])
+  @@map("TBLRETORNOPROGRAMADO")
 }

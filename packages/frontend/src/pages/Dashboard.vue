@@ -4,10 +4,11 @@ import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
   Calendar, Users, CheckCircle2, Clock, TrendingUp, Activity,
-  ArrowRight, Zap, Stethoscope, BarChart3, Cake, MessageCircle,
+  ArrowRight, Zap, Stethoscope, BarChart3, Cake, MessageCircle, CalendarClock,
 } from 'lucide-vue-next'
 import api from '../lib/api'
 import { greetingName } from '../lib/firstName'
+import { type ScheduledReturn, daysUntil } from '../lib/clinical'
 import { useAuthStore } from '../stores/auth'
 import type { Appointment, AppointmentStats, Patient } from '../types'
 import StatusBadge from '../components/ui/StatusBadge.vue'
@@ -33,6 +34,20 @@ const { data: birthdaysData } = useQuery<Patient[]>({
   queryFn: () => api.get('/patients/birthdays-today').then(r => r.data),
 })
 const birthdays = computed(() => birthdaysData.value ?? [])
+
+// Retornos programados que vencem nos próximos 7 dias (ou já venceram).
+const { data: returnsData } = useQuery<ScheduledReturn[]>({
+  key: 'returns-due-week',
+  queryFn: () => api.get('/clinical/returns', { params: { status: 'PENDENTE,AVISADO', withinDays: 7 } }).then(r => r.data),
+  staleTime: 60 * 1000,
+})
+const dueReturns = computed(() => returnsData.value ?? [])
+function returnDueLabel(r: ScheduledReturn) {
+  const d = daysUntil(r.dueDate)
+  if (d < 0) return `venceu há ${-d} dia(s)`
+  if (d === 0) return 'vence hoje'
+  return `em ${d} dia(s)`
+}
 
 function ageOf(birthDate?: string | null): number | null {
   if (!birthDate) return null
@@ -327,6 +342,33 @@ const quickLinks = [
               </a>
             </div>
           </div>
+        </div>
+
+        <!-- Retornos programados -->
+        <div v-if="dueReturns.length > 0" class="card border border-slate-200/80">
+          <div class="flex items-center justify-between gap-2 mb-4">
+            <h3 class="font-semibold text-slate-900 flex items-center gap-2 text-sm">
+              <div class="w-7 h-7 bg-gold-50 rounded-lg flex items-center justify-center border border-gold-100">
+                <CalendarClock class="w-3.5 h-3.5 text-gold-600" />
+              </div>
+              Retornos da semana
+            </h3>
+            <router-link to="/retornos" class="text-xs font-semibold text-primary-700 hover:underline">Ver todos</router-link>
+          </div>
+          <div class="space-y-1">
+            <router-link
+              v-for="r in dueReturns.slice(0, 5)" :key="r.id"
+              :to="`/pacientes/${r.patient.id}/clinico?aba=retornos`"
+              class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors"
+            >
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">{{ r.patient.name }}</p>
+                <p class="text-xs text-slate-400 truncate">{{ r.procedureName }}</p>
+              </div>
+              <span :class="['text-[11px] font-semibold whitespace-nowrap', daysUntil(r.dueDate) < 0 ? 'text-amber-700' : 'text-slate-500']">{{ returnDueLabel(r) }}</span>
+            </router-link>
+          </div>
+          <p v-if="dueReturns.length > 5" class="mt-2 text-xs text-slate-400 px-3">+ {{ dueReturns.length - 5 }} retorno(s)</p>
         </div>
 
         <!-- Acesso Rápido Sofisticado (Em harmonia com o tema claro e minimalista) -->
