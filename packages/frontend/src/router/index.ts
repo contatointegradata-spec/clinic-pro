@@ -133,7 +133,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'configuracoes/formas-pagamento', component: FormasPagamento, meta: { label: 'Formas de Pagamento', roles: ['ADMIN', 'DOCTOR'] } },
       { path: 'configuracoes/contas-bancarias', component: ContasBancarias, meta: { label: 'Contas Bancárias', roles: ['ADMIN', 'DOCTOR'] } },
       { path: 'configuracoes/centros-custo', component: CentrosCusto, meta: { label: 'Centros de Custo', roles: ['ADMIN', 'DOCTOR'] } },
-      { path: 'configuracoes/notificacoes', component: ConfigNotificacoes, meta: { label: 'Notificações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'notifications' } },
+      { path: 'configuracoes/notificacoes', component: ConfigNotificacoes, meta: { label: 'Mensagens automáticas', roles: ['DOCTOR', 'SECRETARY'] } },
       { path: 'configuracoes/integracoes', component: Integracoes, meta: { label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], platformAccess: 'integrations', secretaryPermission: INTEGRATION_PERMISSION_KEYS } },
       { path: 'configuracoes/assinatura', component: Assinatura, meta: { label: 'Assinatura' } },
       { path: 'configuracoes/assinatura/pendente', component: AssinaturaPendente, meta: { label: 'Pagamento Pendente' } },

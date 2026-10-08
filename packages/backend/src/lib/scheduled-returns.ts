@@ -1,5 +1,6 @@
 import { prisma } from './prisma'
 import { triggerLightAutomatedMessage } from './chatbot-light-engine'
+import { resolveChatbotLightSendTarget } from './room-whatsapp'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -89,10 +90,16 @@ export async function processDueReturns(now = Date.now()): Promise<void> {
 
   const doctorIds = [...new Set(due.map(r => r.doctorId))]
   const configs = await prisma.lightIntegrationConfig.findMany({
-    where: { doctorId: { in: doctorIds }, triggerEvent: 'PROCEDURE_RETURN_DUE', enabled: true },
-    select: { doctorId: true },
+    where: { doctorId: { in: doctorIds }, triggerEvent: 'PROCEDURE_RETURN_DUE', enabled: true, chatbotId: { not: null } },
+    select: { doctorId: true, chatbotId: true, template: { select: { active: true } } },
   })
-  const enabledDoctors = new Set(configs.map(c => c.doctorId))
+  // Só conta como "avisado" se a mensagem tem por onde sair agora (WhatsApp
+  // da sala conectado). Caso contrário o retorno fica PENDENTE para a equipe.
+  const enabledDoctors = new Set<string>()
+  for (const c of configs) {
+    if (!c.template?.active || !c.chatbotId || enabledDoctors.has(c.doctorId)) continue
+    if (await resolveChatbotLightSendTarget(c.chatbotId)) enabledDoctors.add(c.doctorId)
+  }
   if (enabledDoctors.size === 0) return
 
   const doctors = await prisma.user.findMany({

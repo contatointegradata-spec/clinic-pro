@@ -83,6 +83,18 @@ const SIM_WORDS = new Set(['sim', 's', '1', 'confirmar', 'confirmo', 'ok', 'quer
 const NAO_WORDS = new Set(['nao', 'n', '2', 'nao quero', 'cancelar', 'recusar', 'nao confirmo', 'nao!', 'nao.'])
 
 const MAX_ROOM_RECONNECT_ATTEMPTS = 5
+
+// Paradas pedidas pela própria clínica (desconectar, excluir sala). O evento
+// 'close' do Baileys chega igual ao de uma queda real; esta marca (válida por
+// 2 min) evita alertar a equipe por algo que ela mesma fez.
+const intentionalStopAt = new Map<string, number>()
+function wasIntentionalStop(instanceKey: string): boolean {
+  const at = intentionalStopAt.get(instanceKey)
+  return at !== undefined && Date.now() - at < 2 * 60_000
+}
+
+// Depois de quanto tempo fora do ar uma queda vira alerta para a equipe.
+const DOWN_ALERT_AFTER_MS = 10 * 60_000
 // Quantos ciclos de "esgotou MAX_ROOM_RECONNECT_ATTEMPTS, watchdog tentou de
 // novo" o watchdog aceita antes de desistir de reconectar com a sessão
 // atual e colocar em quarentena (limpa sessão, pede novo QR code). Sem
@@ -409,7 +421,10 @@ export async function startRoomSession(connectionId: string, instanceKey: string
           const conn = await prisma.roomWhatsAppConnection.findUnique({ where: { id: connectionId } })
           if (!conn) return
 
-          const attempts = (conn.reconnectAttempts ?? 0) + 1
+          const intentional = wasIntentionalStop(instanceKey)
+          // reconnectAttempts > 0 marca "caiu sozinho" — o watchdog usa isso
+          // para alertar quedas longas e ignorar desconexões intencionais.
+          const attempts = intentional ? 0 : (conn.reconnectAttempts ?? 0) + 1
           await prisma.roomWhatsAppConnection.update({
             where: { id: connectionId },
             data: {
@@ -419,6 +434,22 @@ export async function startRoomSession(connectionId: string, instanceKey: string
               reconnectAttempts: attempts,
             },
           })
+
+          // Número deslogado pelo WhatsApp (sessão encerrada no celular,
+          // banimento, aparelho trocado): não volta sozinho — avisa já.
+          if (loggedOut && !intentional) {
+            const room = await prisma.room.findUnique({ where: { id: conn.roomId }, select: { name: true } }).catch(() => null)
+            await notifyClinicTeam(conn.doctorId, conn.roomId, {
+              title: 'WhatsApp desconectado',
+              message: `O WhatsApp${room ? ` da sala "${room.name}"` : ''} foi desconectado pelo próprio WhatsApp. Lembretes e mensagens automáticas estão parados até você escanear o QR code de novo.`,
+              type: 'ALERT',
+              link: '/configuracoes/salas',
+              category: 'SYSTEM',
+              entityType: 'room',
+              entityId: conn.id,
+              dedupeKey: `wa-logged-out:${conn.id}:${new Date().toISOString().slice(0, 13)}`,
+            })
+          }
 
           if (!loggedOut && !stoppingRoomKeys.has(instanceKey) && attempts <= MAX_ROOM_RECONNECT_ATTEMPTS) {
             const delay = Math.min(5000 * attempts, 30_000)
@@ -532,6 +563,7 @@ export async function startRoomSession(connectionId: string, instanceKey: string
  */
 export async function stopRoomSession(instanceKey: string, logout = false): Promise<void> {
   stoppingRoomKeys.add(instanceKey)
+  intentionalStopAt.set(instanceKey, Date.now())
 
   const timer = roomReconnectTimers.get(instanceKey)
   if (timer) { clearTimeout(timer); roomReconnectTimers.delete(instanceKey) }
@@ -834,6 +866,32 @@ export function startRoomHealthWatchdog(): void {
             }).catch(() => {})
           }
         }
+      }
+
+      // 1b. Caiu sozinho (reconnectAttempts > 0) e continua fora do ar há mais
+      //     de 10 min → alerta único por queda (dedupe pelo instante da queda).
+      const longDown = await prisma.roomWhatsAppConnection.findMany({
+        where: {
+          status: { in: ['DISCONNECTED', 'QUARANTINED'] },
+          reconnectAttempts: { gt: 0 },
+          // Janela de 15 min logo após os 10 min de queda: o watchdog roda a
+          // cada 60 s, o dedupeKey garante um alerta só, e quedas antigas não
+          // ficam sendo reconsultadas para sempre.
+          disconnectedAt: { lt: new Date(Date.now() - DOWN_ALERT_AFTER_MS), gt: new Date(Date.now() - DOWN_ALERT_AFTER_MS - 15 * 60_000) },
+        },
+        select: { id: true, roomId: true, doctorId: true, disconnectedAt: true, room: { select: { name: true } } },
+      }).catch(() => [] as Array<{ id: string; roomId: string; doctorId: string; disconnectedAt: Date | null; room: { name: string } | null }>)
+      for (const conn of longDown) {
+        await notifyClinicTeam(conn.doctorId, conn.roomId, {
+          title: 'WhatsApp fora do ar',
+          message: `O WhatsApp${conn.room ? ` da sala "${conn.room.name}"` : ''} está desconectado há mais de 10 minutos e não voltou sozinho. Confira o celular da clínica ou reconecte pelo QR code.`,
+          type: 'ALERT',
+          link: '/configuracoes/salas',
+          category: 'SYSTEM',
+          entityType: 'room',
+          entityId: conn.id,
+          dedupeKey: `wa-down:${conn.id}:${conn.disconnectedAt?.getTime() ?? 0}`,
+        })
       }
 
       // 2. DISCONNECTED with session files and reconnect cap exhausted →

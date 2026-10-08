@@ -63,6 +63,8 @@ services:
       KIWIFY_API_BASE_URL: ${KIWIFY_API_BASE_URL:-}
     volumes:
       - whatsapp_sessions:/app/sessions
+      # Só leitura: o backend lê /backups/status.json (saúde do backup).
+      - postgres_backups:/backups:ro
     depends_on:
       postgres:
         condition: service_healthy

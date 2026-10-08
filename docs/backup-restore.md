@@ -8,6 +8,19 @@ no volume nomeado `postgres_backups`, e apaga automaticamente backups mais
 antigos que `BACKUP_RETENTION_DAYS` (padrão: 14 dias, configurável no
 `.env`).
 
+Depois do dump, o script **verifica o arquivo** (gzip íntegro + rodapé
+"PostgreSQL database dump complete") e apaga arquivos inválidos. O resultado
+fica em `/backups/status.json`, que o backend lê (volume montado só-leitura):
+
+- `GET /api/health/details` (administrador) mostra o último backup válido;
+- se o último backup válido tiver mais de 36 h (`BACKUP_MAX_AGE_HOURS`) ou a
+  última tentativa falhar, os administradores recebem um alerta no sininho
+  (uma vez por dia).
+
+```bash
+docker compose exec backup cat /backups/status.json
+```
+
 Os backups ficam **na própria VPS** (volume Docker) — se a VPS inteira for
 perdida, os backups vão junto. Enviar uma cópia para armazenamento externo
 (S3, Backblaze B2 etc.) fica para uma próxima rodada, quando houver

@@ -9,3 +9,4 @@ coverage/
 *.tsbuildinfo
 packages/frontend/vite.config.js
 packages/frontend/vite.config.d.ts
+.test-sessions/

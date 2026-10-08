@@ -3,6 +3,8 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import authRoutes from './routes/auth'
 import clinicalRoutes from './routes/clinical'
+import automationRoutes from './routes/automations'
+import { readBackupStatus, whatsappHealth, startBackupWatch } from './lib/system-health'
 import publicPlanRoutes from './routes/public-plans'
 import userRoutes from './routes/users'
 import appointmentRoutes from './routes/appointments'
@@ -42,7 +44,8 @@ import readinessRoutes from './routes/readiness'
 import subscriptionRoutes from './routes/subscriptions'
 import kiwifyWebhookRoutes from './routes/webhooks-kiwify'
 import { getAppVersion } from './lib/app-version'
-import { authenticate } from './middleware/auth'
+import { authenticate, AuthRequest } from './middleware/auth'
+import { prisma } from './lib/prisma'
 import { requireActiveSubscription } from './middleware/subscription'
 import { startSubscriptionExpiryWatchdog } from './lib/subscription-access'
 import { authRateLimiter, generalRateLimiter } from './middleware/rate-limit'
@@ -172,6 +175,7 @@ app.use('/api/notifications', authenticate, requireActiveSubscription, notificat
 app.use('/api/payment-methods', authenticate, requireActiveSubscription, paymentMethodRoutes)
 app.use('/api/stock', authenticate, requireActiveSubscription, stockRoutes)
 app.use('/api/clinical', authenticate, requireActiveSubscription, clinicalRoutes)
+app.use('/api/automations', authenticate, requireActiveSubscription, automationRoutes)
 // Orçamento público: a paciente aprova pelo link, sem login.
 app.use('/api/public/treatment-plans', publicPlanRoutes)
 app.use('/api/integrations', authenticate, requireActiveSubscription, integrationRoutes)
@@ -199,6 +203,24 @@ app.get('/api/health', (_req, res) => {
     version: getAppVersion(),
     timestamp: new Date().toISOString(),
     env: process.env.NODE_ENV,
+  })
+})
+
+// Saúde detalhada (banco, backup, WhatsApp) — só administradores da plataforma.
+app.get('/api/health/details', authenticate, async (req: AuthRequest, res) => {
+  if (req.user!.role !== 'ADMIN' && !req.user!.isPlatformDeveloper) {
+    res.status(403).json({ message: 'Acesso restrito ao administrador' })
+    return
+  }
+  let database = 'connected'
+  try { await prisma.$queryRaw`SELECT 1` } catch { database = 'disconnected' }
+  res.set('Cache-Control', 'no-store')
+  res.json({
+    version: getAppVersion(),
+    timestamp: new Date().toISOString(),
+    database,
+    backup: readBackupStatus(),
+    whatsapp: await whatsappHealth().catch(() => null),
   })
 })
 
@@ -242,6 +264,7 @@ app.listen(PORT, () => {
 
   // Inicia o scheduler do Chatbot Light para disparar avisos atrasados e lembretes periódicos
   startLightScheduler()
+  startBackupWatch()
 
   // Verifica periodicamente trials expirados e marca a assinatura como bloqueada
   startSubscriptionExpiryWatchdog()
