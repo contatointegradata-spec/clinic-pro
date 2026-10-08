@@ -6,7 +6,7 @@ import { useAuthStore } from './auth'
 import { errorMessage } from '../components/Atendimento/format'
 import type {
   AttendanceMessage, AttendanceQueue, AttendanceSummary, AttendanceTab,
-  ConversationDetail, ConversationEvent, ConversationListItem,
+  ConversationDetail, ConversationEvent, ConversationListItem, PatientCandidates,
 } from '../types'
 
 /** Mensagem na tela — `localId` só existe enquanto o envio otimista não foi confirmado. */
@@ -140,23 +140,33 @@ export const useAttendanceStore = defineStore('attendance', () => {
     if (detail.value && detail.value.id === c.id) {
       const prev = detail.value
       type DetailPatient = NonNullable<ConversationDetail['patient']>
-      const p = c.patient as (NonNullable<ConversationListItem['patient']> & Partial<Pick<DetailPatient, 'nextAppointment'>>) | null
+      const p = c.patient as (NonNullable<ConversationListItem['patient']> & Partial<Pick<DetailPatient, 'nextAppointment' | 'phone'>>) | null
       const extra = c as Partial<ConversationDetail>
+      const samePatient = !!p && prev.patient?.id === p.id
       detail.value = {
         ...prev,
         ...c,
         patient: p
-          ? { ...p, nextAppointment: p.nextAppointment !== undefined ? p.nextAppointment : (prev.patient?.id === p.id ? prev.patient.nextAppointment : null) }
+          ? {
+              ...p,
+              phone: p.phone ?? (samePatient ? prev.patient!.phone : ''),
+              nextAppointment: p.nextAppointment !== undefined ? p.nextAppointment : (samePatient ? prev.patient!.nextAppointment : null),
+            }
           : null,
+        contactNameLocked: extra.contactNameLocked ?? prev.contactNameLocked,
+        patientLinkManual: extra.patientLinkManual ?? prev.patientLinkManual,
         canReply: extra.canReply ?? prev.canReply,
         roomConnected: extra.roomConnected ?? prev.roomConnected,
         hasAiAgent: extra.hasAiAgent ?? prev.hasAiAgent,
       }
+      // Paciente vinculado mudou (IA agendou, outra pessoa vinculou): busca a próxima consulta.
+      if (p && !samePatient && p.nextAppointment === undefined) refreshDetail()
       // Conversa aberta e visível: o que chegar já está sendo lido.
       if (c.unreadCount > 0 && document.visibilityState === 'visible') markRead()
     }
   }
 
+  let botRefreshTimer: ReturnType<typeof setTimeout> | undefined
   function applyMessage(m: AttendanceMessage) {
     if (m.conversationId === selectedId.value) {
       const existing = messages.value.findIndex(x => x.id === m.id)
@@ -171,6 +181,11 @@ export const useAttendanceStore = defineStore('attendance', () => {
         else messages.value.push(m)
       }
       if (!m.fromMe && !m.isInternalNote && document.visibilityState === 'visible') markRead()
+      // A IA pode ter agendado/remarcado: atualiza a próxima consulta do painel.
+      if (m.isBot) {
+        clearTimeout(botRefreshTimer)
+        botRefreshTimer = setTimeout(refreshDetail, 1500)
+      }
     }
 
     const item = items.value.find(i => i.id === m.conversationId)
@@ -180,6 +195,13 @@ export const useAttendanceStore = defineStore('attendance', () => {
       item.lastMessageFromMe = m.fromMe
       items.value.sort(byRecent)
     }
+  }
+
+  /** Observação editada/excluída (stream): só substitui se já estiver carregada. */
+  function applyMessageUpdate(m: AttendanceMessage) {
+    if (m.conversationId !== selectedId.value) return
+    const idx = messages.value.findIndex(x => x.id === m.id)
+    if (idx >= 0) messages.value[idx] = m
   }
 
   /** Remove da lista a conversa que foi unificada em outra. */
@@ -201,7 +223,11 @@ export const useAttendanceStore = defineStore('attendance', () => {
     // Cabeçalho provisório com o que a lista já tem, pra não piscar vazio.
     const item = items.value.find(i => i.id === id)
     detail.value = item
-      ? { ...item, patient: item.patient ? { ...item.patient, nextAppointment: null } : null, canReply: true, roomConnected: true, hasAiAgent: false }
+      ? {
+          ...item,
+          patient: item.patient ? { ...item.patient, phone: '', nextAppointment: null } : null,
+          contactNameLocked: false, patientLinkManual: false, canReply: true, roomConnected: true, hasAiAgent: false,
+        }
       : null
     detailLoading.value = true
 
@@ -354,6 +380,88 @@ export const useAttendanceStore = defineStore('attendance', () => {
     }
   }
 
+  // ─── Observações internas (editar / excluir) ─────────────────────────
+  // Mensagens trocadas com o WhatsApp não são editáveis — só observações.
+
+  async function editNote(messageId: string, content: string): Promise<boolean> {
+    const id = selectedId.value
+    if (!id) return false
+    try {
+      const { data } = await api.patch<AttendanceMessage>(`/attendance/conversations/${id}/notes/${messageId}`, { content })
+      applyMessageUpdate(data)
+      fetchEvents()
+      return true
+    } catch (e) {
+      toast.error(errorMessage(e, 'Não foi possível editar a observação'))
+      return false
+    }
+  }
+
+  async function deleteNote(messageId: string): Promise<boolean> {
+    const id = selectedId.value
+    if (!id) return false
+    try {
+      const { data } = await api.delete<AttendanceMessage>(`/attendance/conversations/${id}/notes/${messageId}`)
+      applyMessageUpdate(data)
+      fetchEvents()
+      return true
+    } catch (e) {
+      toast.error(errorMessage(e, 'Não foi possível excluir a observação'))
+      return false
+    }
+  }
+
+  // ─── Contato / paciente vinculado ────────────────────────────────────
+
+  function applyDetail(data: ConversationDetail) {
+    if (data.id !== selectedId.value) return
+    detail.value = data
+    upsertConversation(data)
+    fetchEvents()
+  }
+
+  async function updateContactName(contactName: string | null): Promise<boolean> {
+    const id = selectedId.value
+    if (!id) return false
+    try {
+      applyDetail((await api.patch<ConversationDetail>(`/attendance/conversations/${id}`, { contactName })).data)
+      return true
+    } catch (e) {
+      toast.error(errorMessage(e, 'Não foi possível salvar o nome'))
+      return false
+    }
+  }
+
+  async function fetchCandidates(search?: string): Promise<PatientCandidates | null> {
+    const id = selectedId.value
+    if (!id) return null
+    try {
+      return (await api.get<PatientCandidates>(`/attendance/conversations/${id}/patient-candidates`, { params: { search: search || undefined } })).data
+    } catch (e) {
+      toast.error(errorMessage(e, 'Erro ao buscar pacientes'))
+      return null
+    }
+  }
+
+  /** Lança o erro (o modal trata o 409 de duplicado). */
+  async function linkPatient(body: { patientId: string } | { create: { name: string; confirmDuplicate?: boolean } }) {
+    const id = selectedId.value
+    if (!id) return
+    applyDetail((await api.post<ConversationDetail>(`/attendance/conversations/${id}/link-patient`, body)).data)
+  }
+
+  async function unlinkPatient(): Promise<boolean> {
+    const id = selectedId.value
+    if (!id) return false
+    try {
+      applyDetail((await api.delete<ConversationDetail>(`/attendance/conversations/${id}/link-patient`)).data)
+      return true
+    } catch (e) {
+      toast.error(errorMessage(e, 'Não foi possível desvincular'))
+      return false
+    }
+  }
+
   // ─── Resync (polling de fallback / após reconexão) ───────────────────
 
   async function resync() {
@@ -378,7 +486,7 @@ export const useAttendanceStore = defineStore('attendance', () => {
       if (id !== selectedId.value) return
       upsertConversation(d.data)
       detail.value = d.data
-      m.data.items.forEach(applyMessage)
+      m.data.items.forEach(x => (messages.value.some(y => y.id === x.id) ? applyMessageUpdate(x) : applyMessage(x)))
     } catch { /* idem */ }
   }
 
@@ -394,7 +502,8 @@ export const useAttendanceStore = defineStore('attendance', () => {
   return {
     summary, queues, tab, search, queueId, items, nextCursor, listLoading, listLoadingMore,
     selectedId, detail, detailLoading, messages, hasMore, loadingOlder, events,
-    fetchSummary, fetchQueues, fetchList, loadMore, upsertConversation, removeConversation, applyMessage,
+    fetchSummary, fetchQueues, fetchList, loadMore, upsertConversation, removeConversation, applyMessage, applyMessageUpdate,
     select, fetchEvents, loadOlder, markRead, send, deliver, discard, refreshDetail, act, resync, reset,
+    editNote, deleteNote, updateContactName, fetchCandidates, linkPatient, unlinkPatient,
   }
 })

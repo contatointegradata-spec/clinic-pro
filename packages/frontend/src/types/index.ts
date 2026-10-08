@@ -104,6 +104,10 @@ export interface Patient {
   completedByUserId?: string | null
   completedAt?: string | null
   anonymizedAt?: string | null
+  // Identidade (lib/patient-identity no backend): phoneKey nulo + whatsappLid
+  // = lead só com o LID do WhatsApp, sem telefone real (não exibir o "phone").
+  phoneKey?: string | null
+  whatsappLid?: string | null
   createdAt: string
   _count?: { appointments: number }
   patientPlans?: PatientPlan[]
@@ -389,11 +393,30 @@ export interface CrmLead {
   doctorId: string
   name: string
   phone: string
+  // null = lead identificado só pelo LID do WhatsApp (sem telefone real)
+  phoneDisplay?: string | null
   notes?: string | null
   status: PatientStatus
   leadStatus: LeadStatus | null
   createdAt: string
   chatbotSession?: { id: string; completedAt: string | null; contactPhone: string } | null
+}
+
+export interface PatientDuplicateGroup {
+  phoneKey: string
+  doctorId: string | null
+  kind: 'same_name' | 'shared_phone'
+  patients: Array<{
+    id: string
+    name: string
+    phone: string
+    status: PatientStatus
+    origin: PatientOrigin
+    leadStatus: LeadStatus | null
+    cpf: string | null
+    createdAt: string
+    appointments: number
+  }>
 }
 
 export interface CrmMetrics {
@@ -407,6 +430,7 @@ export interface CrmMetrics {
 
 export interface AiAgentConversation {
   phone: string
+  phoneDisplay?: string | null
   name: string | null
   lastMessage: string
   lastMessageAt: string
@@ -462,19 +486,45 @@ export interface ConversationListItem {
   lastMessageAt: string | null
   lastMessageFromMe: boolean
   queuedAt: string | null
-  patient: { id: string; name: string; leadStatus: string | null } | null
+  patient: ConversationPatientRef | null
+}
+
+export interface ConversationPatientRef {
+  id: string
+  name: string
+  leadStatus: string | null
+  status: PatientStatus
 }
 
 export interface ConversationDetail extends Omit<ConversationListItem, 'patient'> {
-  patient: {
-    id: string
-    name: string
-    leadStatus: string | null
-    nextAppointment: { id: string; date: string; status: string } | null
-  } | null
+  patient: (ConversationPatientRef & {
+    phone: string
+    nextAppointment: { id: string; date: string; status: string; title: string; duration: number } | null
+  }) | null
+  /** Nome editado pela equipe (não segue mais o perfil do WhatsApp). */
+  contactNameLocked: boolean
+  /** Vínculo com paciente definido manualmente (não muda sozinho pelo telefone). */
+  patientLinkManual: boolean
   canReply: boolean
   roomConnected: boolean
   hasAiAgent: boolean
+}
+
+export interface PatientCandidate {
+  id: string
+  name: string
+  phone: string
+  status: PatientStatus
+  leadStatus: string | null
+  birthDate: string | null
+  linked: boolean
+}
+
+export interface PatientCandidates {
+  /** Telefone real do contato (null quando só há o identificador LID). */
+  phone: string | null
+  samePhone: PatientCandidate[]
+  results: PatientCandidate[]
 }
 
 export interface AttendanceMessage {
@@ -490,11 +540,15 @@ export interface AttendanceMessage {
   /** Vem do backend como string; PENDING é só local (envio otimista). */
   status: AttendanceMessageStatus | string
   timestamp: string
+  /** Só observações internas podem ser editadas/excluídas. */
+  editedAt?: string | null
+  deletedAt?: string | null
 }
 
 export type ConversationEventType =
   | 'CREATED' | 'BOT_STARTED' | 'HANDOFF_TO_HUMAN' | 'ASSUMED' | 'TRANSFERRED_QUEUE'
   | 'TRANSFERRED_USER' | 'RETURNED_TO_BOT' | 'RESOLVED' | 'REOPENED' | 'NOTE'
+  | 'NOTE_EDITED' | 'NOTE_DELETED' | 'CONTACT_UPDATED' | 'PATIENT_LINKED' | 'PATIENT_UNLINKED'
 
 export interface ConversationEvent {
   id: string

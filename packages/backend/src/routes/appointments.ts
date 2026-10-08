@@ -11,6 +11,68 @@ import { resolveContextFromAppointment, resolveTemplateVariables } from '../lib/
 
 const BR_TZ = 'America/Sao_Paulo'
 
+// ─── Datas no fuso da clínica ────────────────────────────────────────────────
+// O servidor roda em UTC: "hoje", "dd/mm" e horários precisam ser calculados
+// em America/Sao_Paulo (UTC-3 fixo desde 2019), senão uma consulta às 22h
+// aparece no dia seguinte em mensagens/prontuário.
+
+/** YYYY-MM-DD do instante no fuso da clínica. */
+function brYmd(date: Date): string {
+  return date.toLocaleDateString('en-CA', { timeZone: BR_TZ })
+}
+
+function brDate(date: Date): string {
+  return date.toLocaleDateString('pt-BR', { timeZone: BR_TZ })
+}
+
+function brTime(date: Date): string {
+  return date.toLocaleTimeString('pt-BR', { timeZone: BR_TZ, hour: '2-digit', minute: '2-digit' })
+}
+
+/** [início, fim) do dia de hoje no fuso da clínica. */
+function brTodayBounds(): { start: Date; end: Date } {
+  const start = new Date(`${brYmd(new Date())}T00:00:00-03:00`)
+  return { start, end: new Date(start.getTime() + 24 * 60 * 60_000) }
+}
+
+// Status que representam registro de algo que já aconteceu — podem ter data
+// passada (lançamento retroativo de atendimento, falta ou cancelamento).
+const RETROACTIVE_STATUSES = ['COMPLETED', 'NO_SHOW', 'CANCELLED']
+const MAX_DAYS_AHEAD_MANUAL = 730
+
+/**
+ * Validação de data na criação/remarcação manual. Bloqueia consulta
+ * Agendada/Confirmada em dia que já passou (hoje continua liberado — encaixe/
+ * registro do mesmo dia) e datas absurdamente distantes (ano digitado errado).
+ * Registro retroativo continua possível com status Concluído/Faltou/Cancelado
+ * ou `allowPastDate: true`.
+ */
+function validateManualAppointmentDate(
+  date: Date,
+  status: string | undefined,
+  allowPastDate?: boolean,
+): { status: number; body: { code: string; message: string } } | null {
+  if (isNaN(date.getTime())) {
+    return { status: 400, body: { code: 'INVALID_DATE', message: 'Data/hora da consulta inválida.' } }
+  }
+  const today = brYmd(new Date())
+  const target = brYmd(date)
+  if (target < today && !allowPastDate && !RETROACTIVE_STATUSES.includes(status ?? 'SCHEDULED')) {
+    return {
+      status: 422,
+      body: {
+        code: 'PAST_DATE',
+        message: `A data ${brDate(date)} às ${brTime(date)} já passou. Para registrar um atendimento retroativo, salve com status "Concluído" ou "Faltou".`,
+      },
+    }
+  }
+  const daysAhead = (Date.parse(`${target}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / (24 * 60 * 60_000)
+  if (daysAhead > MAX_DAYS_AHEAD_MANUAL) {
+    return { status: 422, body: { code: 'DATE_TOO_FAR', message: `A data ${brDate(date)} está a mais de 2 anos de hoje — confira o ano.` } }
+  }
+  return null
+}
+
 const router = Router()
 router.use(authenticate)
 
@@ -27,6 +89,8 @@ const appointmentSchema = z.object({
   roomId: z.string().optional().nullable(),
   repeatCount: z.number().int().min(1).max(50).optional(),
   forceOverlap: z.boolean().optional(),
+  // Registro retroativo explícito (data passada com status Agendado/Confirmado).
+  allowPastDate: z.boolean().optional(),
 })
 
 router.get('/', async (req: AuthRequest, res) => {
@@ -118,7 +182,7 @@ export async function checkLunchOverlap(doctorId: string, date: Date, duration: 
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const data = appointmentSchema.parse(req.body)
-    const { repeatCount, forceOverlap, ...apptData } = data
+    const { repeatCount, forceOverlap, allowPastDate, ...apptData } = data
 
     const effectiveRepeatCount = repeatCount && repeatCount > 1 ? repeatCount : 1
 
@@ -144,6 +208,14 @@ router.post('/', async (req: AuthRequest, res) => {
 
     const baseDate = new Date(apptData.date)
     const totalOccurrences = effectiveRepeatCount
+
+    {
+      const invalid = validateManualAppointmentDate(baseDate, apptData.status, allowPastDate)
+      if (invalid) {
+        res.status(invalid.status).json(invalid.body)
+        return
+      }
+    }
 
     // Build all dates: base + weekly repeats
     const dates: Date[] = []
@@ -308,6 +380,7 @@ const appointmentUpdateSchema = z.object({
   value: z.number().optional().nullable(),
   roomId: z.string().optional().nullable(),
   forceOverlap: z.boolean().optional(),
+  allowPastDate: z.boolean().optional(),
   // Produtos do estoque usados nesta consulta — baixa automática só roda
   // quando o status está sendo alterado pra COMPLETED (ver mais abaixo).
   stockItems: z.array(z.object({
@@ -320,7 +393,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
   try {
     const { id } = req.params
     const parsed = appointmentUpdateSchema.parse(req.body)
-    const { forceOverlap, stockItems, ...parsedData } = parsed
+    const { forceOverlap, stockItems, allowPastDate, ...parsedData } = parsed
     const data: Record<string, unknown> = { ...parsedData }
 
     if (data.date) data.date = new Date(data.date as string)
@@ -347,6 +420,19 @@ router.put('/:id', async (req: AuthRequest, res) => {
       where: { id },
       include: { transaction: true },
     })
+
+    // Remarcação (data mudou): mesma validação da criação + os lembretes
+    // automáticos (24h/2h) precisam disparar de novo pra data nova.
+    // (comparação por minuto: o formulário reenvia a data sem segundos ao editar só outros campos)
+    if (data.date && current && Math.floor((data.date as Date).getTime() / 60_000) !== Math.floor(current.date.getTime() / 60_000)) {
+      const invalid = validateManualAppointmentDate(data.date as Date, (data.status as string | undefined) ?? current.status, allowPastDate)
+      if (invalid) {
+        res.status(invalid.status).json(invalid.body)
+        return
+      }
+      data.reminder24hSent = false
+      data.reminder2hSent = false
+    }
 
     {
       const newDate = data.date ? (data.date as Date) : (current?.date ?? new Date())
@@ -520,8 +606,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
         value: transactionAmount,
       }).catch(() => {})
 
-      const apptDateStr = updated.date.toLocaleDateString('pt-BR')
-      const apptTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      const apptDateStr = brDate(updated.date)
+      const apptTimeStr = brTime(updated.date)
       prisma.medicalRecord.create({
         data: {
           patientId: updated.patientId,
@@ -535,8 +621,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
     }
 
     if (data.status === 'NO_SHOW' && current?.status !== 'NO_SHOW') {
-      const apptDateStr = updated.date.toLocaleDateString('pt-BR')
-      const apptTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      const apptDateStr = brDate(updated.date)
+      const apptTimeStr = brTime(updated.date)
       prisma.medicalRecord.create({
         data: {
           patientId: updated.patientId,
@@ -550,10 +636,10 @@ router.put('/:id', async (req: AuthRequest, res) => {
     }
 
     if (current?.status === 'NO_SHOW' && data.date && new Date(data.date as Date).getTime() !== current.date.getTime()) {
-      const oldDateStr = current.date.toLocaleDateString('pt-BR')
-      const oldTimeStr = current.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
-      const newDateStr = updated.date.toLocaleDateString('pt-BR')
-      const newTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+      const oldDateStr = brDate(current.date)
+      const oldTimeStr = brTime(current.date)
+      const newDateStr = brDate(updated.date)
+      const newTimeStr = brTime(updated.date)
       prisma.medicalRecord.create({
         data: {
           patientId: updated.patientId,
@@ -587,8 +673,8 @@ router.put('/:id', async (req: AuthRequest, res) => {
 
     if (data.status === 'CANCELLED' && current?.status !== 'CANCELLED') {
       if (updated.patient?.phone) {
-        const apptDateStr = updated.date.toLocaleDateString('pt-BR')
-        const apptTimeStr = updated.date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+        const apptDateStr = brDate(updated.date)
+        const apptTimeStr = brTime(updated.date)
         triggerLightAutomatedMessage(updated.doctorId, 'APPOINTMENT_CANCELLATION', {
           patientName: updated.patient.name,
           patientPhone: updated.patient.phone,
@@ -650,10 +736,7 @@ router.delete('/:id', async (req: AuthRequest, res) => {
 
 router.get('/today', async (req: AuthRequest, res) => {
   try {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const { start: today, end: tomorrow } = brTodayBounds()
 
     const where: Record<string, unknown> = {
       date: { gte: today, lt: tomorrow },
@@ -692,10 +775,7 @@ router.get('/today', async (req: AuthRequest, res) => {
 
 router.get('/stats', async (req: AuthRequest, res) => {
   try {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
-    const tomorrow = new Date(today)
-    tomorrow.setDate(tomorrow.getDate() + 1)
+    const { start: today, end: tomorrow } = brTodayBounds()
 
     // null = ADMIN (sem filtro), [] = secretaria sem médico (retorna 0)
     let doctorIds: string[] | null = null

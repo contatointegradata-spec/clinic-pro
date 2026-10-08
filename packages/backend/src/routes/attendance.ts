@@ -19,6 +19,12 @@ import {
 import {
   addInternalNote,
   assumeConversation,
+  deleteInternalNote,
+  editInternalNote,
+  linkConversationPatientManual,
+  listPatientCandidates,
+  unlinkConversationPatient,
+  updateConversationContact,
   getConversationDetail,
   getSummary,
   listConversations,
@@ -44,7 +50,7 @@ type ScopedRequest = AuthRequest & { attendanceScope?: AttendanceScope }
 
 function handleError(res: Response, err: unknown, context: string) {
   if (err instanceof AttendanceAccessError) {
-    res.status(err.status).json({ message: err.message })
+    res.status(err.status).json({ ...(err.details ?? {}), message: err.message })
     return
   }
   if (err instanceof z.ZodError) {
@@ -337,6 +343,56 @@ router.post('/conversations/:id/messages', sendRateLimiter, scoped('POST /conver
 router.post('/conversations/:id/notes', scoped('POST /conversations/:id/notes', async (req, res, scope) => {
   const { content } = contentSchema.parse(req.body)
   res.status(201).json(await addInternalNote(scope, req.params.id, content))
+}))
+
+// Observações internas: só o autor (ou o médico) edita/exclui — soft delete.
+// Mensagens trocadas com o WhatsApp são imutáveis (400 se o id não for de observação).
+router.patch('/conversations/:id/notes/:messageId', scoped('PATCH /conversations/:id/notes/:messageId', async (req, res, scope) => {
+  const { content } = contentSchema.parse(req.body)
+  res.json(await editInternalNote(scope, req.params.id, req.params.messageId, content))
+}))
+
+router.delete('/conversations/:id/notes/:messageId', scoped('DELETE /conversations/:id/notes/:messageId', async (req, res, scope) => {
+  res.json(await deleteInternalNote(scope, req.params.id, req.params.messageId))
+}))
+
+// Contato: nome exibido (null/vazio = volta a seguir o perfil do WhatsApp).
+const contactSchema = z.object({
+  contactName: z.string().trim().max(120, 'Nome muito longo').nullable(),
+})
+
+router.patch('/conversations/:id', scoped('PATCH /conversations/:id', async (req, res, scope) => {
+  const body = contactSchema.parse(req.body)
+  res.json(await updateConversationContact(scope, req.params.id, body))
+}))
+
+// Vínculo com paciente.
+const candidatesQuerySchema = z.object({ search: z.string().max(100).optional() })
+
+router.get('/conversations/:id/patient-candidates', scoped('GET /conversations/:id/patient-candidates', async (req, res, scope) => {
+  const { search } = candidatesQuerySchema.parse(req.query)
+  res.json(await listPatientCandidates(scope, req.params.id, search))
+}))
+
+const linkPatientSchema = z
+  .object({
+    patientId: z.string().min(1).optional(),
+    create: z
+      .object({
+        name: z.string().trim().min(2, 'Informe o nome do paciente').max(120, 'Nome muito longo'),
+        confirmDuplicate: z.boolean().optional(),
+      })
+      .optional(),
+  })
+  .refine((b) => !!b.patientId !== !!b.create, { message: 'Informe o paciente existente OU os dados do novo pré-cadastro' })
+
+router.post('/conversations/:id/link-patient', scoped('POST /conversations/:id/link-patient', async (req, res, scope) => {
+  const body = linkPatientSchema.parse(req.body)
+  res.json(await linkConversationPatientManual(scope, req.params.id, body))
+}))
+
+router.delete('/conversations/:id/link-patient', scoped('DELETE /conversations/:id/link-patient', async (req, res, scope) => {
+  res.json(await unlinkConversationPatient(scope, req.params.id))
 }))
 
 router.post('/conversations/:id/assume', scoped('POST /conversations/:id/assume', async (req, res, scope) => {

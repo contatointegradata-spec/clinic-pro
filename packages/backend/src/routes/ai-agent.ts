@@ -4,7 +4,8 @@ import { prisma } from '../lib/prisma'
 import { authenticate, requireRole, AuthRequest } from '../middleware/auth'
 import { getEffectiveDoctorId } from '../lib/secretaryAccess'
 import { generateSystemPrompt } from '../lib/ai-agent-engine'
-import { phoneVariants } from '../lib/phone'
+import { displayPhone, phoneVariants } from '../lib/phone'
+import { isGenericPatientName, normalizePersonName } from '../lib/patient-identity'
 import { AiProviderError } from '../lib/ai-client-types'
 
 const router = Router()
@@ -325,7 +326,12 @@ router.get('/:id/conversations', async (req: AuthRequest, res: Response) => {
     }
 
     const contacts = Array.from(byPhone.values())
-      .map(c => ({ ...c, name: patientNameByPhone.get(c.phone) ?? conversationNameByPhone.get(c.phone) ?? null }))
+      .map(c => ({
+        ...c,
+        // phoneDisplay null = contato identificado só pelo LID do WhatsApp (não é telefone)
+        phoneDisplay: displayPhone(c.phone),
+        name: patientNameByPhone.get(c.phone) ?? conversationNameByPhone.get(c.phone) ?? (displayPhone(c.phone) ? null : 'Contato WhatsApp'),
+      }))
       .sort((a, b) => b.lastMessageAt.getTime() - a.lastMessageAt.getTime())
     res.json(contacts)
   } catch {
@@ -369,9 +375,8 @@ router.get('/:id/crm-metrics', async (req: AuthRequest, res: Response) => {
 
     const leadWhere = { doctorId, origin: 'CHATBOT' as const, ...(since ? { createdAt: { gte: since } } : {}) }
 
-    const [totalLeads, convertedLeads, cancellations, recentMessages] = await Promise.all([
-      prisma.patient.count({ where: leadWhere }),
-      prisma.patient.count({ where: { ...leadWhere, leadStatus: 'CONVERTIDO' } }),
+    const [leadRows, cancellations, recentMessages] = await Promise.all([
+      prisma.patient.findMany({ where: leadWhere, select: { id: true, name: true, phoneKey: true, leadStatus: true } }),
       prisma.appointment.count({
         where: {
           doctorId,
@@ -386,6 +391,35 @@ router.get('/:id/crm-metrics', async (req: AuthRequest, res: Response) => {
         distinct: ['contactPhone'],
       }),
     ])
+
+    // Leads = PESSOAS distintas, não cadastros: mesmo telefone (phoneKey) +
+    // mesmo nome conta uma vez só, e um lead genérico ("Novo contato (...)")
+    // com o telefone de alguém já contado não soma de novo. Telefone
+    // compartilhado com nomes diferentes (família) continua contando cada um.
+    // Duplicados de verdade já são fundidos por lib/patient-identity.ts;
+    // isso só garante que a taxa não infla enquanto a fusão não roda.
+    const namedKeys = new Set(
+      leadRows.filter(l => l.phoneKey && !isGenericPatientName(l.name)).map(l => l.phoneKey as string),
+    )
+    const people = new Map<string, boolean>() // identidade → convertido?
+    for (const l of leadRows) {
+      let identity: string
+      if (!l.phoneKey) identity = `id:${l.id}`
+      else if (isGenericPatientName(l.name)) identity = namedKeys.has(l.phoneKey) ? '' : `${l.phoneKey}|*`
+      else identity = `${l.phoneKey}|${normalizePersonName(l.name)}`
+      if (!identity) {
+        // genérico absorvido por um lead com nome real do mesmo telefone: se
+        // ele estiver convertido, converte quem tem o nome (mesma pessoa)
+        if (l.leadStatus === 'CONVERTIDO') {
+          const named = leadRows.find(o => o.phoneKey === l.phoneKey && !isGenericPatientName(o.name))
+          if (named) people.set(`${named.phoneKey}|${normalizePersonName(named.name)}`, true)
+        }
+        continue
+      }
+      people.set(identity, (people.get(identity) ?? false) || l.leadStatus === 'CONVERTIDO')
+    }
+    const totalLeads = people.size
+    const convertedLeads = Array.from(people.values()).filter(Boolean).length
 
     res.json({
       period: periodParam,

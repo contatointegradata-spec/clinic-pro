@@ -4,7 +4,8 @@ import { prisma } from '../lib/prisma'
 import { authenticate, AuthRequest } from '../middleware/auth'
 import { fireWebhooks } from '../lib/webhook'
 import { logAudit } from '../lib/secretaryAccess'
-import { findPatientByPhone, normalizePatientPhone } from '../lib/phone'
+import { computePhoneKey, findPatientByPhone, normalizePatientPhone } from '../lib/phone'
+import { autoMergePatientDuplicates, findDuplicateGroups, findPhoneMatches, mergePatients, PatientMergeError } from '../lib/patient-identity'
 
 import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 import { getLocalDateInTz } from '../lib/chatbot-light-guided-engine'
@@ -33,7 +34,38 @@ const patientSchema = z.object({
     walletNumber: z.string().optional(),
     validUntil: z.string().optional(),
   })).optional(),
+  // Já existe paciente com o mesmo telefone e nome parecido → 409, a menos
+  // que o usuário confirme que é outra pessoa ("Cadastrar mesmo assim").
+  confirmDuplicate: z.boolean().optional(),
 })
+
+// ─── Duplicidade por telefone ────────────────────────────────────────────────
+// Mesmo telefone + nome parecido = provável a mesma pessoa → 409 com
+// `duplicateOf` (o front oferece "Usar existente" / "Cadastrar mesmo assim").
+// Mesmo telefone + nome diferente = família/telefone compartilhado → permitido,
+// só devolve `sharedPhoneWith` pra avisar.
+type PatientBrief = { id: string; name: string; phone: string; cpf: string | null; status: string }
+const brief = (p: PatientBrief) => ({ id: p.id, name: p.name, phone: p.phone, cpf: p.cpf, status: p.status })
+
+async function checkPhoneDuplicate(params: { doctorId: string | null; phone: string; name: string; excludeId?: string }) {
+  const { similar, shared } = await findPhoneMatches(params.doctorId, params.phone, params.name, params.excludeId)
+  return {
+    duplicateOf: similar[0] ? brief(similar[0]) : null,
+    sharedPhoneWith: shared.map(p => ({ id: p.id, name: p.name, status: p.status })),
+  }
+}
+
+function duplicateResponse(duplicateOf: ReturnType<typeof brief>, extra: Record<string, unknown> = {}) {
+  return {
+    message: `Já existe ${duplicateOf.name} cadastrado(a) com esse telefone.`,
+    code: 'PATIENT_DUPLICATE',
+    reason: 'phone',
+    duplicateOf,
+    // compat com o modal de pré-cadastro da Agenda
+    existingPatient: duplicateOf,
+    ...extra,
+  }
+}
 
 async function resolveScope(req: AuthRequest): Promise<{ doctorIds: string[] | null }> {
   const role = req.user!.role
@@ -83,9 +115,11 @@ router.get('/', async (req: AuthRequest, res) => {
     }
 
     if (search) {
+      const searchKey = computePhoneKey(search as string)
       where.OR = [
         { name: { contains: search as string, mode: 'insensitive' } },
         { phone: { contains: search as string } },
+        ...(searchKey ? [{ phoneKey: searchKey }] : []),
         { cpf: { contains: search as string } },
         { email: { contains: search as string, mode: 'insensitive' } },
         { rg: { contains: search as string } },
@@ -179,6 +213,23 @@ router.get('/check-duplicate', async (req: AuthRequest, res) => {
   }
 })
 
+// ─── GET /patients/duplicates ────────────────────────────────────────────────
+// Grupos de pacientes com o mesmo telefone (phoneKey). kind "same_name" =
+// provável duplicidade (sugerir mesclar); "shared_phone" = nomes diferentes,
+// provável família usando o mesmo número (só informativo).
+router.get('/duplicates', async (req: AuthRequest, res) => {
+  try {
+    const { doctorIds } = await resolveScope(req)
+    if (doctorIds !== null && doctorIds.length === 0) return res.json([])
+    const groups = await findDuplicateGroups(doctorIds)
+    const onlyLikely = req.query.kind === 'same_name'
+    return res.json(onlyLikely ? groups.filter(g => g.kind === 'same_name') : groups)
+  } catch (error) {
+    console.error('[patients] GET /duplicates', error)
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
 // ─── GET /patients/pre-registrations ─────────────────────────────────────────
 
 router.get('/pre-registrations', async (req: AuthRequest, res) => {
@@ -263,7 +314,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
 router.post('/', async (req: AuthRequest, res) => {
   try {
-    const { plans, ...rest } = patientSchema.parse(req.body)
+    const { plans, confirmDuplicate, ...rest } = patientSchema.parse(req.body)
 
     if (rest.cpf) {
       const existing = await prisma.patient.findUnique({ where: { cpf: rest.cpf } })
@@ -274,6 +325,12 @@ router.post('/', async (req: AuthRequest, res) => {
     }
 
     const doctorId = await resolvePrimaryDoctorId(req)
+
+    const dup = await checkPhoneDuplicate({ doctorId, phone: rest.phone, name: rest.name })
+    if (dup.duplicateOf && !confirmDuplicate) {
+      res.status(409).json(duplicateResponse(dup.duplicateOf))
+      return
+    }
 
     const patient = await prisma.patient.create({
       data: {
@@ -303,6 +360,20 @@ router.post('/', async (req: AuthRequest, res) => {
       },
     })
 
+    if (dup.duplicateOf) {
+      await logAudit({
+        clinicId: doctorId,
+        userId: req.user!.userId,
+        action: 'PATIENT_DUPLICATE_CONFIRMED',
+        description: `Cadastro de ${patient.name} confirmado apesar de ${dup.duplicateOf.name} ter o mesmo telefone`,
+        metadata: { patientId: patient.id, duplicateOfId: dup.duplicateOf.id },
+      })
+    }
+
+    // Lead genérico do Agente de IA com o mesmo telefone ("Novo contato (...)")
+    // é a mesma pessoa chegando pelo WhatsApp → incorporado a este cadastro.
+    await autoMergePatientDuplicates(patient.id).catch(() => null)
+
     if (req.user && (req.user.role === 'DOCTOR' || req.user.role === 'ADMIN')) {
       fireWebhooks(req.user.userId, 'patient.created', {
         id: patient.id,
@@ -319,7 +390,7 @@ router.post('/', async (req: AuthRequest, res) => {
       }).catch(err => console.error('[triggerLightAutomatedMessage WELCOME error]', err))
     }
 
-    res.status(201).json(patient)
+    res.status(201).json({ ...patient, sharedPhoneWith: dup.sharedPhoneWith })
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
@@ -336,7 +407,7 @@ router.put('/:id', async (req: AuthRequest, res) => {
     const { doctorIds } = await resolveScope(req)
 
     // Verifica propriedade antes de editar
-    const existing = await prisma.patient.findUnique({ where: { id }, select: { doctorId: true } })
+    const existing = await prisma.patient.findUnique({ where: { id }, select: { doctorId: true, name: true, phone: true } })
     if (!existing) {
       res.status(404).json({ message: 'Paciente não encontrado' })
       return
@@ -346,7 +417,29 @@ router.put('/:id', async (req: AuthRequest, res) => {
       return
     }
 
-    const { plans, birthDate: rawBirthDate, ...rest } = patientSchema.partial().parse(req.body)
+    const { plans, birthDate: rawBirthDate, confirmDuplicate, ...rest } = patientSchema.partial().parse(req.body)
+
+    // Só revalida duplicidade se telefone ou nome mudaram de fato
+    let sharedPhoneWith: Array<{ id: string; name: string; status: string }> = []
+    const nextPhone = rest.phone ?? existing.phone
+    const nextName = rest.name ?? existing.name
+    if (nextPhone !== existing.phone || nextName !== existing.name) {
+      const dup = await checkPhoneDuplicate({ doctorId: existing.doctorId, phone: nextPhone, name: nextName, excludeId: id })
+      if (dup.duplicateOf && !confirmDuplicate) {
+        res.status(409).json(duplicateResponse(dup.duplicateOf))
+        return
+      }
+      if (dup.duplicateOf) {
+        await logAudit({
+          clinicId: existing.doctorId,
+          userId: req.user!.userId,
+          action: 'PATIENT_DUPLICATE_CONFIRMED',
+          description: `${nextName} mantido como pessoa diferente de ${dup.duplicateOf.name} (mesmo telefone)`,
+          metadata: { patientId: id, duplicateOfId: dup.duplicateOf.id },
+        })
+      }
+      sharedPhoneWith = dup.sharedPhoneWith
+    }
 
     const updateData: Record<string, unknown> = { ...rest }
     // Converte birthDate: string vazia ou undefined → null, string válida → Date
@@ -386,8 +479,12 @@ router.put('/:id', async (req: AuthRequest, res) => {
       },
     })
 
-    res.json(patient)
+    res.json({ ...patient, sharedPhoneWith })
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
     console.error('[patients] PUT /:id', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -403,6 +500,7 @@ const preRegisterSchema = z.object({
   notes: z.string().optional(),
   roomId: z.string().optional(),
   origin: z.enum(['AGENDA', 'CHATBOT', 'MANUAL', 'IMPORTACAO']).default('AGENDA'),
+  confirmDuplicate: z.boolean().optional(),
 })
 
 const completeRegistrationSchema = z.object({
@@ -422,17 +520,23 @@ const completeRegistrationSchema = z.object({
     walletNumber: z.string().optional(),
     validUntil: z.string().optional(),
   })).optional(),
+  // Existe cadastro completo com o mesmo telefone e nome parecido → 409
+  // oferecendo mesclar, a menos que confirme que é outra pessoa.
+  confirmDuplicate: z.boolean().optional(),
 })
 
 // ─── Helper: detectar paciente duplicado ────────────────────────────────────
 
+// CPF igual = sempre a mesma pessoa. Telefone igual só conta como duplicado
+// se o nome for parecido (ou se o nome não foi informado, caso do
+// GET /check-duplicate) — telefone compartilhado por família é permitido.
 async function findDuplicatePatient(params: {
   phone: string
   cpf?: string
   name?: string
   doctorId: string | null
 }) {
-  const { phone, cpf, doctorId } = params
+  const { phone, cpf, name, doctorId } = params
   const where: Record<string, unknown> = {}
   if (doctorId) where.doctorId = doctorId
 
@@ -441,8 +545,13 @@ async function findDuplicatePatient(params: {
     if (byCpf) return { patient: byCpf, reason: 'cpf' as const }
   }
 
-  const byPhone = await findPatientByPhone(prisma, doctorId, phone)
-  if (byPhone) return { patient: byPhone, reason: 'phone' as const }
+  if (!phone) return null
+  if (name === undefined) {
+    const byPhone = await findPatientByPhone(prisma, doctorId, phone)
+    return byPhone ? { patient: byPhone, reason: 'phone' as const } : null
+  }
+  const { similar } = await findPhoneMatches(doctorId, phone, name)
+  if (similar[0]) return { patient: similar[0], reason: 'phone' as const }
 
   return null
 }
@@ -458,10 +567,11 @@ router.post('/pre-register', async (req: AuthRequest, res) => {
     const duplicate = await findDuplicatePatient({
       phone: data.phone,
       cpf: data.cpf,
+      name: data.name,
       doctorId,
     })
 
-    if (duplicate) {
+    if (duplicate && (duplicate.reason === 'cpf' || !data.confirmDuplicate)) {
       await logAudit({
         clinicId: doctorId,
         userId: req.user!.userId,
@@ -472,15 +582,13 @@ router.post('/pre-register', async (req: AuthRequest, res) => {
       return res.status(409).json({
         message: 'Já existe um paciente cadastrado com este ' + (duplicate.reason === 'cpf' ? 'CPF' : 'telefone'),
         code: 'PATIENT_DUPLICATE',
-        existingPatient: {
-          id: duplicate.patient.id,
-          name: duplicate.patient.name,
-          phone: duplicate.patient.phone,
-          cpf: duplicate.patient.cpf,
-          status: duplicate.patient.status,
-        },
+        reason: duplicate.reason,
+        existingPatient: brief(duplicate.patient),
+        duplicateOf: brief(duplicate.patient),
       })
     }
+
+    const { sharedPhoneWith } = await checkPhoneDuplicate({ doctorId, phone: data.phone, name: data.name })
 
     const patient = await prisma.patient.create({
       data: {
@@ -505,8 +613,18 @@ router.post('/pre-register', async (req: AuthRequest, res) => {
       description: `Pré-cadastro criado para ${patient.name}`,
       metadata: { patientId: patient.id, origin: data.origin },
     })
+    if (duplicate) {
+      await logAudit({
+        clinicId: doctorId,
+        userId: req.user!.userId,
+        action: 'PATIENT_DUPLICATE_CONFIRMED',
+        description: `Pré-cadastro de ${patient.name} confirmado apesar de ${duplicate.patient.name} ter o mesmo telefone`,
+        metadata: { patientId: patient.id, duplicateOfId: duplicate.patient.id },
+      })
+    }
+    await autoMergePatientDuplicates(patient.id).catch(() => null)
 
-    return res.status(201).json(patient)
+    return res.status(201).json({ ...patient, sharedPhoneWith })
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
@@ -529,7 +647,18 @@ router.post('/:id/complete-registration', async (req: AuthRequest, res) => {
       return res.status(403).json({ message: 'Acesso negado' })
     }
 
-    const { plans, ...rest } = completeRegistrationSchema.parse(req.body)
+    const { plans, confirmDuplicate, ...rest } = completeRegistrationSchema.parse(req.body)
+
+    // "Finalizar" um pré-cadastro que na verdade é de alguém já cadastrado
+    // (mesmo telefone, nome parecido) → oferece mesclar em vez de criar um
+    // segundo cadastro completo da mesma pessoa.
+    if (!confirmDuplicate) {
+      const { similar } = await findPhoneMatches(existing.doctorId, rest.phone ?? existing.phone, rest.name ?? existing.name, id)
+      const complete = similar.find(p => p.status !== 'PRE_CADASTRO') ?? similar[0]
+      if (complete) {
+        return res.status(409).json(duplicateResponse(brief(complete), { canMerge: true }))
+      }
+    }
 
     const updateData: Record<string, unknown> = { ...rest }
     if (rest.birthDate) updateData.birthDate = new Date(rest.birthDate)
@@ -568,6 +697,16 @@ router.post('/:id/complete-registration', async (req: AuthRequest, res) => {
       description: `Cadastro finalizado para ${patient.name}`,
       metadata: { patientId: id, previousStatus: existing.status },
     })
+    if (confirmDuplicate) {
+      await logAudit({
+        clinicId: existing.doctorId,
+        userId: req.user!.userId,
+        action: 'PATIENT_DUPLICATE_CONFIRMED',
+        description: `Cadastro de ${patient.name} finalizado como pessoa diferente (mesmo telefone de outro paciente)`,
+        metadata: { patientId: id },
+      })
+    }
+    await autoMergePatientDuplicates(id).catch(() => null)
 
     return res.json(patient)
   } catch (error) {
@@ -613,6 +752,41 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
     }
+    res.status(500).json({ message: 'Erro interno do servidor' })
+  }
+})
+
+// ─── POST /patients/:id/merge ────────────────────────────────────────────────
+// Mescla o paciente `dropId` dentro de `:id` (mantido): consultas, prontuário,
+// financeiro, documentos, consentimentos, planos e conversas passam para o
+// mantido; o removido é apagado. Ambos precisam estar no escopo do usuário e
+// ser do mesmo médico. Registrado no AuditLog (PATIENT_MERGED).
+router.post('/:id/merge', async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { dropId } = z.object({ dropId: z.string().min(1) }).parse(req.body)
+    const { doctorIds } = await resolveScope(req)
+
+    const [keep, drop] = await Promise.all([
+      prisma.patient.findUnique({ where: { id }, select: { id: true, doctorId: true } }),
+      prisma.patient.findUnique({ where: { id: dropId }, select: { id: true, doctorId: true } }),
+    ])
+    const inScope = (p: { doctorId: string | null } | null) =>
+      !!p && (doctorIds === null || (!!p.doctorId && doctorIds.includes(p.doctorId)))
+    if (!inScope(keep) || !inScope(drop)) {
+      return res.status(404).json({ message: 'Paciente não encontrado' })
+    }
+
+    const merged = await mergePatients(id, dropId, { actorUserId: req.user!.userId, reason: 'manual' })
+    return res.json(merged)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    }
+    if (error instanceof PatientMergeError) {
+      return res.status(error.status).json({ message: error.message })
+    }
+    console.error('[patients] POST /:id/merge', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
 })

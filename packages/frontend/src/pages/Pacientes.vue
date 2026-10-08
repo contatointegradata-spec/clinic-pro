@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { ref, reactive, computed, type Component } from 'vue'
+import { ref, reactive, computed, watch, type Component } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { format, differenceInYears, parseISO } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
   Plus, Search, Phone, Mail, Edit2, Users, Calendar, UserCircle2,
   AlertTriangle, CheckCircle2, Clock, UserX, CheckCheck, ChevronRight,
-  Download, ShieldOff,
+  Download, ShieldOff, GitMerge,
 } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
-import type { Patient, PatientStatus } from '../types'
+import type { Patient, PatientStatus, PatientDuplicateGroup } from '../types'
 import Modal from '../components/ui/Modal.vue'
 import PatientForm from '../components/Patients/PatientForm.vue'
 import { SkeletonTable } from '../components/ui'
@@ -73,6 +74,12 @@ function maskPhone(phone?: string | null): string {
   const digits = phone.replace(/\D/g, '')
   if (digits.length < 4) return '****'
   return `•••••${digits.slice(-4)}`
+}
+
+// Lead criado só com o LID do WhatsApp: o "phone" não é um telefone de verdade.
+function maskPatientPhone(p: Patient): string {
+  if (p.whatsappLid && !p.phoneKey) return 'WhatsApp (sem nº)'
+  return maskPhone(p.phone)
 }
 
 function isPreCad(p: Patient): boolean {
@@ -177,17 +184,97 @@ async function doAnonymize() {
   }
 }
 
-async function handleFormSubmit(data: Record<string, unknown>) {
+// ─── Duplicidade por telefone ────────────────────────────────────────────────
+// Backend devolve 409 PATIENT_DUPLICATE quando já existe alguém com o mesmo
+// telefone e nome parecido. Telefone igual com nome diferente (família) é
+// permitido — só vem `sharedPhoneWith` pra avisar.
+
+type DuplicateBrief = { id: string; name: string; phone: string; status: PatientStatus }
+type ApiError = { response?: { status?: number; data?: { message?: string; code?: string; duplicateOf?: DuplicateBrief; canMerge?: boolean } } }
+
+const duplicatePrompt = ref<{
+  duplicateOf: DuplicateBrief
+  mode: 'form' | 'complete'
+  retry: () => Promise<void>
+} | null>(null)
+const duplicateBusy = ref(false)
+
+function getDuplicate(err: unknown): DuplicateBrief | null {
+  const e = err as ApiError
+  if (e.response?.status === 409 && e.response.data?.code === 'PATIENT_DUPLICATE' && e.response.data.duplicateOf) {
+    return e.response.data.duplicateOf
+  }
+  return null
+}
+
+function warnSharedPhone(res: { data?: { sharedPhoneWith?: Array<{ name: string }> } }) {
+  const shared = res.data?.sharedPhoneWith ?? []
+  if (shared.length) toast(`Telefone compartilhado com ${shared.map(s => s.name).join(', ')}.`, { duration: 6000 })
+}
+
+async function openPatientById(id: string) {
+  try {
+    const { data } = await api.get<Patient>(`/patients/${id}`)
+    if (isPreCad(data)) openCompleteModal(data)
+    else handleEdit(data)
+  } catch {
+    toast.error('Paciente não encontrado')
+  }
+}
+
+async function useExistingDuplicate() {
+  const dup = duplicatePrompt.value?.duplicateOf
+  duplicatePrompt.value = null
+  closeModal()
+  closeCompleteModal()
+  if (dup) await openPatientById(dup.id)
+}
+
+async function confirmDuplicateAnyway() {
+  const prompt = duplicatePrompt.value
+  if (!prompt) return
+  duplicateBusy.value = true
+  try {
+    await prompt.retry()
+    duplicatePrompt.value = null
+  } finally {
+    duplicateBusy.value = false
+  }
+}
+
+// "Finalizar" um pré-cadastro que é de alguém já cadastrado → mescla no existente
+async function mergeIntoDuplicate() {
+  const prompt = duplicatePrompt.value
+  const drop = completePatient.value
+  if (!prompt || !drop) return
+  duplicateBusy.value = true
+  try {
+    await api.post(`/patients/${prompt.duplicateOf.id}/merge`, { dropId: drop.id })
+    toast.success(`Pré-cadastro mesclado em ${prompt.duplicateOf.name}`)
+    duplicatePrompt.value = null
+    closeCompleteModal()
+    await refetch()
+  } catch (err: unknown) {
+    toast.error((err as ApiError).response?.data?.message || 'Erro ao mesclar pacientes')
+  } finally {
+    duplicateBusy.value = false
+  }
+}
+
+async function handleFormSubmit(data: Record<string, unknown>, confirmDuplicate = false) {
   saving.value = true
   try {
-    const { consent, ...patientData } = data as Record<string, unknown> & {
+    const { consent, ...rest } = data as Record<string, unknown> & {
       consent?: { channel: string; termsVersion: string }
     }
+    const patientData = confirmDuplicate ? { ...rest, confirmDuplicate: true } : rest
 
     if (editPatient.value) {
-      await api.put(`/patients/${editPatient.value.id}`, patientData)
+      const res = await api.put(`/patients/${editPatient.value.id}`, patientData)
+      warnSharedPhone(res)
     } else {
       const res = await api.post('/patients', patientData)
+      warnSharedPhone(res)
       // Consentimento é um registro à parte (histórico próprio) — só faz
       // sentido no cadastro, quando a tela pergunta o canal.
       if (consent) {
@@ -201,6 +288,11 @@ async function handleFormSubmit(data: Record<string, unknown>) {
     closeModal()
     await refetch()
   } catch (err: unknown) {
+    const dup = getDuplicate(err)
+    if (dup && !confirmDuplicate) {
+      duplicatePrompt.value = { duplicateOf: dup, mode: 'form', retry: () => handleFormSubmit(data, true) }
+      return
+    }
     const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
     toast.error(msg || 'Erro ao salvar paciente')
   } finally {
@@ -252,7 +344,7 @@ const completePending = computed(() => {
 
 const completeProgress = computed(() => (completePatient.value ? calcProgress(completePatient.value) : 0))
 
-async function handleCompleteSubmit() {
+async function handleCompleteSubmit(confirmDuplicate = false) {
   if (!completePatient.value) return
   completeSaving.value = true
   try {
@@ -261,23 +353,87 @@ async function handleCompleteSubmit() {
       email: completeForm.email || undefined,
       cpf: completeForm.cpf || undefined,
       birthDate: completeForm.birthDate || undefined,
+      ...(confirmDuplicate ? { confirmDuplicate: true } : {}),
     })
     toast.success('Cadastro finalizado! Paciente agora ATIVO.')
     await refetch()
     closeCompleteModal()
   } catch (err: unknown) {
+    const dup = getDuplicate(err)
+    if (dup && !confirmDuplicate) {
+      duplicatePrompt.value = { duplicateOf: dup, mode: 'complete', retry: () => handleCompleteSubmit(true) }
+      return
+    }
     const error = err as { response?: { data?: { message?: string } } }
     toast.error(error.response?.data?.message || 'Erro ao finalizar cadastro')
   } finally {
     completeSaving.value = false
   }
 }
+
+// ─── Possíveis duplicados (mesmo telefone + nome parecido) ───────────────────
+
+const duplicatesOpen = ref(false)
+const { data: duplicatesData, refetch: refetchDuplicates } = useQuery<PatientDuplicateGroup[]>({
+  key: 'patients-duplicates',
+  queryFn: () => api.get('/patients/duplicates', { params: { kind: 'same_name' } }).then(r => r.data),
+})
+const duplicateGroups = computed(() => duplicatesData.value ?? [])
+const keepChoice = reactive<Record<string, string>>({})
+const mergingId = ref<string | null>(null)
+
+function keepIdFor(g: PatientDuplicateGroup): string {
+  return keepChoice[g.phoneKey] ?? g.patients[0]?.id
+}
+
+async function mergeFromGroup(g: PatientDuplicateGroup, dropId: string) {
+  const keepId = keepIdFor(g)
+  const keep = g.patients.find(p => p.id === keepId)
+  const drop = g.patients.find(p => p.id === dropId)
+  if (!keep || !drop) return
+  if (!window.confirm(`Mesclar "${drop.name}" em "${keep.name}"? Consultas, prontuário, financeiro e conversas passam para "${keep.name}" e o outro cadastro é removido.`)) return
+  mergingId.value = dropId
+  try {
+    await api.post(`/patients/${keepId}/merge`, { dropId })
+    toast.success('Pacientes mesclados')
+    await Promise.all([refetchDuplicates(), refetch()])
+  } catch (err: unknown) {
+    toast.error((err as ApiError).response?.data?.message || 'Erro ao mesclar pacientes')
+  } finally {
+    mergingId.value = null
+  }
+}
+
+// ─── /pacientes?patient=<id> (links do Atendimento) ─────────────────────────
+// Abre direto o paciente: pré-cadastro → "Finalizar cadastro"; senão a edição.
+
+const route = useRoute()
+const router = useRouter()
+watch(
+  () => route.query.patient,
+  async (id) => {
+    if (typeof id !== 'string' || !id) return
+    await openPatientById(id)
+    const { patient: _omit, ...query } = route.query
+    router.replace({ query })
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
   <div class="space-y-6 page-stagger">
     <PageHeader title="Pacientes" subtitle="Gerencie o cadastro de pacientes">
       <template #actions>
+        <button
+          v-if="duplicateGroups.length > 0"
+          class="btn-secondary"
+          title="Pacientes com o mesmo telefone e nome parecido"
+          @click="duplicatesOpen = true"
+        >
+          <GitMerge class="w-4 h-4" />
+          Possíveis duplicados ({{ duplicateGroups.length }})
+        </button>
         <button class="btn-primary" @click="handleNew">
           <Plus class="w-4 h-4" />
           Novo Paciente
@@ -423,7 +579,7 @@ async function handleCompleteSubmit() {
                 <div class="space-y-1">
                   <div class="flex items-center gap-1.5 text-sm text-slate-600">
                     <Phone class="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
-                    {{ maskPhone(p.phone) }}
+                    {{ maskPatientPhone(p) }}
                   </div>
                   <div v-if="p.email" class="flex items-center gap-1.5 text-xs text-slate-400">
                     <Mail class="w-3 h-3 text-slate-300 flex-shrink-0" />
@@ -573,7 +729,7 @@ async function handleCompleteSubmit() {
               </div>
               <p class="text-xs text-slate-400 flex items-center gap-1">
                 <Phone class="w-3 h-3" />
-                {{ maskPhone(p.phone) }}
+                {{ maskPatientPhone(p) }}
                 <span v-if="ageOf(p) !== null" class="ml-1">· {{ ageOf(p) }} anos</span>
               </p>
               <div v-if="isPreCad(p)" class="mt-2 w-full">
@@ -616,7 +772,7 @@ async function handleCompleteSubmit() {
       <PatientForm
         :patient="editPatient"
         :loading="saving"
-        @submit="handleFormSubmit"
+        @submit="(d) => handleFormSubmit(d)"
       />
     </Modal>
 
@@ -627,7 +783,7 @@ async function handleCompleteSubmit() {
       size="lg"
       @close="closeCompleteModal"
     >
-      <form v-if="completePatient" class="space-y-4" @submit.prevent="handleCompleteSubmit">
+      <form v-if="completePatient" class="space-y-4" @submit.prevent="handleCompleteSubmit()">
         <div class="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-2">
           <div class="flex items-center gap-2">
             <AlertTriangle class="w-4 h-4 text-amber-600" />
@@ -688,6 +844,95 @@ async function handleCompleteSubmit() {
           <button type="button" class="btn-secondary" @click="closeCompleteModal">Cancelar</button>
         </div>
       </form>
+    </Modal>
+
+    <!-- ── Aviso de duplicidade (409) ── -->
+    <Modal
+      :is-open="!!duplicatePrompt"
+      title="Paciente já cadastrado?"
+      size="sm"
+      @close="duplicatePrompt = null"
+    >
+      <div v-if="duplicatePrompt" class="space-y-2 text-sm text-slate-600">
+        <p>
+          Já existe <strong>{{ duplicatePrompt.duplicateOf.name }}</strong>
+          ({{ STATUS_LABELS[duplicatePrompt.duplicateOf.status] ?? duplicatePrompt.duplicateOf.status }})
+          com esse telefone.
+        </p>
+        <p class="text-xs text-slate-400">
+          Se for outra pessoa que usa o mesmo número (ex.: filho, cônjuge), continue mesmo assim.
+        </p>
+      </div>
+      <template #footer>
+        <div class="flex flex-wrap justify-end gap-2">
+          <button
+            v-if="duplicatePrompt?.mode === 'complete'"
+            class="btn-primary"
+            :disabled="duplicateBusy"
+            @click="mergeIntoDuplicate"
+          >
+            <GitMerge class="w-4 h-4" /> Mesclar com o existente
+          </button>
+          <button v-else class="btn-primary" :disabled="duplicateBusy" @click="useExistingDuplicate">
+            Usar existente
+          </button>
+          <button class="btn-secondary" :disabled="duplicateBusy" @click="confirmDuplicateAnyway">
+            {{ duplicatePrompt?.mode === 'complete' ? 'Finalizar mesmo assim' : 'Cadastrar mesmo assim' }}
+          </button>
+        </div>
+      </template>
+    </Modal>
+
+    <!-- ── Possíveis duplicados ── -->
+    <Modal
+      :is-open="duplicatesOpen"
+      title="Possíveis duplicados"
+      subtitle="Mesmo telefone e nome parecido — escolha o cadastro que fica e mescle os outros"
+      size="lg"
+      @close="duplicatesOpen = false"
+    >
+      <div v-if="duplicateGroups.length === 0" class="text-sm text-slate-500 py-6 text-center">
+        Nenhum possível duplicado encontrado.
+      </div>
+      <div v-else class="space-y-4">
+        <div v-for="g in duplicateGroups" :key="g.phoneKey" class="border border-slate-200 rounded-xl overflow-hidden">
+          <div class="px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500 flex items-center gap-1.5">
+            <Phone class="w-3 h-3" /> {{ maskPhone(g.patients[0]?.phone) }}
+          </div>
+          <div class="divide-y divide-slate-100">
+            <label
+              v-for="p in g.patients" :key="p.id"
+              class="flex items-center gap-3 px-4 py-2.5 cursor-pointer"
+            >
+              <input
+                type="radio"
+                :name="`keep-${g.phoneKey}`"
+                :checked="keepIdFor(g) === p.id"
+                class="text-primary-600"
+                @change="keepChoice[g.phoneKey] = p.id"
+              />
+              <div class="flex-1 min-w-0">
+                <p class="text-sm font-medium text-slate-800 truncate">{{ p.name }}</p>
+                <p class="text-xs text-slate-400">
+                  {{ STATUS_LABELS[p.status] }} · {{ p.appointments }} consulta(s) ·
+                  desde {{ format(new Date(p.createdAt), 'dd/MM/yyyy', { locale: ptBR }) }}
+                </p>
+              </div>
+              <span v-if="keepIdFor(g) === p.id" class="text-xs font-medium text-emerald-700">Manter</span>
+              <button
+                v-else
+                type="button"
+                class="px-2 py-1 text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-200 rounded-lg flex items-center gap-1"
+                :disabled="mergingId === p.id"
+                @click.prevent="mergeFromGroup(g, p.id)"
+              >
+                <GitMerge class="w-3 h-3" />
+                {{ mergingId === p.id ? 'Mesclando...' : 'Mesclar' }}
+              </button>
+            </label>
+          </div>
+        </div>
+      </div>
     </Modal>
   </div>
 </template>

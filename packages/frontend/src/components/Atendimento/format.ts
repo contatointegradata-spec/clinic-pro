@@ -80,6 +80,12 @@ export const LEAD_STATUS_META: Record<string, { label: string; chip: string }> =
   DESCARTADO: { label: 'Descartado', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
 }
 
+export const PATIENT_STATUS_META: Record<string, { label: string; chip: string }> = {
+  PRE_CADASTRO: { label: 'Pré-cadastro', chip: 'bg-amber-50 text-amber-700 ring-amber-200' },
+  INCOMPLETO: { label: 'Cadastro incompleto', chip: 'bg-amber-50 text-amber-700 ring-amber-200' },
+  INATIVO: { label: 'Inativo', chip: 'bg-slate-100 text-slate-600 ring-slate-200' },
+}
+
 export function describeEvent(e: ConversationEvent): string {
   const by = e.actor ? ` por ${e.actor.name}` : ''
   switch (e.type) {
@@ -93,6 +99,11 @@ export function describeEvent(e: ConversationEvent): string {
     case 'RESOLVED': return `Resolvido${by}`
     case 'REOPENED': return `Reaberto${by}`
     case 'NOTE': return `Observação${by}`
+    case 'NOTE_EDITED': return `Observação editada${by}`
+    case 'NOTE_DELETED': return `Observação excluída${by}`
+    case 'CONTACT_UPDATED': return `Nome do contato alterado${by}`
+    case 'PATIENT_LINKED': return `Paciente vinculado${by}`
+    case 'PATIENT_UNLINKED': return `Paciente desvinculado${by}`
     default: return 'Atualização'
   }
 }

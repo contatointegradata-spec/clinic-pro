@@ -30,12 +30,13 @@ const status = computed(() => conv.value.status)
 const show = computed(() => ({
   assume: status.value === 'QUEUED' || status.value === 'BOT',
   transfer: status.value !== 'RESOLVED',
-  resolve: status.value === 'IN_PROGRESS',
+  resolve: status.value === 'IN_PROGRESS' || status.value === 'QUEUED',
   returnToBot: conv.value.hasAiAgent && status.value !== 'BOT' && status.value !== 'RESOLVED',
   reopen: status.value === 'RESOLVED',
 }))
 
 // ─── Linha do tempo (mensagens + eventos + separadores de dia) ───────
+const NOTE_EVENTS = new Set(['NOTE', 'NOTE_EDITED', 'NOTE_DELETED'])
 type Row =
   | { kind: 'day'; key: string; label: string }
   | { kind: 'msg'; key: string; msg: ChatMessage }
@@ -45,7 +46,8 @@ const rows = computed<Row[]>(() => {
   const msgs = store.messages
   const oldest = msgs.find(m => !m.localId)?.timestamp
   const evs = store.events
-    .filter(e => e.type !== 'NOTE' && (!store.hasMore || (oldest && e.createdAt >= oldest)))
+    // Observações já aparecem como bolhas (com marca de editada/excluída).
+    .filter(e => !NOTE_EVENTS.has(e.type) && (!store.hasMore || (oldest && e.createdAt >= oldest)))
     .map(e => ({ at: e.createdAt, row: { kind: 'event' as const, key: `e-${e.id}`, text: describeEvent(e) + (e.note ? ` — “${e.note}”` : ''), time: clockTime(e.createdAt) } }))
   const all = [
     ...msgs.map(m => ({ at: m.timestamp, row: { kind: 'msg' as const, key: m.localId ?? m.id, msg: m } })),
@@ -64,6 +66,21 @@ const rows = computed<Row[]>(() => {
   }
   return out
 })
+
+// ─── Observações: editar / excluir (autor ou médico) ─────────────────
+const isDoctor = computed(() => auth.user?.role !== 'SECRETARY')
+function canManageNote(m: ChatMessage) {
+  return m.isInternalNote && (isDoctor.value || m.author?.id === auth.user?.id)
+}
+async function editNote(id: string, content: string, done: (ok: boolean) => void) {
+  done(await store.editNote(id, content))
+}
+async function removeNote(id: string) {
+  if (!confirm('Excluir esta observação? Ela some do chat, mas fica registrada no histórico.')) return
+  if (await store.deleteNote(id)) toast.success('Observação excluída')
+}
+
+const isPreRegistration = computed(() => conv.value.patient?.status === 'PRE_CADASTRO')
 
 // ─── Scroll ──────────────────────────────────────────────────────────
 const scroller = ref<HTMLElement | null>(null)
@@ -176,6 +193,14 @@ function toggleNote() {
           <span :class="['hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 flex-shrink-0', STATUS_META[conv.status].chip]">
             {{ STATUS_META[conv.status].label }}
           </span>
+          <router-link
+            v-if="isPreRegistration"
+            :to="{ path: '/pacientes', query: { patient: conv.patient!.id } }"
+            class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ring-1 flex-shrink-0 bg-amber-50 text-amber-700 ring-amber-200 hover:bg-amber-100"
+            title="Paciente em pré-cadastro — clique para completar o cadastro"
+          >
+            Pré-cadastro · Completar
+          </router-link>
         </div>
         <p class="text-xs text-slate-500 truncate mt-0.5">
           {{ formatPhone(conv.contactPhone) }} · {{ conv.room.name }}
@@ -234,13 +259,21 @@ function toggleNote() {
         <p v-else-if="!store.messages.length" class="text-center text-xs text-slate-400 py-10">Nenhuma mensagem ainda.</p>
 
         <template v-for="row in rows" :key="row.key">
-          <div v-if="row.kind === 'day'" class="flex justify-center py-2 sticky top-0 z-[1]">
+          <div v-if="row.kind === 'day'" class="flex justify-center py-2">
             <span class="px-2.5 py-1 rounded-lg bg-white/90 shadow-sm text-[11px] font-medium text-slate-500">{{ row.label }}</span>
           </div>
           <p v-else-if="row.kind === 'event'" class="text-center text-[11px] text-slate-400 py-1">
             {{ row.text }} · {{ row.time }}
           </p>
-          <MessageBubble v-else :message="row.msg" @retry="store.deliver" @discard="store.discard" />
+          <MessageBubble
+            v-else
+            :message="row.msg"
+            :can-manage="canManageNote(row.msg)"
+            @retry="store.deliver"
+            @discard="store.discard"
+            @edit="editNote"
+            @remove="removeNote"
+          />
         </template>
       </div>
 
@@ -293,7 +326,9 @@ function toggleNote() {
           <StickyNote class="w-3.5 h-3.5" />
           {{ noteMode ? 'Observação interna ativa' : '+ Adicionar observação' }}
         </button>
-        <span class="hidden sm:block text-[11px] text-slate-400">Enter envia · Shift+Enter quebra linha</span>
+        <span class="hidden sm:block text-[11px] text-slate-400">
+          {{ noteMode ? 'Só a equipe vê · pode ser editada depois' : 'Enviadas ao WhatsApp não podem ser editadas nem apagadas' }} · Enter envia
+        </span>
       </div>
     </footer>
   </div>

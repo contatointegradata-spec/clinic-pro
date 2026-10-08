@@ -1,4 +1,4 @@
-import { AttendanceQueue, AttendanceStatus, ConversationEventType, MessageType, Prisma } from '@prisma/client'
+import { AttendanceQueue, AttendanceStatus, ConversationEventType, MessageType, PatientStatus, Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 import {
   AttendanceAccessError,
@@ -14,14 +14,60 @@ import {
 } from './attendance-access'
 import { publish } from './attendance-events'
 import { notifyUsers } from './notifications'
-import { findPatientByPhone, normalizePatientPhone, phoneVariants } from './phone'
+import { computePhoneKey, findPatientByPhone, findPatientsByPhone, isLidLike, normalizePatientPhone, phoneVariants } from './phone'
+import { logAudit } from './secretaryAccess'
 import { checkPhoneOnWhatsApp, getRoomConnectionInfo, sendRoomWhatsAppMessage } from './room-whatsapp'
 import { lookupLidsByPhones, lookupPhoneByLid, onLidMappingLearned } from './whatsapp-identity'
 
 // ─── Regras de negócio do módulo Atendimento ─────────────────────────────────
-// Toda transição de status usa updateMany condicionado ao estado lido
-// (concorrência otimista): se outra pessoa mexeu no meio, count = 0 → 409.
-// Logs NUNCA incluem conteúdo de mensagem.
+//
+// MÁQUINA DE ESTADOS (Conversation.attendanceStatus)
+//
+//   BOT ......... Agente de IA atendendo (sem fila, sem responsável)
+//   QUEUED ...... aguardando numa fila (queueId, queuedAt; sem responsável)
+//   IN_PROGRESS . com uma pessoa (assignedUserId, assignedAt)
+//   RESOLVED .... finalizada (resolvedAt, resolvedById; unread zerado)
+//
+//   Gatilho                         De                      → Para          Evento
+//   ─────────────────────────────── ─────────────────────── ─ ───────────── ─────────────────
+//   1ª msg do contato               (nova)                  → BOT | QUEUED  CREATED (+BOT_STARTED)
+//                                    BOT se a sala tem agente ativo; senão fila padrão
+//   msg do celular (fromMe) s/ conv (nova)                  → RESOLVED      CREATED
+//   msg do contato                  RESOLVED                → BOT | QUEUED  REOPENED (+BOT_STARTED)
+//   msg do contato                  BOT/QUEUED/IN_PROGRESS  → (igual)       — (QUEUED/IN_PROGRESS: IA não responde)
+//   IA: transfer_to_human           BOT                     → QUEUED        HANDOFF_TO_HUMAN
+//   assumir / enviar mensagem       BOT/QUEUED/RESOLVED     → IN_PROGRESS   ASSUMED | REOPENED
+//   assumir com force (só médico)   IN_PROGRESS(outro)      → IN_PROGRESS   ASSUMED
+//   transferir p/ fila              BOT/QUEUED/IN_PROGRESS  → QUEUED        TRANSFERRED_QUEUE
+//   transferir p/ pessoa            BOT/QUEUED/IN_PROGRESS  → IN_PROGRESS   TRANSFERRED_USER
+//   devolver à IA (sala c/ agente)  QUEUED/IN_PROGRESS      → BOT           RETURNED_TO_BOT
+//   resolver                        BOT/QUEUED/IN_PROGRESS  → RESOLVED      RESOLVED
+//   reabrir                         RESOLVED                → IN_PROGRESS   REOPENED
+//
+//   Ações SEM transição (geram evento + conversation.updated):
+//   observação interna (NOTE / NOTE_EDITED / NOTE_DELETED), editar nome do
+//   contato (CONTACT_UPDATED), vincular/desvincular paciente
+//   (PATIENT_LINKED / PATIENT_UNLINKED), marcar como lida (sem evento).
+//
+// Regras transversais:
+// - Toda transição usa updateMany condicionado ao estado lido (concorrência
+//   otimista: status + responsável). count = 0 → 409 "alterada por outra pessoa".
+// - Conversa IN_PROGRESS com OUTRA pessoa: secretária não transfere, resolve,
+//   devolve à IA nem responde (409). Médico pode (e pode assumir com force).
+// - Transições/ações de escrita exigem canSendMessages na sala (assertCanReply);
+//   quem só tem canViewHistory acompanha, lê e registra observações.
+// - Transição para o mesmo estado é idempotente (devolve o item, sem evento),
+//   exceto transferências para o destino atual, que são recusadas (400).
+// - Mensagens trocadas com o WhatsApp (recebidas, IA, humanas) são IMUTÁVEIS:
+//   o WhatsApp não permite editar/apagar por aqui. Só observações internas
+//   são editáveis/excluíveis (soft delete: deletedAt/deletedById; conteúdo
+//   preservado no banco para auditoria, omitido na API).
+// - Vínculo com paciente: automático pelo telefone (findPatientByPhone) até
+//   alguém vincular/desvincular manualmente (patientLinkManual) — daí a
+//   ingestão não re-vincula sozinha (mesmo telefone ≠ mesma pessoa).
+// - Nome do contato editado pela equipe (contactNameLocked) não é mais
+//   sobrescrito pelo pushName do WhatsApp.
+// - Logs NUNCA incluem conteúdo de mensagem.
 
 const LEAD_INITIAL_STATUS = 'NOVO'
 // "Em contato" no CRM real é EM_ANALISE (routes/chatbot-light.ts LEAD_STATUSES).
@@ -39,7 +85,7 @@ export const conversationListInclude = {
   room: { select: { id: true, name: true, color: true } },
   queue: { select: { id: true, name: true, color: true } },
   assignedUser: { select: { id: true, name: true } },
-  patient: { select: { id: true, name: true, leadStatus: true } },
+  patient: { select: { id: true, name: true, leadStatus: true, status: true } },
 } satisfies Prisma.ConversationInclude
 
 export type ConversationWithList = Prisma.ConversationGetPayload<{ include: typeof conversationListInclude }>
@@ -75,7 +121,7 @@ export interface ConversationListItem {
   lastMessageAt: string | null
   lastMessageFromMe: boolean
   queuedAt: string | null
-  patient: { id: string; name: string; leadStatus: string | null } | null
+  patient: { id: string; name: string; leadStatus: string | null; status: PatientStatus } | null
 }
 
 export interface MessageItem {
@@ -85,11 +131,14 @@ export interface MessageItem {
   isBot: boolean
   isInternalNote: boolean
   author: { id: string; name: string } | null
+  // Vazio quando a observação foi excluída (deletedAt preenchido).
   content: string
   type: MessageType
   mediaUrl: string | null
   status: string
   timestamp: string
+  editedAt: string | null
+  deletedAt: string | null
 }
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null)
@@ -109,7 +158,7 @@ function toListItem(c: ConversationWithList, lastFromMe: boolean): ConversationL
     lastMessageAt: iso(c.lastMessageAt),
     lastMessageFromMe: lastFromMe,
     queuedAt: iso(c.queuedAt),
-    patient: c.patient ? { id: c.patient.id, name: c.patient.name, leadStatus: c.patient.leadStatus } : null,
+    patient: c.patient ? { id: c.patient.id, name: c.patient.name, leadStatus: c.patient.leadStatus, status: c.patient.status } : null,
   }
 }
 
@@ -141,11 +190,13 @@ export function toMessageItem(m: MessageWithAuthor): MessageItem {
     isBot: m.isBot,
     isInternalNote: m.isInternalNote,
     author: m.author ? { id: m.author.id, name: m.author.name } : null,
-    content: m.content,
+    content: m.deletedAt ? '' : m.content,
     type: m.type,
-    mediaUrl: m.mediaUrl,
+    mediaUrl: m.deletedAt ? null : m.mediaUrl,
     status: m.status,
     timestamp: m.timestamp.toISOString(),
+    editedAt: iso(m.editedAt),
+    deletedAt: iso(m.deletedAt),
   }
 }
 
@@ -180,6 +231,10 @@ export async function publishConversationUpdate(conversationId: string): Promise
 
 function publishMessage(ref: ConversationScopeRef, message: MessageWithAuthor) {
   publish(ref, 'message.created', toMessageItem(message))
+}
+
+function publishMessageUpdate(ref: ConversationScopeRef, message: MessageWithAuthor) {
+  publish(ref, 'message.updated', toMessageItem(message))
 }
 
 async function recordEvent(
@@ -377,9 +432,14 @@ async function mergeConversations(keepId: string, dropId: string): Promise<void>
         unreadCount: keep.unreadCount + drop.unreadCount,
         lastInboundAt: [keep.lastInboundAt, drop.lastInboundAt].filter(Boolean).sort((a, b) => b!.getTime() - a!.getTime())[0] ?? null,
         ...(dropIsNewer ? { lastMessage: drop.lastMessage, lastMessageAt: drop.lastMessageAt, lastMessageSender: drop.lastMessageSender } : {}),
-        contactName: genericName(keep.contactName) ? (drop.contactName ?? keep.contactName) : keep.contactName,
+        // Nome editado pela equipe vence o pushName; vínculo manual vence o automático.
+        ...(keep.contactNameLocked || !drop.contactNameLocked
+          ? { contactName: !keep.contactNameLocked && genericName(keep.contactName) ? (drop.contactName ?? keep.contactName) : keep.contactName }
+          : { contactName: drop.contactName, contactNameLocked: true }),
         contactAvatar: keep.contactAvatar ?? drop.contactAvatar,
-        patientId: keep.patientId ?? drop.patientId,
+        ...(keep.patientLinkManual || !drop.patientLinkManual
+          ? { patientId: keep.patientLinkManual ? keep.patientId : (keep.patientId ?? drop.patientId) }
+          : { patientId: drop.patientId, patientLinkManual: true }),
         lidJid: keep.lidJid ?? drop.lidJid,
         phoneJid: keep.phoneJid ?? drop.phoneJid,
         normalizedPhone: keep.normalizedPhone ?? drop.normalizedPhone,
@@ -467,9 +527,13 @@ export async function reconcileLidConversations(lidJid: string, phone: string): 
         throw err
       }
     }
-    if (!conv.patientId && conv.doctorId) {
+    if (!conv.patientId && !conv.patientLinkManual && conv.doctorId) {
       const patient = await findPatientByPhone(prisma, conv.doctorId, phone).catch(() => null)
-      if (patient) await prisma.conversation.update({ where: { id: conv.id }, data: { patientId: patient.id } }).catch(() => {})
+      if (patient) {
+        await prisma.conversation
+          .updateMany({ where: { id: conv.id, patientId: null, patientLinkManual: false }, data: { patientId: patient.id } })
+          .catch(() => {})
+      }
     }
     await publishConversationUpdate(conv.id)
   }
@@ -623,11 +687,17 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
     }
   }
 
-  // Vincula paciente (CRM) se ainda não vinculado.
-  let patientId = conversation.patientId
-  if (!patientId && identity.normalizedPhone) {
+  // Vincula paciente (CRM) se ainda não vinculado — e nunca por cima de uma
+  // decisão manual da equipe (vincular/desvincular).
+  // updateMany condicionado: não atropela um vínculo manual feito no meio.
+  if (!conversation.patientId && !conversation.patientLinkManual && identity.normalizedPhone) {
     const patient = await findPatientByPhone(prisma, input.doctorId, identity.normalizedPhone).catch(() => null)
-    patientId = patient?.id ?? null
+    if (patient) {
+      await prisma.conversation.updateMany({
+        where: { id: conversation.id, patientId: null, patientLinkManual: false },
+        data: { patientId: patient.id },
+      })
+    }
   }
 
   const updated = await prisma.conversation.update({
@@ -637,12 +707,11 @@ export async function ingestWhatsAppMessage(input: IngestInput): Promise<IngestR
       lastMessageSender: null,
       lastMessageAt: input.timestamp > (conversation.lastMessageAt ?? new Date(0)) ? input.timestamp : conversation.lastMessageAt,
       doctorId: input.doctorId,
-      ...(patientId && !conversation.patientId ? { patientId } : {}),
       ...(inbound
         ? {
             unreadCount: { increment: 1 },
             lastInboundAt: now,
-            ...(input.pushName ? { contactName: input.pushName } : {}),
+            ...(input.pushName && !conversation.contactNameLocked ? { contactName: input.pushName } : {}),
             remoteJid: identity.remoteJid,
             deliveryJid: identity.deliveryJid,
             lidJid: identity.lidJid || conversation.lidJid || null,
@@ -880,12 +949,16 @@ export async function transferConversation(
 ): Promise<ConversationListItem> {
   const conv = await loadForAction(scope, id)
   assertNotHeldByOther(scope, conv)
+  if (conv.attendanceStatus === 'RESOLVED') throw new AttendanceAccessError(409, 'Reabra a conversa antes de transferir')
   const note = input.note?.trim() || null
   const now = new Date()
 
   if (input.queueId) {
     const queue = await getScopedQueue(scope, input.queueId)
     if (!queue || !queue.active) throw new AttendanceAccessError(400, 'Fila inválida ou inativa')
+    if (conv.attendanceStatus === 'QUEUED' && conv.queueId === queue.id) {
+      throw new AttendanceAccessError(400, `A conversa já está na fila ${queue.name}`)
+    }
     const { count } = await prisma.conversation.updateMany({
       where: expectedState(conv),
       data: { attendanceStatus: 'QUEUED', queueId: queue.id, queuedAt: now, assignedUserId: null, assignedAt: null, resolvedAt: null, resolvedById: null },
@@ -913,6 +986,9 @@ export async function transferConversation(
   }
 
   const targetUserId = input.userId!
+  if (conv.attendanceStatus === 'IN_PROGRESS' && conv.assignedUserId === targetUserId) {
+    throw new AttendanceAccessError(400, 'A conversa já está com essa pessoa')
+  }
   if (!(await isEligibleAgent(scope.doctorId, conv.roomId, targetUserId))) {
     throw new AttendanceAccessError(400, 'Esta pessoa não pode atender conversas desta sala')
   }
@@ -948,6 +1024,8 @@ export async function returnConversationToBot(scope: AttendanceScope, id: string
   const conv = await loadForAction(scope, id)
   assertNotHeldByOther(scope, conv)
   if (conv.attendanceStatus === 'BOT') return itemAfter(id)
+  // Resolvida volta sozinha para a IA quando o contato escrever de novo.
+  if (conv.attendanceStatus === 'RESOLVED') throw new AttendanceAccessError(409, 'Conversa resolvida: ela volta para a IA quando o contato escrever de novo')
   if (!(await roomHasActiveBot(conv.roomId))) {
     throw new AttendanceAccessError(400, 'Esta sala não tem um Agente de IA ativo')
   }
@@ -1015,6 +1093,300 @@ export async function addInternalNote(scope: AttendanceScope, id: string, conten
   publishMessage({ doctorId: conv.doctorId, roomId: conv.roomId }, message)
   log('conversation.note_added', { conversationId: id, by: scope.userId })
   return toMessageItem(message)
+}
+
+/**
+ * Observação interna gerada pelo sistema (ex.: Agente de IA "note_for_team").
+ * Sem autor humano, nunca vai ao WhatsApp. Publica message.created +
+ * conversation.updated. Retorna null se a conversa não existir.
+ */
+export async function addSystemNote(
+  conversationId: string,
+  content: string,
+  opts: { isBot?: boolean } = {},
+): Promise<MessageItem | null> {
+  const conv = await prisma.conversation.findUnique({ where: { id: conversationId }, select: { id: true, doctorId: true, roomId: true } })
+  if (!conv) return null
+  const message = await prisma.message.create({
+    data: {
+      conversationId,
+      fromMe: true,
+      content: content.slice(0, 4096),
+      type: 'TEXT',
+      status: 'SENT',
+      isInternalNote: true,
+      isBot: !!opts.isBot,
+    },
+    include: messageInclude,
+  })
+  await recordEvent(prisma, conversationId, 'NOTE', { note: opts.isBot ? 'Observação do Agente de IA' : 'Observação do sistema' })
+  publishMessage({ doctorId: conv.doctorId, roomId: conv.roomId }, message)
+  await publishConversationUpdate(conversationId)
+  log('conversation.system_note_added', { conversationId, isBot: !!opts.isBot })
+  return toMessageItem(message)
+}
+
+// ─── Observações internas: editar / excluir ──────────────────────────────────
+// Só observações (isInternalNote) — o que foi trocado com o WhatsApp não pode
+// ser editado nem apagado por aqui. Autor ou médico; soft delete.
+
+const IMMUTABLE_MESSAGE = 'Mensagens enviadas ou recebidas pelo WhatsApp não podem ser editadas nem apagadas'
+
+async function loadEditableNote(scope: AttendanceScope, conversationId: string, messageId: string) {
+  const conv = await getAccessibleConversation(scope, conversationId)
+  if (!conv) throw new AttendanceAccessError(404, 'Conversa não encontrada')
+  const msg = await prisma.message.findFirst({ where: { id: messageId, conversationId }, include: messageInclude })
+  if (!msg) throw new AttendanceAccessError(404, 'Mensagem não encontrada')
+  if (!msg.isInternalNote) throw new AttendanceAccessError(400, IMMUTABLE_MESSAGE)
+  if (msg.deletedAt) throw new AttendanceAccessError(409, 'Esta observação já foi excluída')
+  if (msg.authorUserId !== scope.userId && !scope.isDoctor) {
+    throw new AttendanceAccessError(403, 'Só quem escreveu a observação (ou o médico) pode alterá-la')
+  }
+  return { conv, msg }
+}
+
+export async function editInternalNote(scope: AttendanceScope, conversationId: string, messageId: string, content: string): Promise<MessageItem> {
+  const { conv, msg } = await loadEditableNote(scope, conversationId, messageId)
+  if (msg.content === content) return toMessageItem(msg)
+  // editedAt funciona como versão: duas edições simultâneas → a segunda recebe 409.
+  const { count } = await prisma.message.updateMany({
+    where: { id: msg.id, deletedAt: null, editedAt: msg.editedAt },
+    data: { content, editedAt: new Date() },
+  })
+  if (count === 0) throw new AttendanceAccessError(409, 'A observação foi alterada por outra pessoa. Atualize e tente novamente.')
+  const updated = await prisma.message.findUniqueOrThrow({ where: { id: msg.id }, include: messageInclude })
+  await recordEvent(prisma, conversationId, 'NOTE_EDITED', { actorUserId: scope.userId })
+  publishMessageUpdate({ doctorId: conv.doctorId, roomId: conv.roomId }, updated)
+  log('conversation.note_edited', { conversationId, messageId: msg.id, by: scope.userId })
+  return toMessageItem(updated)
+}
+
+export async function deleteInternalNote(scope: AttendanceScope, conversationId: string, messageId: string): Promise<MessageItem> {
+  const { conv, msg } = await loadEditableNote(scope, conversationId, messageId)
+  const { count } = await prisma.message.updateMany({
+    where: { id: msg.id, deletedAt: null },
+    data: { deletedAt: new Date(), deletedById: scope.userId },
+  })
+  if (count === 0) throw new AttendanceAccessError(409, 'Esta observação já foi excluída')
+  const updated = await prisma.message.findUniqueOrThrow({ where: { id: msg.id }, include: messageInclude })
+  await recordEvent(prisma, conversationId, 'NOTE_DELETED', { actorUserId: scope.userId })
+  publishMessageUpdate({ doctorId: conv.doctorId, roomId: conv.roomId }, updated)
+  log('conversation.note_deleted', { conversationId, messageId: msg.id, by: scope.userId })
+  return toMessageItem(updated)
+}
+
+// ─── Contato: nome exibido ───────────────────────────────────────────────────
+
+/**
+ * Edita o nome do contato. Nome preenchido trava contra o pushName do
+ * WhatsApp; vazio/null destrava (o próximo pushName volta a preencher).
+ */
+export async function updateConversationContact(scope: AttendanceScope, id: string, input: { contactName: string | null }) {
+  const conv = await loadForAction(scope, id)
+  const name = input.contactName?.trim() || null
+  const locked = !!name
+  if (name === conv.contactName && locked === conv.contactNameLocked) return getConversationDetail(scope, id)
+
+  // Edição de cadastro (não é transição): última gravação vence — não
+  // condiciona ao nome lido para um pushName chegando no meio não dar 409.
+  await prisma.conversation.update({ where: { id }, data: { contactName: name, contactNameLocked: locked } })
+  const before = conv.contactName || 'sem nome'
+  await recordEvent(prisma, id, 'CONTACT_UPDATED', {
+    actorUserId: scope.userId,
+    note: name ? `Nome: “${before}” → “${name}”` : 'Nome volta a seguir o perfil do WhatsApp',
+  })
+  log('conversation.contact_updated', { conversationId: id, by: scope.userId })
+  await publishConversationUpdate(id)
+  return getConversationDetail(scope, id)
+}
+
+// ─── Vínculo com paciente ────────────────────────────────────────────────────
+
+/** Telefone REAL do contato (nunca LID): normalizedPhone → contactPhone → phoneJid. */
+function conversationRealPhone(conv: { normalizedPhone: string | null; contactPhone: string; phoneJid: string | null }): string | null {
+  for (const raw of [conv.normalizedPhone, conv.contactPhone, conv.phoneJid]) {
+    if (!raw || raw.includes('@lid')) continue
+    const digits = normalizePatientPhone(raw.replace(/@.*$/, ''))
+    if (digits.length >= 10 && digits.length <= 13 && !isLidLike(digits)) return digits
+  }
+  return null
+}
+
+function normalizeName(name: string): string {
+  return name.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+const candidateSelect = {
+  id: true, name: true, phone: true, status: true, leadStatus: true, birthDate: true,
+} satisfies Prisma.PatientSelect
+
+type CandidateRow = Prisma.PatientGetPayload<{ select: typeof candidateSelect }>
+
+function toCandidate(p: CandidateRow, linkedId: string | null) {
+  return {
+    id: p.id,
+    name: p.name,
+    phone: p.phone,
+    status: p.status,
+    leadStatus: p.leadStatus,
+    birthDate: iso(p.birthDate),
+    linked: p.id === linkedId,
+  }
+}
+
+/**
+ * Candidatos para vincular: pacientes do médico com o mesmo telefone (todos —
+ * pode ser uma família) + busca livre por nome/telefone/CPF.
+ */
+export async function listPatientCandidates(scope: AttendanceScope, id: string, search?: string) {
+  const conv = await getAccessibleConversation(scope, id)
+  if (!conv) throw new AttendanceAccessError(404, 'Conversa não encontrada')
+  const realPhone = conversationRealPhone(conv)
+  const lookup = realPhone ?? conv.lidJid ?? (conv.contactPhone.endsWith('@lid') ? conv.contactPhone : null)
+
+  const samePhone = lookup ? await findPatientsByPhone(prisma, scope.doctorId, lookup).catch(() => []) : []
+  const samePhoneIds = new Set(samePhone.map((p) => p.id))
+
+  const term = search?.trim() ?? ''
+  let results: CandidateRow[] = []
+  if (term.length >= 2) {
+    const digits = term.replace(/\D/g, '')
+    results = await prisma.patient.findMany({
+      where: {
+        doctorId: scope.doctorId,
+        anonymizedAt: null,
+        id: { notIn: [...samePhoneIds] },
+        OR: [
+          { name: { contains: term, mode: 'insensitive' } },
+          ...(digits.length >= 4 ? [{ phone: { contains: digits } }, { cpf: { contains: digits } }] : []),
+        ],
+      },
+      select: candidateSelect,
+      orderBy: { name: 'asc' },
+      take: 10,
+    })
+  }
+
+  return {
+    phone: realPhone,
+    samePhone: samePhone.map((p) => toCandidate(p, conv.patientId)),
+    results: results.map((p) => toCandidate(p, conv.patientId)),
+  }
+}
+
+/**
+ * Vincula a conversa a um paciente existente ({ patientId }) ou cria um
+ * PRE_CADASTRO com o telefone da conversa ({ create: { name } }). Mesmo
+ * telefone + nome igual a um paciente existente → 409 { duplicateOf } (a
+ * menos que confirmDuplicate). Mesmo telefone com nome diferente é permitido
+ * (família). O vínculo passa a ser manual (a ingestão não troca sozinha).
+ */
+export async function linkConversationPatientManual(
+  scope: AttendanceScope,
+  id: string,
+  input: { patientId?: string; create?: { name: string; confirmDuplicate?: boolean } },
+) {
+  const conv = await loadForAction(scope, id)
+  const previous = conv.patientId
+    ? await prisma.patient.findUnique({ where: { id: conv.patientId }, select: { name: true } })
+    : null
+
+  if (input.patientId) {
+    const patient = await prisma.patient.findFirst({
+      where: { id: input.patientId, doctorId: scope.doctorId, anonymizedAt: null },
+      select: { id: true, name: true },
+    })
+    if (!patient) throw new AttendanceAccessError(404, 'Paciente não encontrado')
+    if (conv.patientId === patient.id && conv.patientLinkManual) return getConversationDetail(scope, id)
+
+    const { count } = await prisma.conversation.updateMany({
+      where: { id, patientId: conv.patientId },
+      data: { patientId: patient.id, patientLinkManual: true },
+    })
+    if (count === 0) throw new AttendanceAccessError(409, 'O vínculo foi alterado por outra pessoa. Atualize e tente novamente.')
+    if (conv.patientId !== patient.id) {
+      await recordEvent(prisma, id, 'PATIENT_LINKED', {
+        actorUserId: scope.userId,
+        note: previous ? `${patient.name} (antes: ${previous.name})` : patient.name,
+      })
+    }
+    log('conversation.patient_linked', { conversationId: id, patientId: patient.id, by: scope.userId })
+    await publishConversationUpdate(id)
+    return getConversationDetail(scope, id)
+  }
+
+  const name = input.create?.name.trim() ?? ''
+  if (name.length < 2) throw new AttendanceAccessError(400, 'Informe o nome do paciente')
+  const phone = conversationRealPhone(conv)
+  if (!phone) {
+    throw new AttendanceAccessError(400, 'O telefone deste contato ainda não foi identificado pelo WhatsApp. Vincule a um paciente existente.')
+  }
+
+  if (!input.create?.confirmDuplicate) {
+    const same = (await findPatientsByPhone(prisma, scope.doctorId, phone)).find((p) => normalizeName(p.name) === normalizeName(name))
+    if (same) {
+      throw new AttendanceAccessError(409, `Já existe ${same.name} com este telefone`, {
+        code: 'PATIENT_DUPLICATE',
+        duplicateOf: { id: same.id, name: same.name, status: same.status },
+      })
+    }
+  }
+
+  const patient = await prisma.$transaction(async (tx) => {
+    const created = await tx.patient.create({
+      data: {
+        name,
+        phone,
+        phoneKey: computePhoneKey(phone),
+        doctorId: scope.doctorId,
+        roomId: conv.roomId,
+        status: 'PRE_CADASTRO',
+        origin: 'MANUAL',
+        createdByUserId: scope.userId,
+      },
+      select: { id: true, name: true },
+    })
+    const { count } = await tx.conversation.updateMany({
+      where: { id, patientId: conv.patientId },
+      data: { patientId: created.id, patientLinkManual: true },
+    })
+    if (count === 0) throw new AttendanceAccessError(409, 'O vínculo foi alterado por outra pessoa. Atualize e tente novamente.')
+    return created
+  })
+
+  await recordEvent(prisma, id, 'PATIENT_LINKED', {
+    actorUserId: scope.userId,
+    note: `${patient.name} (novo pré-cadastro)${previous ? ` — antes: ${previous.name}` : ''}`,
+  })
+  await logAudit({
+    clinicId: scope.doctorId,
+    roomId: conv.roomId,
+    userId: scope.userId,
+    action: 'PATIENT_PRE_REGISTER',
+    description: `Pré-cadastro criado para ${patient.name} pelo Atendimento`,
+    metadata: { patientId: patient.id, origin: 'ATENDIMENTO', conversationId: id },
+  })
+  log('conversation.patient_created', { conversationId: id, patientId: patient.id, by: scope.userId })
+  await publishConversationUpdate(id)
+  return getConversationDetail(scope, id)
+}
+
+export async function unlinkConversationPatient(scope: AttendanceScope, id: string) {
+  const conv = await loadForAction(scope, id)
+  if (!conv.patientId) {
+    if (!conv.patientLinkManual) await prisma.conversation.updateMany({ where: { id, patientId: null }, data: { patientLinkManual: true } })
+    return getConversationDetail(scope, id)
+  }
+  const previous = await prisma.patient.findUnique({ where: { id: conv.patientId }, select: { name: true } })
+  const { count } = await prisma.conversation.updateMany({
+    where: { id, patientId: conv.patientId },
+    data: { patientId: null, patientLinkManual: true },
+  })
+  if (count === 0) throw new AttendanceAccessError(409, 'O vínculo foi alterado por outra pessoa. Atualize e tente novamente.')
+  await recordEvent(prisma, id, 'PATIENT_UNLINKED', { actorUserId: scope.userId, note: previous?.name ?? null })
+  log('conversation.patient_unlinked', { conversationId: id, by: scope.userId })
+  await publishConversationUpdate(id)
+  return getConversationDetail(scope, id)
 }
 
 /** Avança lead NOVO → "em contato" (EM_ANALISE) após a primeira resposta humana. */
@@ -1146,6 +1518,15 @@ export async function startConversation(
     }
   }
 
+  // Paciente escolhido explicitamente → vínculo manual (se a conversa ainda não tinha).
+  if (input.patientId && patient && !conversation.patientId) {
+    const { count } = await prisma.conversation.updateMany({
+      where: { id: conversation.id, patientId: null },
+      data: { patientId: patient.id, patientLinkManual: true },
+    })
+    if (count > 0) await recordEvent(prisma, conversation.id, 'PATIENT_LINKED', { actorUserId: scope.userId, note: patient.name })
+  }
+
   await sendHumanMessage(scope, conversation.id, input.content)
   return itemAfter(conversation.id)
 }
@@ -1253,26 +1634,37 @@ export async function listConversations(
   }
 }
 
+/**
+ * Próxima consulta do paciente VINCULADO (não de outros com o mesmo
+ * telefone): status ativo (agendada/confirmada), data >= agora.
+ */
+async function nextAppointmentOf(doctorId: string, patientId: string | null) {
+  if (!patientId) return null
+  const appt = await prisma.appointment.findFirst({
+    where: { patientId, doctorId, date: { gte: new Date() }, status: { in: ['SCHEDULED', 'CONFIRMED'] } },
+    orderBy: { date: 'asc' },
+    select: { id: true, date: true, status: true, title: true, duration: true },
+  })
+  return appt ? { id: appt.id, date: appt.date.toISOString(), status: appt.status, title: appt.title, duration: appt.duration } : null
+}
+
 export async function getConversationDetail(scope: AttendanceScope, id: string) {
-  const conv = await getAccessibleConversation(scope, id, conversationListInclude)
+  const conv = await getAccessibleConversation(scope, id, {
+    ...conversationListInclude,
+    patient: { select: { id: true, name: true, leadStatus: true, status: true, phone: true } },
+  })
   if (!conv) throw new AttendanceAccessError(404, 'Conversa não encontrada')
   const [item, nextAppointment, connection, hasAiAgent] = await Promise.all([
     toListItemOne(conv as ConversationWithList),
-    conv.patientId
-      ? prisma.appointment.findFirst({
-          where: { patientId: conv.patientId, doctorId: scope.doctorId, date: { gte: new Date() }, status: { notIn: ['CANCELLED', 'COMPLETED', 'NO_SHOW'] } },
-          orderBy: { date: 'asc' },
-          select: { id: true, date: true, status: true },
-        })
-      : Promise.resolve(null),
+    nextAppointmentOf(scope.doctorId, conv.patientId),
     getRoomConnectionInfo(conv.roomId),
     roomHasActiveBot(conv.roomId),
   ])
   return {
     ...item,
-    patient: item.patient
-      ? { ...item.patient, nextAppointment: nextAppointment ? { id: nextAppointment.id, date: nextAppointment.date.toISOString(), status: nextAppointment.status } : null }
-      : null,
+    patient: item.patient && conv.patient ? { ...item.patient, phone: conv.patient.phone, nextAppointment } : null,
+    contactNameLocked: conv.contactNameLocked,
+    patientLinkManual: conv.patientLinkManual,
     canReply: !!conv.roomId && scope.replyRoomIds.includes(conv.roomId),
     roomConnected: !!connection?.connected,
     hasAiAgent,

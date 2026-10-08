@@ -47,6 +47,8 @@ const props = defineProps<{
   rooms: Room[]
   currentUser: AuthUser | null
   loading: boolean
+  /** Opcional: paciente já selecionado numa consulta nova (ex.: agendar pelo Atendimento). */
+  defaultPatientId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -157,6 +159,19 @@ function handlePatientCreated(p: Patient) {
   handleSelectPatient(p)
   emit('patientCreated', p)
 }
+
+// Pré-seleção do paciente (só consulta nova e enquanto nada foi escolhido).
+watch(
+  () => [props.defaultPatientId, allPatients.value] as const,
+  ([pid]) => {
+    if (props.appointment || !pid || formData.patientId) return
+    const p = allPatients.value.find(pt => pt.id === pid)
+    if (!p) return
+    handleSelectPatient(p)
+    if (!formData.title) formData.title = `Consulta - ${p.name}`
+  },
+  { immediate: true }
+)
 
 const selectedPatientFull = computed(() => allPatients.value.find(p => p.id === formData.patientId))
 const primaryPlan = computed(() => selectedPatientFull.value?.patientPlans?.[0] ?? null)

@@ -24,6 +24,7 @@ import aiAgentRoutes from './routes/ai-agent'
 import myRoomsRoutes from './routes/my-rooms'
 import attendanceRoutes, { attendanceStreamRouter } from './routes/attendance'
 import { startNotificationJobs } from './lib/notification-jobs'
+import { startPatientIdentityJobs } from './lib/patient-identity'
 import { reconcileAllLidConversations } from './lib/attendance'
 import { runStartupDatabaseCleanup } from './lib/whatsapp'
 import { restoreRoomSessions, startRoomHealthWatchdog } from './lib/room-whatsapp'
@@ -235,6 +236,10 @@ app.listen(PORT, () => {
 
   // Notificações periódicas (follow-up de leads, pré-agendamentos, fila de atendimento)
   startNotificationJobs()
+
+  // Identidade do paciente: phoneKey, leads com LID e fusão automática segura
+  // de duplicados (inicialização + a cada 30 min) — ver lib/patient-identity.ts
+  startPatientIdentityJobs()
 })
 
 export default app

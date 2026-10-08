@@ -1,5 +1,6 @@
 import { prisma } from '../prisma'
-import { findPatientByPhone } from '../phone'
+import { findPatientsByPhone } from '../phone'
+import { isGenericPatientName, namesLookAlike } from '../patient-identity'
 import type { SystemAction } from './types'
 
 export const updatePatientData: SystemAction = {
@@ -25,15 +26,23 @@ export const updatePatientData: SystemAction = {
       return { success: false, error: 'Informe CPF ou telefone para localizar o paciente.', code: 'MISSING_LOOKUP' }
     }
 
-    const patient = cpf
-      ? await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, cpf } })
-      : await findPatientByPhone(prisma, ctx.doctorId, phone!)
+    const newName = input.nome ? String(input.nome).trim() : ''
+    let patient = cpf ? await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, cpf } }) : null
+    if (!cpf) {
+      // Telefone pode ser de uma família inteira: prefere o cadastro com nome
+      // parecido com o informado; senão o de maior prioridade.
+      const samePhone = await findPatientsByPhone(prisma, ctx.doctorId, phone!)
+      patient = (newName ? samePhone.find(p => namesLookAlike(p.name, newName)) : undefined) ?? samePhone[0] ?? null
+    }
     if (!patient) {
       return { success: false, error: 'Paciente não encontrado.', code: 'PATIENT_NOT_FOUND' }
     }
 
     const data: Record<string, unknown> = {}
-    if (input.nome) data.name = String(input.nome)
+    // Nunca troca o nome real de alguém pelo nome de OUTRA pessoa dito na
+    // conversa — só completa nome genérico ("Novo contato") ou refina o
+    // mesmo nome ("Kelven" → "Kelven Pereira da Silva").
+    if (newName && (isGenericPatientName(patient.name) || namesLookAlike(patient.name, newName))) data.name = newName
     if (input.email) data.email = String(input.email)
     if (input.endereco) data.address = String(input.endereco)
 

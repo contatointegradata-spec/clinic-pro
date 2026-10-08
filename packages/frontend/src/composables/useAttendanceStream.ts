@@ -7,6 +7,8 @@ export type StreamState = 'connecting' | 'live' | 'polling' | 'closed'
 interface StreamHandlers {
   onConversation: (c: ConversationListItem) => void
   onMessage: (m: AttendanceMessage) => void
+  /** Observação interna editada/excluída. */
+  onMessageUpdated?: (m: AttendanceMessage) => void
   onSummary?: (s: AttendanceSummary) => void
   /** Duas conversas do mesmo contato foram unificadas (LID x telefone). */
   onMerged?: (e: { fromId: string; intoId: string }) => void
@@ -82,6 +84,10 @@ export function useAttendanceStream(handlers: StreamHandlers) {
       es.addEventListener('message.created', e => {
         const m = parse<AttendanceMessage>(e)
         if (m) handlers.onMessage(m)
+      })
+      es.addEventListener('message.updated', e => {
+        const m = parse<AttendanceMessage>(e)
+        if (m) handlers.onMessageUpdated?.(m)
       })
       es.addEventListener('conversation.merged', e => {
         const m = parse<{ fromId: string; intoId: string }>(e)

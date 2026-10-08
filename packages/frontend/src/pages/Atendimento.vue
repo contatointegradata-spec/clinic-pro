@@ -33,6 +33,7 @@ let measureTimer: ReturnType<typeof setTimeout> | undefined
 const { state: streamState } = useAttendanceStream({
   onConversation: c => store.upsertConversation(c),
   onMessage: m => store.applyMessage(m),
+  onMessageUpdated: m => store.applyMessageUpdate(m),
   onSummary: s => { store.summary = s },
   onMerged: ({ fromId, intoId }) => {
     store.removeConversation(fromId)

@@ -1,5 +1,6 @@
 import { prisma } from '../prisma'
-import { findPatientByPhone, normalizePatientPhone } from '../phone'
+import { findPatientsByPhone, normalizePatientPhone } from '../phone'
+import { autoMergePatientDuplicates, isGenericPatientName, namesLookAlike } from '../patient-identity'
 import type { SystemAction } from './types'
 
 // Mesmo formato usado por POST /patients/pre-register (routes/patients.ts) —
@@ -26,9 +27,22 @@ export const createPreScheduling: SystemAction = {
     const phone = String(input.telefone ?? '').replace(/\D/g, '')
     const cpf = input.cpf ? String(input.cpf).replace(/\D/g, '') : undefined
 
-    const duplicate = cpf
-      ? await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, cpf } })
-      : await findPatientByPhone(prisma, ctx.doctorId, phone)
+    const name = String(input.nome ?? '').trim()
+
+    // Mesmo telefone ≠ mesma pessoa (mãe que marca pro filho): só reaproveita
+    // o cadastro com CPF igual, nome parecido, ou um lead ainda sem nome real
+    // (que recebe o nome informado). Nome diferente → novo pré-cadastro.
+    let duplicate = cpf ? await prisma.patient.findFirst({ where: { doctorId: ctx.doctorId, cpf } }) : null
+    if (!duplicate) {
+      const samePhone = await findPatientsByPhone(prisma, ctx.doctorId, phone)
+      duplicate = !name || isGenericPatientName(name)
+        ? samePhone[0] ?? null
+        : samePhone.find(p => namesLookAlike(p.name, name)) ?? null
+      if (!duplicate && name && !isGenericPatientName(name)) {
+        const genericLead = samePhone.find(p => isGenericPatientName(p.name) && (p.status === 'PRE_CADASTRO' || p.origin === 'CHATBOT'))
+        if (genericLead) duplicate = await prisma.patient.update({ where: { id: genericLead.id }, data: { name } })
+      }
+    }
     if (duplicate) {
       return {
         success: true,
@@ -39,7 +53,7 @@ export const createPreScheduling: SystemAction = {
     const patient = await prisma.patient.create({
       data: {
         doctorId: ctx.doctorId,
-        name: String(input.nome ?? ''),
+        name,
         phone: normalizePatientPhone(phone),
         cpf: cpf || null,
         notes: input.observacao ? String(input.observacao) : null,
@@ -49,6 +63,7 @@ export const createPreScheduling: SystemAction = {
         leadStatus: 'NOVO',
       },
     })
+    await autoMergePatientDuplicates(patient.id).catch(() => null)
 
     return {
       success: true,

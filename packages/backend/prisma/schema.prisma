@@ -213,6 +213,16 @@ model Patient {
   name              String
   email             String?
   phone             String
+  // Chave de comparação de telefone (DDD + últimos 8 dígitos, sem DDI/9º
+  // dígito; número estrangeiro = dígitos completos; LID nunca). Mantida
+  // automaticamente em toda escrita (middleware em lib/prisma.ts) — ver
+  // computePhoneKey em lib/phone.ts. Nunca editar à mão.
+  phoneKey          String?
+  // LID do WhatsApp (NNN@lid) de um lead cujo telefone real ainda não foi
+  // resolvido — o LID nunca é exibido como telefone; quando o vínculo
+  // LID↔telefone é aprendido, o lead recebe o telefone real e é deduplicado
+  // (lib/patient-identity.ts).
+  whatsappLid       String?
   birthDate         DateTime?
   cpf               String?       @unique
   rg                String?
@@ -259,6 +269,8 @@ model Patient {
   @@index([origin])
   @@index([chatbotSessionId])
   @@index([leadStatus])
+  @@index([doctorId, phoneKey])
+  @@index([whatsappLid])
   @@map("TBLPACIENTE")
 }
 
@@ -1256,6 +1268,11 @@ enum ConversationEventType {
   RESOLVED
   REOPENED
   NOTE
+  NOTE_EDITED
+  NOTE_DELETED
+  CONTACT_UPDATED
+  PATIENT_LINKED
+  PATIENT_UNLINKED
 }
 
 // Fila de atendimento por médico. Seed lazy em lib/attendance-access.ts
@@ -1362,6 +1379,11 @@ model Conversation {
   lastInboundAt        DateTime?
   firstHumanResponseAt DateTime?
   lastReadAt           DateTime?
+  // Nome editado pela equipe: o pushName do WhatsApp deixa de sobrescrevê-lo.
+  contactNameLocked    Boolean          @default(false)
+  // Vínculo com paciente definido/removido manualmente: a ingestão não
+  // re-vincula sozinha pelo telefone (ex.: mãe que marca para os filhos).
+  patientLinkManual    Boolean          @default(false)
 
   instance     WhatsAppInstance?   @relation(fields: [instanceId], references: [id], onDelete: SetNull)
   doctor       User?               @relation("DoctorConversations", fields: [doctorId], references: [id], onDelete: SetNull)
@@ -1398,6 +1420,11 @@ model Message {
   authorUserId   String?
   // Observação interna da equipe — nunca é enviada ao WhatsApp.
   isInternalNote Boolean       @default(false)
+  // Só observações internas podem ser editadas/excluídas (soft delete) —
+  // mensagens trocadas com o WhatsApp são imutáveis.
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  deletedById    String?
   timestamp      DateTime      @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)

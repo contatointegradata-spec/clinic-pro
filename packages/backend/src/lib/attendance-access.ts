@@ -33,12 +33,15 @@ export interface ConversationScopeRef {
 }
 
 // Erro com status HTTP — as rotas convertem em { message } com o status.
+// `details` (opcional) vai junto no corpo: { message, ...details }.
 export class AttendanceAccessError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  details?: Record<string, unknown>
+  constructor(status: number, message: string, details?: Record<string, unknown>) {
     super(message)
     this.name = 'AttendanceAccessError'
     this.status = status
+    this.details = details
   }
 }
 

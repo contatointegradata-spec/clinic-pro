@@ -102,10 +102,16 @@ export async function notifyUsers(userIds: string[], payload: NotificationPayloa
   )
 }
 
+// Datas de consulta sempre no fuso da clínica (o servidor roda em UTC: às
+// 22h de Brasília ele já está no dia seguinte). Com dia da semana pra a
+// equipe bater o olho e conferir ("sex., 09/10/2026 às 14:00").
+const CLINIC_TZ = 'America/Sao_Paulo'
+
 function fmtDateTime(date: Date): string {
-  const d = date.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })
-  const t = date.toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
-  return `${d} às ${t}`
+  const wd = date.toLocaleDateString('pt-BR', { timeZone: CLINIC_TZ, weekday: 'short' })
+  const d = date.toLocaleDateString('pt-BR', { timeZone: CLINIC_TZ, day: '2-digit', month: '2-digit', year: 'numeric' })
+  const t = date.toLocaleTimeString('pt-BR', { timeZone: CLINIC_TZ, hour: '2-digit', minute: '2-digit' })
+  return `${wd}, ${d} às ${t}`
 }
 
 export type AppointmentNotificationKind = 'created' | 'rescheduled' | 'confirmed' | 'cancelled'

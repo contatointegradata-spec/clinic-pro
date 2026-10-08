@@ -226,7 +226,7 @@ function openLeadTranscript(lead: CrmLead) {
                 >
                   <p class="text-sm font-semibold text-slate-800 truncate">{{ lead.name }}</p>
                   <p class="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                    <Phone class="w-3 h-3" /> {{ lead.phone }}
+                    <Phone class="w-3 h-3" /> {{ lead.phoneDisplay === undefined ? lead.phone : (lead.phoneDisplay ?? 'WhatsApp (sem nº)') }}
                   </p>
                   <p class="text-xs text-slate-400 flex items-center gap-1 mt-1">
                     <Clock class="w-3 h-3" /> {{ timeAgo(lead.createdAt) }}
@@ -257,8 +257,8 @@ function openLeadTranscript(lead: CrmLead) {
             class="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center justify-between gap-3"
           >
             <div class="min-w-0">
-              <p class="text-sm font-semibold text-slate-800 truncate">{{ c.name || c.phone }}</p>
-              <p v-if="c.name" class="text-xs text-slate-400">{{ c.phone }}</p>
+              <p class="text-sm font-semibold text-slate-800 truncate">{{ c.name || c.phoneDisplay || c.phone }}</p>
+              <p v-if="c.name && c.phoneDisplay !== null" class="text-xs text-slate-400">{{ c.phoneDisplay ?? c.phone }}</p>
               <p class="text-xs text-slate-500 truncate mt-0.5">{{ c.lastMessage }}</p>
             </div>
             <span class="text-[11px] text-slate-400 whitespace-nowrap flex-shrink-0">{{ timeAgo(c.lastMessageAt) }}</span>

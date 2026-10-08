@@ -1,11 +1,44 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Check, CheckCheck, Clock, AlertCircle, Bot, StickyNote, Paperclip, RotateCw, X } from 'lucide-vue-next'
+import { computed, nextTick, ref } from 'vue'
+import { Check, CheckCheck, Clock, AlertCircle, Bot, StickyNote, Paperclip, RotateCw, X, Pencil, Trash2 } from 'lucide-vue-next'
 import type { ChatMessage } from '../../stores/attendance'
 import { clockTime } from './format'
 
-const props = defineProps<{ message: ChatMessage }>()
-const emit = defineEmits<{ retry: [localId: string]; discard: [localId: string] }>()
+// `canManage`: a observação é do usuário (ou ele é o médico) → pode editar/excluir.
+// Mensagens do WhatsApp nunca recebem essas ações.
+const props = defineProps<{ message: ChatMessage; canManage?: boolean }>()
+const emit = defineEmits<{
+  retry: [localId: string]
+  discard: [localId: string]
+  edit: [id: string, content: string, done: (ok: boolean) => void]
+  remove: [id: string]
+}>()
+
+const editing = ref(false)
+const draft = ref('')
+const saving = ref(false)
+const editor = ref<HTMLTextAreaElement | null>(null)
+const manageable = computed(() => !!props.canManage && !m.value.localId && !m.value.deletedAt)
+
+function startEdit() {
+  draft.value = m.value.content
+  editing.value = true
+  nextTick(() => editor.value?.focus())
+}
+function saveEdit() {
+  const value = draft.value.trim()
+  if (!value || saving.value) return
+  if (value === m.value.content) { editing.value = false; return }
+  saving.value = true
+  emit('edit', m.value.id, value, ok => {
+    saving.value = false
+    if (ok) editing.value = false
+  })
+}
+function onEditKeydown(e: KeyboardEvent) {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); saveEdit() }
+  else if (e.key === 'Escape') { e.preventDefault(); editing.value = false }
+}
 
 const m = computed(() => props.message)
 const kind = computed(() => (m.value.type || '').toLowerCase())
@@ -14,15 +47,44 @@ const isAudio = computed(() => !!m.value.mediaUrl && (kind.value.includes('audio
 </script>
 
 <template>
+  <!-- Observação excluída -->
+  <p v-if="m.isInternalNote && m.deletedAt" class="text-center text-[11px] text-slate-400 italic py-1">
+    Observação excluída<template v-if="m.author"> · {{ m.author.name }}</template> · {{ clockTime(m.timestamp) }}
+  </p>
+
   <!-- Observação interna -->
-  <div v-if="m.isInternalNote" class="flex justify-center my-1">
+  <div v-else-if="m.isInternalNote" class="group flex justify-center my-1">
     <div class="w-full max-w-[85%] sm:max-w-[70%] bg-amber-50 border border-amber-200/80 rounded-xl px-3.5 py-2.5">
       <p class="flex items-center gap-1.5 text-[11px] font-medium text-amber-700 mb-1">
         <StickyNote class="w-3.5 h-3.5" />
-        Observação interna<template v-if="m.author"> · {{ m.author.name }}</template>
+        <span class="flex-1">Observação interna<template v-if="m.author"> · {{ m.author.name }}</template></span>
+        <template v-if="manageable && !editing">
+          <button class="opacity-0 group-hover:opacity-100 focus:opacity-100 text-amber-600 hover:text-amber-800 transition-opacity" aria-label="Editar observação" title="Editar" @click="startEdit">
+            <Pencil class="w-3.5 h-3.5" />
+          </button>
+          <button class="opacity-0 group-hover:opacity-100 focus:opacity-100 text-amber-600 hover:text-red-600 transition-opacity" aria-label="Excluir observação" title="Excluir" @click="emit('remove', m.id)">
+            <Trash2 class="w-3.5 h-3.5" />
+          </button>
+        </template>
       </p>
-      <p class="text-sm text-slate-800 whitespace-pre-wrap break-words">{{ m.content }}</p>
+      <div v-if="editing">
+        <textarea
+          ref="editor"
+          v-model="draft"
+          rows="3"
+          maxlength="4096"
+          class="w-full resize-y text-sm px-2.5 py-2 rounded-lg border border-amber-200 bg-white focus:outline-none focus:ring-2 focus:ring-amber-200"
+          aria-label="Editar observação"
+          @keydown="onEditKeydown"
+        />
+        <div class="flex justify-end gap-3 mt-1 text-[11px]">
+          <button class="text-slate-500 hover:text-slate-700" @click="editing = false">Cancelar</button>
+          <button class="font-medium text-amber-700 hover:text-amber-900 disabled:opacity-50" :disabled="saving || !draft.trim()" @click="saveEdit">Salvar</button>
+        </div>
+      </div>
+      <p v-else class="text-sm text-slate-800 whitespace-pre-wrap break-words">{{ m.content }}</p>
       <p class="flex items-center justify-end gap-1 text-[10px] text-amber-600/80 mt-1">
+        <span v-if="m.editedAt" :title="`Editada às ${clockTime(m.editedAt)}`">editada ·</span>
         <Clock v-if="m.status === 'PENDING'" class="w-3 h-3" aria-label="Enviando" />
         <AlertCircle v-else-if="m.status === 'FAILED'" class="w-3 h-3 text-red-500" aria-label="Falhou" />
         {{ clockTime(m.timestamp) }}

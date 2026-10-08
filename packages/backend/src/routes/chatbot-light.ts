@@ -16,6 +16,8 @@ import { listActions, getAction, runAction } from '../lib/chatbot-actions/regist
 import { simulateBlockEngine, resetBlockEngineSimulation, loadVersionBlocks } from '../lib/chatbot-block-engine'
 import { applyBlockTemplate, BLOCK_TEMPLATES, getOrCreateDraftVersion } from '../lib/chatbot-block-templates'
 import { listLegacyMessages, convertLegacyMessage } from '../lib/chatbot-legacy-migration'
+import { autoMergeAllDuplicates } from '../lib/patient-identity'
+import { displayPhone } from '../lib/phone'
 
 const router = Router()
 router.use(authenticate)
@@ -1474,10 +1476,22 @@ router.post('/system-actions/:id/test', async (req: AuthRequest, res) => {
 
 const LEAD_STATUSES = ['NOVO', 'EM_ANALISE', 'CONVERTIDO', 'DESCARTADO'] as const
 
+// Fusão automática segura de leads duplicados (lib/patient-identity.ts) antes
+// de montar o kanban — no máximo 1x a cada 5 min por médico; a rotina
+// periódica de 30 min cobre o resto.
+const lastLeadDedupe = new Map<string, number>()
+async function dedupeLeadsThrottled(doctorId: string) {
+  const last = lastLeadDedupe.get(doctorId) ?? 0
+  if (Date.now() - last < 5 * 60 * 1000) return
+  lastLeadDedupe.set(doctorId, Date.now())
+  await autoMergeAllDuplicates(doctorId).catch(err => console.error('[/chatbot-light/pre-schedulings] dedupe', err))
+}
+
 router.get('/pre-schedulings', async (req: AuthRequest, res) => {
   try {
     const doctorId = await getTargetDoctorId(req)
     const leadStatusFilter = req.query.leadStatus as string | undefined
+    await dedupeLeadsThrottled(doctorId)
 
     const patients = await prisma.patient.findMany({
       where: {
@@ -1501,7 +1515,11 @@ router.get('/pre-schedulings', async (req: AuthRequest, res) => {
       id: p.id,
       doctorId: p.doctorId,
       name: p.name,
-      phone: p.phone,
+      // Lead só com LID tem phone '' — o histórico do Agente de IA fica sob os
+      // dígitos do LID, então é isso que a transcrição do CRM precisa receber.
+      phone: p.phone || (p.whatsappLid ? p.whatsappLid.split('@')[0] : ''),
+      // null = lead identificado só pelo LID do WhatsApp (nunca exibir como telefone)
+      phoneDisplay: displayPhone(p.phone),
       notes: p.notes,
       status: p.status,
       leadStatus: p.leadStatus,
