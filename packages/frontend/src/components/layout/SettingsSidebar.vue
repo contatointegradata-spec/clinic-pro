@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Home, Settings, ChevronRight, PanelLeftClose, PanelLeft, LogOut } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
-import { getVisibleSettingsNav } from '../../config/settingsNav'
+import { getVisibleSettingsNav, SETTINGS_GROUP_LABELS } from '../../config/settingsNav'
 import { useSecretaryPermissions } from '../../composables/useSecretaryPermissions'
 import NotificationBell from '../NotificationBell.vue'
 
@@ -64,20 +64,23 @@ function handleLogout() {
     </div>
 
     <nav class="flex-1 min-h-0 overflow-y-auto px-2 py-3 space-y-0.5 scrollbar-none">
-      <p v-if="!props.collapsed" class="section-label mb-3">Opções</p>
-      <router-link
-        v-for="item in visible"
-        :key="item.to"
-        :to="item.to"
-        :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']"
-      >
-        <component :is="item.icon" :class="['w-4.5 h-4.5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-        <span class="flex-1 text-sm overflow-hidden transition-all duration-300 whitespace-nowrap" :style="{ opacity: props.collapsed ? 0 : 1, maxWidth: props.collapsed ? '0' : '200px' }">
-          {{ item.label }}
-        </span>
-        <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-3.5 h-3.5 text-primary-500/70 flex-shrink-0" />
-        <span v-if="props.collapsed" class="tooltip">{{ item.label }}</span>
-      </router-link>
+      <template v-for="(item, i) in visible" :key="item.to">
+        <p
+          v-if="!props.collapsed && (i === 0 || visible[i - 1].group !== item.group)"
+          :class="['section-label mb-1.5', i === 0 ? '' : 'mt-4']"
+        >{{ SETTINGS_GROUP_LABELS[item.group] }}</p>
+        <router-link
+          :to="item.to"
+          :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']"
+        >
+          <component :is="item.icon" :class="['w-4.5 h-4.5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
+          <span class="flex-1 text-sm overflow-hidden transition-all duration-300 whitespace-nowrap" :style="{ opacity: props.collapsed ? 0 : 1, maxWidth: props.collapsed ? '0' : '200px' }">
+            {{ item.label }}
+          </span>
+          <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-3.5 h-3.5 text-primary-500/70 flex-shrink-0" />
+          <span v-if="props.collapsed" class="tooltip">{{ item.label }}</span>
+        </router-link>
+      </template>
     </nav>
 
     <div class="border-t border-slate-100 p-3 flex-shrink-0">

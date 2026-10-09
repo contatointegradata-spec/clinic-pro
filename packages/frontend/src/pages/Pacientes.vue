@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { format, differenceInYears, parseISO } from 'date-fns'
+import { format, differenceInYears, parseISO, formatDistanceToNow } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
-  Plus, Search, Phone, Mail, Edit2, Users, Calendar, UserCircle2,
-  AlertTriangle, CheckCircle2, Clock, UserX, CheckCheck, ChevronRight,
-  Download, ShieldOff, GitMerge, Sparkles,
+  Plus, Search, Phone, Users, UserCircle2, AlertTriangle, CheckCircle2, Clock, UserX, CheckCheck,
+  ChevronRight, GitMerge, MessageCircle, FileSpreadsheet, Cake, CalendarClock, FileText,
 } from 'lucide-vue-next'
 import toast from '../lib/toast'
 import api from '../lib/api'
 import type { Patient, PatientStatus, PatientDuplicateGroup } from '../types'
 import Modal from '../components/ui/Modal.vue'
 import PatientForm from '../components/Patients/PatientForm.vue'
-import { SkeletonTable } from '../components/ui'
 import PageHeader from '../components/ui/PageHeader.vue'
+import BirthdaysPanel from '../components/patient/BirthdaysPanel.vue'
+import ReturnsPanel from '../components/clinical/ReturnsPanel.vue'
+import PlansPanel from '../components/clinical/PlansPanel.vue'
 import { useQuery } from '../composables/useQuery'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -82,6 +83,20 @@ function maskPatientPhone(p: Patient): string {
   return maskPhone(p.phone)
 }
 
+function lastVisitText(p: Patient): string | null {
+  const last = (p as Patient & { appointments?: Array<{ date: string }> }).appointments?.[0]?.date
+  if (!last) return null
+  return `${format(new Date(last), 'dd/MM/yyyy')} · ${formatDistanceToNow(new Date(last), { locale: ptBR, addSuffix: true })}`
+}
+
+function whatsappHref(p: Patient): string | null {
+  if (p.whatsappLid && !p.phoneKey) return null
+  let d = (p.phone ?? '').replace(/\D/g, '')
+  if (d.length < 10) return null
+  if (d.length <= 11) d = `55${d}`
+  return `https://wa.me/${d}`
+}
+
 function isPreCad(p: Patient): boolean {
   return p.status === 'PRE_CADASTRO' || p.status === 'INCOMPLETO'
 }
@@ -99,6 +114,19 @@ const FILTER_TABS: { key: FilterKey; label: string }[] = [
 ]
 
 // ─── State ────────────────────────────────────────────────────────────────────
+
+const route = useRoute()
+const router = useRouter()
+
+type ListTab = 'pacientes' | 'aniversariantes' | 'retornos' | 'orcamentos'
+const LIST_TABS: { key: ListTab; label: string; icon: Component }[] = [
+  { key: 'pacientes', label: 'Pacientes', icon: Users },
+  { key: 'aniversariantes', label: 'Aniversariantes', icon: Cake },
+  { key: 'retornos', label: 'Retornos', icon: CalendarClock },
+  { key: 'orcamentos', label: 'Orçamentos', icon: FileText },
+]
+const listTab = ref<ListTab>(LIST_TABS.some(t => t.key === route.query.aba) ? route.query.aba as ListTab : 'pacientes')
+watch(listTab, v => router.replace({ query: { ...route.query, aba: v === 'pacientes' ? undefined : v } }))
 
 const modalOpen = ref(false)
 const editPatient = ref<Patient | null>(null)
@@ -128,11 +156,6 @@ const counts = computed(() => {
   }
 })
 
-function handleEdit(p: Patient) {
-  editPatient.value = p
-  modalOpen.value = true
-}
-
 function handleNew() {
   editPatient.value = null
   modalOpen.value = true
@@ -141,47 +164,6 @@ function handleNew() {
 function closeModal() {
   modalOpen.value = false
   editPatient.value = null
-}
-
-// ─── LGPD — exportar / anonimizar ──────────────────────────────────────────
-
-async function exportPatient(p: Patient) {
-  try {
-    const res = await api.get(`/patients/${p.id}/export`)
-    const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `paciente-${p.id}.json`
-    link.click()
-    URL.revokeObjectURL(url)
-    toast.success('Dados exportados')
-  } catch {
-    toast.error('Erro ao exportar dados do paciente')
-  }
-}
-
-const anonymizeTarget = ref<Patient | null>(null)
-const anonymizing = ref(false)
-
-function confirmAnonymize(p: Patient) {
-  anonymizeTarget.value = p
-}
-
-async function doAnonymize() {
-  if (!anonymizeTarget.value) return
-  anonymizing.value = true
-  try {
-    await api.post(`/patients/${anonymizeTarget.value.id}/anonymize`)
-    toast.success('Dados pessoais do paciente foram anonimizados')
-    anonymizeTarget.value = null
-    await refetch()
-  } catch (err: unknown) {
-    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-    toast.error(msg || 'Erro ao anonimizar paciente')
-  } finally {
-    anonymizing.value = false
-  }
 }
 
 // ─── Duplicidade por telefone ────────────────────────────────────────────────
@@ -216,10 +198,14 @@ async function openPatientById(id: string) {
   try {
     const { data } = await api.get<Patient>(`/patients/${id}`)
     if (isPreCad(data)) openCompleteModal(data)
-    else handleEdit(data)
+    else router.push(`/pacientes/${id}`)
   } catch {
     toast.error('Paciente não encontrado')
   }
+}
+
+function openPatient(p: Patient) {
+  router.push(`/pacientes/${p.id}`)
 }
 
 async function useExistingDuplicate() {
@@ -407,8 +393,6 @@ async function mergeFromGroup(g: PatientDuplicateGroup, dropId: string) {
 // ─── /pacientes?patient=<id> (links do Atendimento) ─────────────────────────
 // Abre direto o paciente: pré-cadastro → "Finalizar cadastro"; senão a edição.
 
-const route = useRoute()
-const router = useRouter()
 watch(
   () => route.query.patient,
   async (id) => {
@@ -419,11 +403,68 @@ watch(
   },
   { immediate: true },
 )
+
+// ─── Exportar lista (Excel / CSV) ──────────────────────────────────────────
+
+function exportRows() {
+  return patients.value.map(p => ({
+    Nome: p.name,
+    Telefone: p.phone ?? '',
+    'E-mail': p.email ?? '',
+    CPF: p.cpf ?? '',
+    Nascimento: p.birthDate ? format(parseISO(p.birthDate), 'dd/MM/yyyy') : '',
+    Status: STATUS_LABELS[p.status ?? 'ATIVO'],
+    'Última consulta': (p as Patient & { appointments?: Array<{ date: string }> }).appointments?.[0]?.date
+      ? format(new Date((p as Patient & { appointments: Array<{ date: string }> }).appointments[0].date), 'dd/MM/yyyy')
+      : '',
+    'Cadastrado em': format(new Date(p.createdAt), 'dd/MM/yyyy'),
+  }))
+}
+
+function download(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function exportCsv() {
+  const rows = exportRows()
+  if (!rows.length) return
+  const headers = Object.keys(rows[0])
+  const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`
+  const csv = [headers.map(esc).join(';'), ...rows.map(r => headers.map(h => esc((r as Record<string, string>)[h])).join(';'))].join('\r\n')
+  download(new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' }), `pacientes-${format(new Date(), 'yyyy-MM-dd')}.csv`)
+}
+
+const exporting = ref(false)
+async function exportXlsx() {
+  const rows = exportRows()
+  if (!rows.length) return
+  exporting.value = true
+  try {
+    const ExcelJS = (await import('exceljs')).default
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet('Pacientes')
+    const headers = Object.keys(rows[0])
+    ws.columns = headers.map(h => ({ header: h, key: h, width: Math.max(14, h.length + 4) }))
+    ws.addRows(rows)
+    ws.getRow(1).font = { bold: true }
+    const buf = await wb.xlsx.writeBuffer()
+    download(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `pacientes-${format(new Date(), 'yyyy-MM-dd')}.xlsx`)
+  } catch {
+    toast.error('Não foi possível gerar o Excel')
+  } finally {
+    exporting.value = false
+  }
+}
 </script>
 
 <template>
-  <div class="space-y-6 page-stagger">
-    <PageHeader title="Pacientes" subtitle="Gerencie o cadastro de pacientes">
+  <div class="space-y-5">
+    <PageHeader title="Pacientes">
       <template #actions>
         <button
           v-if="duplicateGroups.length > 0"
@@ -432,357 +473,124 @@ watch(
           @click="duplicatesOpen = true"
         >
           <GitMerge class="w-4 h-4" />
-          Possíveis duplicados ({{ duplicateGroups.length }})
+          <span class="hidden sm:inline">Possíveis duplicados</span> ({{ duplicateGroups.length }})
         </button>
         <button class="btn-primary" @click="handleNew">
           <Plus class="w-4 h-4" />
-          Novo Paciente
+          Cadastrar paciente
         </button>
       </template>
     </PageHeader>
 
-    <!-- ── Status filter tabs ── -->
-    <div class="card py-3 px-4">
-      <div class="flex flex-wrap gap-2">
-        <button
-          v-for="tab in FILTER_TABS" :key="tab.key"
-          class="px-3 py-1.5 rounded-xl text-sm font-medium transition-all border"
-          :class="statusFilter === tab.key
-            ? 'bg-primary-600 text-white border-primary-600 shadow-sm'
-            : 'bg-slate-50 text-slate-600 border-slate-200 hover:border-slate-300'"
-          @click="statusFilter = tab.key"
-        >
-          {{ tab.label }}
-          <span
-            v-if="tab.key === 'PRE_CADASTRO' && counts.PRE_CADASTRO > 0"
-            class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-bold"
-            :class="statusFilter === 'PRE_CADASTRO' ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-700'"
-          >
-            {{ counts.PRE_CADASTRO }}
-          </span>
-          <span
-            v-if="tab.key === 'INCOMPLETO' && counts.INCOMPLETO > 0"
-            class="ml-1.5 text-xs px-1.5 py-0.5 rounded-full font-bold"
-            :class="statusFilter === 'INCOMPLETO' ? 'bg-white/20 text-white' : 'bg-orange-100 text-orange-700'"
-          >
-            {{ counts.INCOMPLETO }}
-          </span>
-        </button>
-      </div>
-    </div>
-
-    <!-- ── Search + count ── -->
-    <div class="card py-4">
-      <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-        <div class="relative flex-1">
-          <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-          <input
-            v-model="search"
-            placeholder="Buscar por nome, CPF ou telefone..."
-            class="input-field pl-9"
-            autocomplete="off"
-          />
+    <div class="card p-0">
+      <!-- Abas -->
+      <nav class="px-3 sm:px-5 border-b border-slate-100 overflow-x-auto scrollbar-none" role="tablist">
+        <div class="flex gap-1 min-w-max">
           <button
-            v-if="search"
-            class="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full
-                   bg-slate-200 hover:bg-slate-300 flex items-center justify-center
-                   transition-colors duration-150 text-slate-500"
-            @click="search = ''"
+            v-for="t in LIST_TABS" :key="t.key" role="tab" :aria-selected="listTab === t.key"
+            :class="['relative inline-flex items-center gap-2 px-3.5 py-3.5 text-sm font-medium transition-colors', listTab === t.key ? 'text-primary-700' : 'text-slate-500 hover:text-slate-800']"
+            @click="listTab = t.key"
           >
-            <span class="text-xs leading-none">×</span>
+            <component :is="t.icon" class="w-4 h-4" />
+            {{ t.label }}
+            <span v-if="listTab === t.key" class="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary-600" />
           </button>
         </div>
-        <div class="flex items-center gap-2 text-sm text-slate-500 bg-slate-50
-                    px-3 py-2 rounded-xl border border-slate-200 flex-shrink-0">
-          <Users class="w-4 h-4 text-slate-400" />
-          <span>
-            <strong class="text-slate-800 font-bold tabular-nums">{{ patients.length }}</strong>
-            paciente{{ patients.length !== 1 ? 's' : '' }}
-          </span>
-        </div>
-      </div>
-    </div>
+      </nav>
 
-    <!-- ── Desktop Table ── -->
-    <div class="card p-0 overflow-hidden hidden sm:block animate-stagger-3">
-      <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="bg-slate-50/80 border-b border-slate-200">
-              <th class="table-head-cell">Paciente</th>
-              <th class="table-head-cell">Contato</th>
-              <th class="table-head-cell hidden lg:table-cell">Status</th>
-              <th class="table-head-cell hidden lg:table-cell">CPF</th>
-              <th class="table-head-cell">Idade</th>
-              <th class="table-head-cell">Consultas</th>
-              <th class="table-head-cell hidden md:table-cell">Cadastro</th>
-              <th class="px-4 py-3 w-24" />
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-if="isLoading">
-              <td colspan="8" class="p-0">
-                <SkeletonTable :rows="6" :cols="7" />
-              </td>
-            </tr>
-            <tr v-else-if="patients.length === 0">
-              <td colspan="8">
-                <div class="empty-state">
-                  <div class="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mb-4 animate-float">
-                    <Users class="w-8 h-8 text-slate-300" />
+      <div class="p-4 sm:p-6">
+        <!-- ── PACIENTES ── -->
+        <template v-if="listTab === 'pacientes'">
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <input v-model="search" placeholder="Busque por nome, telefone, CPF ou e-mail" class="input-field pl-10 py-3" autocomplete="off" />
+            </div>
+            <select v-model="statusFilter" class="input-field sm:w-52 py-3" aria-label="Filtrar por situação">
+              <option v-for="tab in FILTER_TABS" :key="tab.key" :value="tab.key">
+                {{ tab.key === 'TODOS' ? 'Todas as situações' : tab.label }}{{ tab.key === 'PRE_CADASTRO' && counts.PRE_CADASTRO ? ` (${counts.PRE_CADASTRO})` : '' }}
+              </option>
+            </select>
+          </div>
+
+          <!-- Lista -->
+          <div class="mt-5">
+            <div class="hidden md:grid grid-cols-[minmax(0,1fr)_150px_190px_28px] gap-4 px-4 pb-2 text-xs font-semibold text-slate-500">
+              <span>Nome</span><span>CPF</span><span>Telefone</span><span />
+            </div>
+
+            <div v-if="isLoading && !patients.length" class="space-y-2"><div v-for="i in 5" :key="i" class="h-[72px] skeleton" /></div>
+
+            <div v-else-if="patients.length === 0" class="py-14 text-center">
+              <UserCircle2 class="w-12 h-12 mx-auto text-slate-200 mb-3" />
+              <p class="text-slate-600 font-medium">{{ search ? 'Nenhuma paciente encontrada' : 'Nenhuma paciente cadastrada' }}</p>
+              <button v-if="!search" class="mt-4 btn-primary text-sm" @click="handleNew"><Plus class="w-4 h-4" /> Cadastrar paciente</button>
+            </div>
+
+            <ul v-else class="space-y-2">
+              <li
+                v-for="p in patients" :key="p.id"
+                class="group grid grid-cols-[minmax(0,1fr)_auto] md:grid-cols-[minmax(0,1fr)_150px_190px_28px] items-center gap-4 rounded-2xl border border-slate-200/80 bg-white px-4 py-3.5 cursor-pointer transition-all hover:border-primary-200 hover:shadow-sm"
+                role="link" tabindex="0"
+                @click="openPatient(p)" @keydown.enter="openPatient(p)"
+              >
+                <div class="flex items-center gap-3 min-w-0">
+                  <div :class="['w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 font-semibold', isPreCad(p) ? 'bg-amber-50 text-amber-700' : 'bg-primary-50 text-primary-700']">
+                    {{ initials(p.name) }}
                   </div>
-                  <p class="text-slate-600 font-semibold">Nenhum paciente encontrado</p>
-                  <p class="text-slate-400 text-sm mt-1">
-                    {{ search ? `Sem resultados para "${search}"` : 'Comece cadastrando um paciente' }}
-                  </p>
-                  <button v-if="!search" class="mt-4 btn-primary text-xs" @click="handleNew">
-                    <Plus class="w-3.5 h-3.5" />
-                    Cadastrar Paciente
-                  </button>
-                </div>
-              </td>
-            </tr>
-            <tr
-              v-for="(p, idx) in patients" :key="p.id"
-              class="table-row group cursor-pointer"
-              :style="{ animationDelay: `${idx * 0.03}s` }"
-              @click="handleEdit(p)"
-            >
-              <td class="table-cell">
-                <div class="flex items-center gap-3">
-                  <div
-                    class="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm"
-                    :class="isPreCad(p)
-                      ? 'bg-gradient-to-br from-amber-400 to-amber-500 shadow-amber-400/20'
-                      : 'bg-gradient-to-br from-primary-400 to-primary-600 shadow-primary-400/20'"
-                  >
-                    <span class="text-white text-xs font-bold">{{ initials(p.name) }}</span>
-                  </div>
-                  <div>
-                    <div class="flex items-center gap-2">
-                      <p class="font-semibold text-slate-900 text-sm group-hover:text-primary-700 transition-colors duration-150">
-                        {{ p.name }}
-                      </p>
-                    </div>
-                    <div v-if="isPreCad(p)" class="w-32 mt-1">
-                      <div class="flex items-center gap-2">
-                        <div class="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                          <div class="h-full rounded-full transition-all" :class="progressColor(calcProgress(p))" :style="{ width: `${calcProgress(p)}%` }" />
-                        </div>
-                        <span class="text-xs text-slate-500 tabular-nums w-8 text-right">{{ calcProgress(p) }}%</span>
-                      </div>
-                    </div>
+                  <div class="min-w-0">
+                    <p class="font-semibold text-slate-900 truncate flex items-center gap-2">
+                      {{ p.name }}
+                      <span v-if="p.status !== 'ATIVO'" :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded-full border', STATUS_COLORS[p.status ?? 'ATIVO']]">{{ STATUS_LABELS[p.status ?? 'ATIVO'] }}</span>
+                    </p>
+                    <p class="text-xs text-slate-500 truncate">
+                      <template v-if="lastVisitText(p)">Última consulta: {{ lastVisitText(p) }}</template>
+                      <template v-else-if="ageOf(p) !== null">{{ ageOf(p) }} anos · sem consultas concluídas</template>
+                      <template v-else>Sem consultas concluídas</template>
+                    </p>
                   </div>
                 </div>
-              </td>
-              <td class="table-cell">
-                <div class="space-y-1">
-                  <div class="flex items-center gap-1.5 text-sm text-slate-600">
-                    <Phone class="w-3.5 h-3.5 text-slate-300 flex-shrink-0" />
-                    {{ maskPatientPhone(p) }}
-                  </div>
-                  <div v-if="p.email" class="flex items-center gap-1.5 text-xs text-slate-400">
-                    <Mail class="w-3 h-3 text-slate-300 flex-shrink-0" />
-                    <span class="truncate max-w-[140px]">{{ p.email }}</span>
-                  </div>
+                <span class="hidden md:block text-sm text-slate-600 tabular-nums">{{ maskCpf(p.cpf) }}</span>
+                <div class="hidden md:flex items-center gap-2 text-sm text-slate-600" @click.stop>
+                  <a v-if="whatsappHref(p)" :href="whatsappHref(p)!" target="_blank" rel="noopener" class="p-1 -m-1 rounded text-emerald-600 hover:bg-emerald-50" title="Abrir no WhatsApp"><MessageCircle class="w-4 h-4" /></a>
+                  <Phone v-else class="w-4 h-4 text-slate-300" />
+                  <span class="tabular-nums">{{ maskPatientPhone(p) }}</span>
                 </div>
-              </td>
-              <td class="table-cell hidden lg:table-cell">
-                <span
-                  class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border"
-                  :class="STATUS_COLORS[p.status ?? 'ATIVO']"
-                >
-                  <component :is="STATUS_ICONS[p.status ?? 'ATIVO']" class="w-3 h-3" />
-                  {{ STATUS_LABELS[p.status ?? 'ATIVO'] }}
-                </span>
-              </td>
-              <td class="table-cell font-mono text-slate-500 text-xs hidden lg:table-cell">
-                {{ maskCpf(p.cpf) }}
-              </td>
-              <td class="table-cell">
-                <span v-if="ageOf(p) !== null" class="inline-flex items-center gap-1 bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full text-xs font-semibold">
-                  {{ ageOf(p) }} anos
-                </span>
-                <template v-else>–</template>
-              </td>
-              <td class="table-cell">
-                <div class="flex items-center gap-1.5">
-                  <Calendar class="w-3.5 h-3.5 text-slate-300" />
-                  <span class="font-bold text-slate-700 tabular-nums">{{ p._count?.appointments ?? 0 }}</span>
-                  <span class="text-slate-400 text-xs">consultas</span>
-                </div>
-              </td>
-              <td class="table-cell text-slate-400 text-xs hidden md:table-cell tabular-nums">
-                {{ format(new Date(p.createdAt), 'dd/MM/yyyy', { locale: ptBR }) }}
-              </td>
-              <td class="table-cell" @click.stop>
-                <div class="flex items-center gap-1">
+                <div class="flex items-center justify-end">
                   <button
                     v-if="isPreCad(p)"
-                    class="px-2 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-all flex items-center gap-1"
+                    class="px-2 py-1 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1"
                     title="Finalizar cadastro"
-                    @click="openCompleteModal(p)"
+                    @click.stop="openCompleteModal(p)"
                   >
-                    <CheckCheck class="w-3 h-3" />
-                    Finalizar
+                    <CheckCheck class="w-3 h-3" /> Finalizar
                   </button>
-                  <router-link
-                    :to="`/pacientes/${p.id}/clinico`"
-                    class="px-2 py-1 text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-lg transition-all flex items-center gap-1"
-                    title="Odontograma, harmonização, fotos, orçamentos e retornos"
-                  >
-                    <Sparkles class="w-3 h-3" />
-                    Ficha clínica
-                  </router-link>
-                  <button
-                    class="p-1.5 text-slate-300 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all duration-150 active:scale-90"
-                    title="Editar"
-                    @click="handleEdit(p)"
-                  >
-                    <Edit2 class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    class="p-1.5 text-slate-300 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all duration-150 active:scale-90"
-                    title="Exportar dados (LGPD)"
-                    @click="exportPatient(p)"
-                  >
-                    <Download class="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    v-if="!p.anonymizedAt"
-                    class="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all duration-150 active:scale-90"
-                    title="Anonimizar dados (LGPD)"
-                    @click="confirmAnonymize(p)"
-                  >
-                    <ShieldOff class="w-3.5 h-3.5" />
-                  </button>
+                  <ChevronRight v-else class="w-4 h-4 text-slate-300 group-hover:text-primary-500 transition-colors" />
                 </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
+              </li>
+            </ul>
 
-    <!-- LGPD — confirmação de anonimização -->
-    <Modal
-      :is-open="!!anonymizeTarget"
-      title="Anonimizar dados do paciente"
-      subtitle="Essa ação não pode ser desfeita"
-      size="sm"
-      @close="anonymizeTarget = null"
-    >
-      <p class="text-sm text-slate-600 leading-relaxed">
-        Nome, CPF, telefone, RG, endereço e dados do responsável de
-        <strong>{{ anonymizeTarget?.name }}</strong> serão apagados e substituídos por
-        dados anônimos. Agendamentos, prontuário e histórico financeiro
-        <strong>continuam intactos</strong> (guarda clínica tem prazo legal próprio),
-        só deixam de estar vinculados a um paciente identificável.
-      </p>
-      <template #footer>
-        <div class="flex justify-end gap-2">
-          <button class="btn-secondary" :disabled="anonymizing" @click="anonymizeTarget = null">Cancelar</button>
-          <button class="btn-danger" :disabled="anonymizing" @click="doAnonymize">
-            {{ anonymizing ? 'Anonimizando...' : 'Confirmar anonimização' }}
-          </button>
-        </div>
-      </template>
-    </Modal>
-
-    <!-- ── Mobile Cards ── -->
-    <div class="sm:hidden space-y-3 animate-stagger-3">
-      <template v-if="isLoading">
-        <div v-for="i in 4" :key="i" class="card flex items-center gap-3 py-4" :style="{ animationDelay: `${(i - 1) * 0.05}s` }">
-          <div class="skeleton-circle w-12 h-12 flex-shrink-0" />
-          <div class="flex-1 space-y-2">
-            <div class="skeleton-text w-3/4" />
-            <div class="skeleton-text w-1/2" />
-          </div>
-        </div>
-      </template>
-      <div v-else-if="patients.length === 0" class="card empty-state">
-        <UserCircle2 class="w-12 h-12 text-slate-200 mb-3" />
-        <p class="text-slate-500 font-medium">Nenhum paciente encontrado</p>
-        <button v-if="!search" class="mt-3 btn-primary text-xs" @click="handleNew">
-          <Plus class="w-3.5 h-3.5" />
-          Cadastrar
-        </button>
-      </div>
-      <template v-else>
-        <div
-          v-for="(p, idx) in patients" :key="p.id"
-          class="card-hover"
-          :style="{ animationDelay: `${idx * 0.04}s` }"
-          @click="handleEdit(p)"
-        >
-          <div class="flex items-start gap-3 py-1">
-            <div
-              class="w-11 h-11 rounded-full flex items-center justify-center flex-shrink-0 shadow-sm"
-              :class="isPreCad(p)
-                ? 'bg-gradient-to-br from-amber-400 to-amber-500 shadow-amber-400/30'
-                : 'bg-gradient-to-br from-primary-400 to-primary-600 shadow-primary-400/30'"
-            >
-              <span class="text-white text-sm font-bold">{{ initials(p.name) }}</span>
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-0.5">
-                <p class="font-semibold text-slate-900 truncate">{{ p.name }}</p>
-                <span
-                  class="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full border"
-                  :class="STATUS_COLORS[p.status ?? 'ATIVO']"
-                >
-                  <component :is="STATUS_ICONS[p.status ?? 'ATIVO']" class="w-3 h-3" />
-                  {{ STATUS_LABELS[p.status ?? 'ATIVO'] }}
-                </span>
-              </div>
-              <p class="text-xs text-slate-400 flex items-center gap-1">
-                <Phone class="w-3 h-3" />
-                {{ maskPatientPhone(p) }}
-                <span v-if="ageOf(p) !== null" class="ml-1">· {{ ageOf(p) }} anos</span>
-              </p>
-              <div v-if="isPreCad(p)" class="mt-2 w-full">
-                <div class="flex items-center gap-2">
-                  <div class="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                    <div class="h-full rounded-full transition-all" :class="progressColor(calcProgress(p))" :style="{ width: `${calcProgress(p)}%` }" />
-                  </div>
-                  <span class="text-xs text-slate-500 tabular-nums w-8 text-right">{{ calcProgress(p) }}%</span>
-                </div>
-              </div>
-            </div>
-            <div class="flex flex-col items-end gap-1 flex-shrink-0">
-              <span class="text-xs text-slate-400 flex items-center gap-1">
-                <Calendar class="w-3 h-3" />
-                {{ p._count?.appointments ?? 0 }}
+            <div v-if="patients.length" class="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-sm text-slate-500">
+              <span>Mostrando {{ patients.length }} paciente{{ patients.length !== 1 ? 's' : '' }}</span>
+              <span class="flex items-center gap-3">
+                Baixar lista:
+                <button class="inline-flex items-center gap-1 font-semibold text-primary-700 hover:underline" :disabled="exporting" @click="exportXlsx"><FileSpreadsheet class="w-4 h-4" /> Excel</button>
+                <button class="inline-flex items-center gap-1 font-semibold text-primary-700 hover:underline" @click="exportCsv"><FileSpreadsheet class="w-4 h-4" /> CSV</button>
               </span>
-              <ChevronRight class="w-3.5 h-3.5 text-slate-300" />
             </div>
           </div>
-          <div v-if="!isPreCad(p)" class="mt-2 pt-2 border-t border-slate-100" @click.stop>
-            <router-link
-              :to="`/pacientes/${p.id}/clinico`"
-              class="w-full text-center text-xs font-medium text-primary-700 bg-primary-50 hover:bg-primary-100 border border-primary-100 rounded-lg py-1.5 transition-all flex items-center justify-center gap-1"
-            >
-              <Sparkles class="w-3 h-3" />
-              Ficha clínica
-            </router-link>
-          </div>
-          <div v-if="isPreCad(p)" class="mt-2 pt-2 border-t border-slate-100" @click.stop>
-            <button
-              class="w-full text-center text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg py-1.5 transition-all flex items-center justify-center gap-1"
-              @click="openCompleteModal(p)"
-            >
-              <CheckCheck class="w-3 h-3" />
-              Finalizar Cadastro
-            </button>
-          </div>
-        </div>
-      </template>
+        </template>
+
+        <BirthdaysPanel v-else-if="listTab === 'aniversariantes'" />
+        <ReturnsPanel v-else-if="listTab === 'retornos'" />
+        <PlansPanel v-else-if="listTab === 'orcamentos'" />
+      </div>
     </div>
 
     <!-- ── Edit/New Modal ── -->
     <Modal
       :is-open="modalOpen"
-      :title="editPatient ? 'Editar Paciente' : 'Novo Paciente'"
+      :title="editPatient ? 'Editar paciente' : 'Cadastrar paciente'"
       size="lg"
       @close="closeModal"
     >

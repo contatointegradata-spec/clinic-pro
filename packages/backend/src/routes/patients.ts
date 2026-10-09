@@ -130,6 +130,8 @@ router.get('/', async (req: AuthRequest, res) => {
       where,
       include: {
         _count: { select: { appointments: true } },
+        // Última consulta concluída — mostrada na lista ("Última consulta: …").
+        appointments: { where: { status: 'COMPLETED' }, orderBy: { date: 'desc' }, take: 1, select: { date: true } },
         patientPlans: {
           include: {
             healthPlan: { select: { id: true, name: true, type: true, discountPercent: true, defaultValue: true } },

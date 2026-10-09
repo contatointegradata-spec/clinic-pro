@@ -35,27 +35,39 @@ export interface SettingsNavItem {
   roles: string[]
   secretaryPermission?: string | string[]
   platformGate?: 'notifications' | 'integrations'
+  group: 'clinica' | 'financeiro' | 'conta' | 'admin'
+}
+
+export const SETTINGS_GROUP_LABELS: Record<SettingsNavItem['group'], string> = {
+  clinica: 'Clínica',
+  financeiro: 'Financeiro',
+  conta: 'Conta',
+  admin: 'Administração',
 }
 
 export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
-  { to: '/configuracoes/perfil', icon: User, label: 'Meu Perfil', shortLabel: 'Perfil', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/plano-financeiro', icon: CreditCard, label: 'Convênio', shortLabel: 'Convênio', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/tipos-atendimento', icon: Stethoscope, label: 'Procedimento', shortLabel: 'Procedimento', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/salas', icon: MapPin, label: 'Clínica', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas' },
-  { to: '/configuracoes/documentos', icon: FileText, label: 'Documentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos' },
-  { to: '/configuracoes/formas-pagamento', icon: Wallet, label: 'Formas de Pagamento', shortLabel: 'Pagamento', roles: ['ADMIN', 'DOCTOR'] },
-  { to: '/configuracoes/contas-bancarias', icon: Building2, label: 'Contas Bancárias', shortLabel: 'Contas', roles: ['ADMIN', 'DOCTOR'] },
-  { to: '/configuracoes/centros-custo', icon: FolderTree, label: 'Centros de Custo', shortLabel: 'Centros', roles: ['ADMIN', 'DOCTOR'] },
-  { to: '/configuracoes/notificacoes', icon: Bell, label: 'Mensagens automáticas', shortLabel: 'Mensagens', roles: ['DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: INTEGRATION_PERMISSION_KEYS, platformGate: 'integrations' },
-  { to: '/configuracoes/assinatura', icon: Sparkles, label: 'Assinatura', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/equipe', icon: Users, label: 'Minha Equipe', shortLabel: 'Equipe', roles: ['DOCTOR'] },
-  { to: '/configuracoes/ajuda', icon: HelpCircle, label: 'Ajuda & Suporte', shortLabel: 'Ajuda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/configuracoes/documentacao', icon: BookOpen, label: 'Documentação', shortLabel: 'Docs', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] },
-  { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'] },
-  { to: '/admin/gestao', icon: Shield, label: 'Gestão de Dados', shortLabel: 'Gestão', roles: ['ADMIN'] },
-  { to: '/admin/planos', icon: CreditCard, label: 'Gestão de Planos', shortLabel: 'Planos', roles: ['ADMIN'] },
-  { to: '/admin/desenvolvedor', icon: Code2, label: 'Admin Desenvolvedor', shortLabel: 'Dev', roles: ['ADMIN'] },
+  // Clínica — como a clínica funciona
+  { to: '/configuracoes/salas', icon: MapPin, label: 'Clínica e salas', shortLabel: 'Clínica', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'salas', group: 'clinica' },
+  { to: '/configuracoes/tipos-atendimento', icon: Stethoscope, label: 'Procedimentos e retornos', shortLabel: 'Procedimentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], group: 'clinica' },
+  { to: '/configuracoes/plano-financeiro', icon: CreditCard, label: 'Convênios', shortLabel: 'Convênios', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], group: 'clinica' },
+  { to: '/configuracoes/documentos', icon: FileText, label: 'Modelos de documentos', shortLabel: 'Modelos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'documentos', group: 'clinica' },
+  { to: '/configuracoes/notificacoes', icon: Bell, label: 'Mensagens automáticas', shortLabel: 'Mensagens', roles: ['DOCTOR', 'SECRETARY'], group: 'clinica' },
+  { to: '/configuracoes/equipe', icon: Users, label: 'Minha equipe', shortLabel: 'Equipe', roles: ['DOCTOR'], group: 'clinica' },
+  // Financeiro — cadastros usados nos lançamentos
+  { to: '/configuracoes/formas-pagamento', icon: Wallet, label: 'Formas de pagamento', shortLabel: 'Pagamento', roles: ['ADMIN', 'DOCTOR'], group: 'financeiro' },
+  { to: '/configuracoes/contas-bancarias', icon: Building2, label: 'Contas bancárias', shortLabel: 'Contas', roles: ['ADMIN', 'DOCTOR'], group: 'financeiro' },
+  { to: '/configuracoes/centros-custo', icon: FolderTree, label: 'Centros de custo', shortLabel: 'Centros', roles: ['ADMIN', 'DOCTOR'], group: 'financeiro' },
+  // Conta
+  { to: '/configuracoes/perfil', icon: User, label: 'Meu perfil', shortLabel: 'Perfil', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], group: 'conta' },
+  { to: '/configuracoes/assinatura', icon: Sparkles, label: 'Assinatura', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], group: 'conta' },
+  { to: '/configuracoes/integracoes', icon: Webhook, label: 'Integrações', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: INTEGRATION_PERMISSION_KEYS, platformGate: 'integrations', group: 'conta' },
+  { to: '/configuracoes/ajuda', icon: HelpCircle, label: 'Ajuda e suporte', shortLabel: 'Ajuda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], group: 'conta' },
+  { to: '/configuracoes/documentacao', icon: BookOpen, label: 'Documentação', shortLabel: 'Docs', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], group: 'conta' },
+  // Administração da plataforma
+  { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'], group: 'admin' },
+  { to: '/admin/gestao', icon: Shield, label: 'Gestão de dados', shortLabel: 'Gestão', roles: ['ADMIN'], group: 'admin' },
+  { to: '/admin/planos', icon: CreditCard, label: 'Gestão de planos', shortLabel: 'Planos', roles: ['ADMIN'], group: 'admin' },
+  { to: '/admin/desenvolvedor', icon: Code2, label: 'Admin desenvolvedor', shortLabel: 'Dev', roles: ['ADMIN'], group: 'admin' },
 ]
 
 export function getVisibleSettingsNav(user?: SettingsNavUser, secretaryPermissions?: Record<string, boolean>) {

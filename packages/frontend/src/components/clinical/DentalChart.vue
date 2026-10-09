@@ -10,7 +10,8 @@ import {
   DENTAL_FACES, DENTAL_CONDITIONS, DENTAL_STATUS, dayLabel, todayInput,
 } from '../../lib/clinical'
 
-const props = defineProps<{ patientId: string }>()
+// compact: só o desenho (Visão geral da ficha) — sem planejados e histórico.
+const props = defineProps<{ patientId: string; compact?: boolean }>()
 
 const auth = useAuthStore()
 const canEdit = computed(() => auth.user?.role !== 'SECRETARY')
@@ -198,20 +199,21 @@ function facesLabel(e: DentalChartEntry) {
         <div class="w-max mx-auto space-y-6">
           <div v-for="(row, ri) in [upper, lower]" :key="ri">
             <p class="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">{{ ri === 0 ? 'Superior' : 'Inferior' }}</p>
-            <div class="flex justify-center gap-1.5">
+            <div :class="['flex justify-center', compact ? 'gap-0.5' : 'gap-1.5']">
               <button
                 v-for="(t, ti) in row" :key="t"
                 type="button"
                 :class="[
-                  'group flex flex-col items-center gap-1 rounded-lg p-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400',
-                  ti === row.length / 2 ? 'ml-3' : '',
+                  'group flex flex-col items-center gap-1 rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400',
+                  compact ? 'p-0.5' : 'p-1',
+                  ti === row.length / 2 ? (compact ? 'ml-2' : 'ml-3') : '',
                   selectedTooth === t ? 'bg-primary-50' : 'hover:bg-slate-50',
                 ]"
                 :aria-label="`Dente ${t}`"
                 @click="openTooth(t)"
               >
                 <span v-if="ri === 0" class="text-[11px] font-semibold text-slate-500 tabular-nums">{{ t }}</span>
-                <svg viewBox="-2 -2 44 44" class="w-9 h-9">
+                <svg viewBox="-2 -2 44 44" :class="compact ? 'w-7 h-7' : 'w-9 h-9'">
                   <g :opacity="wholeOf(t)?.condition === 'AUSENTE' ? 0.35 : 1">
                     <polygon
                       v-for="(pts, pos) in FACE_POLYGONS" :key="pos"
@@ -254,7 +256,7 @@ function facesLabel(e: DentalChartEntry) {
     </div>
 
     <!-- Planejados -->
-    <div class="card">
+    <div v-if="!compact" class="card">
       <div class="flex items-center justify-between gap-3 mb-3">
         <h3 class="font-semibold text-slate-900">Procedimentos planejados</h3>
         <span class="text-xs text-slate-400">{{ planned.length }} pendente(s)</span>
@@ -272,7 +274,7 @@ function facesLabel(e: DentalChartEntry) {
     </div>
 
     <!-- Histórico completo -->
-    <div class="card">
+    <div v-if="!compact" class="card">
       <h3 class="font-semibold text-slate-900 mb-3 flex items-center gap-2"><History class="w-4 h-4 text-slate-400" /> Histórico</h3>
       <p v-if="entries.length === 0 && !loading" class="text-sm text-slate-500">Nenhum registro ainda.</p>
       <div v-else class="table-responsive">

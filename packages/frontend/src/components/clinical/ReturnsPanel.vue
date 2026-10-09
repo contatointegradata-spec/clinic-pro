@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { CalendarClock, Settings2 } from 'lucide-vue-next'
-import api from '../lib/api'
-import toast from '../lib/toast'
-import PageHeader from '../components/ui/PageHeader.vue'
-import ReturnRow from '../components/clinical/ReturnRow.vue'
-import { type ScheduledReturn, daysUntil } from '../lib/clinical'
+import api from '../../lib/api'
+import toast from '../../lib/toast'
+import ReturnRow from './ReturnRow.vue'
+import { type ScheduledReturn, daysUntil } from '../../lib/clinical'
 
 const items = ref<ScheduledReturn[]>([])
 const loading = ref(true)
@@ -57,16 +56,13 @@ function onUpdated(r: ScheduledReturn) {
 
 <template>
   <div class="space-y-5">
-    <PageHeader title="Retornos" subtitle="Reaplicações, manutenções e revisões programadas por procedimento">
-      <template #actions>
-        <router-link to="/configuracoes/tipos-atendimento" class="btn-secondary text-sm"><Settings2 class="w-4 h-4" /> Intervalos de retorno</router-link>
-      </template>
-    </PageHeader>
-
+    <div class="flex flex-wrap items-center gap-2">
     <div class="inline-flex rounded-xl border border-slate-200 bg-white p-1 text-sm">
       <button v-for="v in (['abertos', 'agendados', 'todos'] as const)" :key="v" :class="['px-3 py-1.5 rounded-lg font-medium', view === v ? 'bg-primary-600 text-white' : 'text-slate-500 hover:text-slate-700']" @click="view = v">
         {{ v === 'abertos' ? 'A avisar' : v === 'agendados' ? 'Agendados' : 'Todos' }}
       </button>
+    </div>
+      <router-link to="/configuracoes/tipos-atendimento" class="ml-auto btn-secondary text-sm"><Settings2 class="w-4 h-4" /> Intervalos de retorno</router-link>
     </div>
 
     <div v-if="loading" class="space-y-3"><div v-for="i in 3" :key="i" class="h-16 skeleton" /></div>

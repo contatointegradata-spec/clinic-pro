@@ -56,14 +56,17 @@ async function resolveFilledDocument(doctorId: string, templateId: string, patie
   const [patient, doctor] = await Promise.all([
     prisma.patient.findUnique({
       where: { id: patientId },
-      select: { id: true, name: true, phone: true, cpf: true, rg: true, address: true },
+      select: { id: true, name: true, phone: true, cpf: true, rg: true, address: true, doctorId: true },
     }),
     prisma.user.findUnique({
       where: { id: doctorId },
       select: { name: true, crm: true, certNumber: true, specialty: true },
     }),
   ])
-  if (!patient) return { error: 'PATIENT_NOT_FOUND' as const }
+  // A paciente precisa ser da mesma clínica do modelo — sem isso, qualquer
+  // usuário gerava um documento com nome/CPF/RG/endereço de paciente de outra
+  // clínica só sabendo o id.
+  if (!patient || patient.doctorId !== doctorId) return { error: 'PATIENT_NOT_FOUND' as const }
 
   const todayFormatted = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
   const systemVarMap: Record<string, string> = {
@@ -256,6 +259,20 @@ router.post('/:id/emit', async (req: AuthRequest, res) => {
       'DOCUMENT_SENT',
       patient.name,
     )
+
+    // Fica no histórico de documentos da paciente (ficha › Documentos).
+    await prisma.generatedDocument.create({
+      data: {
+        doctorId,
+        patientId: patient.id,
+        templateId: resolved.template.id,
+        name: resolved.template.name,
+        content: filledContent,
+        status: 'SENT',
+        sentAt: new Date(),
+        createdByUserId: req.user!.userId,
+      },
+    }).catch(err => console.error('[documents] histórico do envio:', err))
 
     res.json({ message: 'Documento enviado via WhatsApp com sucesso' })
   } catch (error) {

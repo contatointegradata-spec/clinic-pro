@@ -3,7 +3,7 @@ import { computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   LayoutDashboard, CalendarDays, Users2, CircleDollarSign, UserCog, LogOut, ChevronRight,
-  Settings, ClipboardList, Bot, Database, PanelLeftClose, PanelLeft, FileText, CalendarClock,
+  Settings, Bot, Database, PanelLeftClose, PanelLeft,
   ShieldCheck, Building2, CreditCard, Webhook, FolderKanban, Boxes, MessagesSquare,
 } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
@@ -55,11 +55,8 @@ const navItems = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined as string | undefined },
   { to: '/agenda', icon: CalendarDays, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
   { to: '/pacientes', icon: Users2, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/prontuario', icon: ClipboardList, label: 'Prontuário', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/orcamentos', icon: FileText, label: 'Orçamentos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/retornos', icon: CalendarClock, label: 'Retornos', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/estoque', icon: Boxes, label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
   { to: '/financeiro', icon: CircleDollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'financeiro' },
+  { to: '/estoque', icon: Boxes, label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
   { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'], secretaryPermission: undefined },
 ]
 
@@ -125,6 +122,7 @@ function handleLogout() {
       </router-link>
 
       <div :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
+        <p v-if="!props.collapsed" class="section-label mb-2">WhatsApp</p>
         <router-link to="/atendimento" :class="['sidebar-link group tooltip-trigger', isAttendanceRoute ? 'active' : '']">
           <span class="relative flex-shrink-0">
             <MessagesSquare :class="['w-5 h-5 transition-all duration-200', isAttendanceRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />

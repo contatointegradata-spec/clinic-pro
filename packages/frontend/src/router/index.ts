@@ -6,14 +6,11 @@ const AppShell = () => import('../components/layout/AppShell.vue')
 const Login = () => import('../pages/Login.vue')
 const Cadastro = () => import('../pages/Cadastro.vue')
 const OrcamentoPublico = () => import('../pages/OrcamentoPublico.vue')
-const PacienteClinico = () => import('../pages/PacienteClinico.vue')
-const Orcamentos = () => import('../pages/Orcamentos.vue')
-const Retornos = () => import('../pages/Retornos.vue')
+const PacienteFicha = () => import('../pages/PacienteFicha.vue')
 const LandingPage = () => import('../pages/LandingPage.vue')
 const Dashboard = () => import('../pages/Dashboard.vue')
 const Agenda = () => import('../pages/Agenda.vue')
 const Pacientes = () => import('../pages/Pacientes.vue')
-const Prontuario = () => import('../pages/Prontuario.vue')
 const Usuarios = () => import('../pages/Usuarios.vue')
 const MinhasSalas = () => import('../pages/MinhasSalas.vue')
 const WhatsappChatbot = () => import('../pages/WhatsappChatbot.vue')
@@ -87,10 +84,17 @@ const routes: RouteRecordRaw[] = [
       { path: 'dashboard', component: Dashboard, meta: { label: 'Dashboard' } },
       { path: 'agenda', component: Agenda, meta: { label: 'Agenda' } },
       { path: 'pacientes', component: Pacientes, meta: { label: 'Pacientes' } },
-      { path: 'pacientes/:id/clinico', component: PacienteClinico, meta: { label: 'Ficha clínica' } },
-      { path: 'orcamentos', component: Orcamentos, meta: { label: 'Orçamentos' } },
-      { path: 'retornos', component: Retornos, meta: { label: 'Retornos' } },
-      { path: 'prontuario', component: Prontuario, meta: { label: 'Prontuário' } },
+      { path: 'pacientes/:id', component: PacienteFicha, meta: { label: 'Ficha da paciente' } },
+      // Telas antigas que viraram parte de Pacientes / ficha da paciente.
+      { path: 'pacientes/:id/clinico', redirect: to => ({ path: `/pacientes/${to.params.id}`, query: to.query }) },
+      { path: 'orcamentos', redirect: { path: '/pacientes', query: { aba: 'orcamentos' } } },
+      { path: 'retornos', redirect: { path: '/pacientes', query: { aba: 'retornos' } } },
+      {
+        path: 'prontuario',
+        redirect: to => typeof to.query.paciente === 'string'
+          ? { path: `/pacientes/${to.query.paciente}`, query: { aba: 'prontuario' } }
+          : { path: '/pacientes' },
+      },
       { path: 'estoque', component: Estoque, meta: { label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'] } },
 
       // Financeiro enxuto: Painel · Fluxo de caixa · Notas fiscais. Rotas antigas redirecionam.

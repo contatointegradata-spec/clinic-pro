@@ -119,3 +119,32 @@ número e quedas. Oferecer a **API oficial (Meta Cloud API)** como opção —
 mesmo contrato `sendMessage` atrás de um adaptador, escolhido por sala.
 Exige conta Business verificada e templates aprovados pela Meta para
 mensagens ativas (lembretes) — por isso é fase própria. ⬜
+
+---
+
+## Navegação centrada na paciente (out/2026) ✅
+
+**Problema:** prontuário, orçamentos, retornos e documentos ficavam em menus
+separados — para atender uma paciente era preciso pular entre 4–5 telas.
+**Solução:**
+- Clicar na paciente abre a **ficha completa** (`/pacientes/:id`): Visão
+  geral (alertas de saúde da anamnese, informações, próximos horários,
+  odontograma, retornos, orçamentos, últimas evoluções), Prontuário,
+  Odontograma, Harmonização, Orçamentos, Pagamentos, Documentos, Fotos e
+  Retornos.
+- **Pacientes** ganhou abas: Pacientes · Aniversariantes · Retornos ·
+  Orçamentos; exportação da lista em Excel/CSV.
+- Menu lateral: saíram Prontuário, Orçamentos e Retornos (endereços antigos
+  redirecionam). Configurações agrupadas em Clínica · Financeiro · Conta.
+- Documentos: os **modelos** ficam em Configurações; **emitir, imprimir e
+  enviar** acontece na ficha (com histórico por paciente).
+- Correção de segurança: gerar documento não aceita mais paciente de outra
+  clínica (antes vazava nome/CPF/RG/endereço).
+
+### Achado: CPF único na plataforma inteira ⬜
+`Patient.cpf` é `@unique` no banco todo. Uma paciente atendida em duas
+clínicas diferentes da plataforma não consegue ser cadastrada na segunda, e a
+mensagem de erro revela que o CPF existe em outro lugar. **Proposta:** trocar
+para único por clínica (`@@unique([doctorId, cpf])`) — exige migration e
+revisão das buscas por CPF (chatbot/IA).
+

@@ -3,6 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import authRoutes from './routes/auth'
 import clinicalRoutes from './routes/clinical'
+import patientRecordRoutes from './routes/patient-record'
 import automationRoutes from './routes/automations'
 import { readBackupStatus, whatsappHealth, startBackupWatch } from './lib/system-health'
 import publicPlanRoutes from './routes/public-plans'
@@ -175,6 +176,7 @@ app.use('/api/notifications', authenticate, requireActiveSubscription, notificat
 app.use('/api/payment-methods', authenticate, requireActiveSubscription, paymentMethodRoutes)
 app.use('/api/stock', authenticate, requireActiveSubscription, stockRoutes)
 app.use('/api/clinical', authenticate, requireActiveSubscription, clinicalRoutes)
+app.use('/api/clinical', authenticate, requireActiveSubscription, patientRecordRoutes)
 app.use('/api/automations', authenticate, requireActiveSubscription, automationRoutes)
 // Orçamento público: a paciente aprova pelo link, sem login.
 app.use('/api/public/treatment-plans', publicPlanRoutes)

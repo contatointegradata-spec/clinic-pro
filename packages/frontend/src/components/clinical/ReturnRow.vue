@@ -45,7 +45,7 @@ function notifyWhatsApp() {
   <div class="px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
     <div class="min-w-0 flex-1">
       <p class="text-sm font-semibold text-slate-800 truncate">
-        <router-link v-if="showPatient" :to="`/pacientes/${item.patient.id}/clinico?aba=retornos`" class="hover:text-primary-700 hover:underline">{{ item.patient.name }}</router-link>
+        <router-link v-if="showPatient" :to="`/pacientes/${item.patient.id}?aba=retornos`" class="hover:text-primary-700 hover:underline">{{ item.patient.name }}</router-link>
         <template v-if="showPatient"> · </template>{{ item.procedureName }}
       </p>
       <p :class="['text-xs', open && diff < 0 ? 'text-amber-700 font-medium' : 'text-slate-500']">

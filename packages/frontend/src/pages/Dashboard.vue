@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import {
-  Calendar, Users, CheckCircle2, Clock, TrendingUp, Activity,
+  Calendar, Users, CheckCircle2, Clock, Activity,
   ArrowRight, Zap, Stethoscope, BarChart3, Cake, MessageCircle, CalendarClock,
 } from 'lucide-vue-next'
 import api from '../lib/api'
@@ -89,7 +89,7 @@ function pct(value: number, max: number) {
 const quickLinks = [
   { to: '/agenda', icon: Calendar, label: 'Ver agenda completa', color: 'text-primary-600', bg: 'bg-primary-50' },
   { to: '/pacientes', icon: Users, label: 'Gerenciar pacientes', color: 'text-violet-600', bg: 'bg-violet-50' },
-  { to: '/prontuario', icon: TrendingUp, label: 'Prontuários', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+  { to: '/pacientes?aba=aniversariantes', icon: Cake, label: 'Aniversariantes do mês', color: 'text-emerald-600', bg: 'bg-emerald-50' },
   { to: '/financeiro', icon: Stethoscope, label: 'Financeiro', color: 'text-amber-600', bg: 'bg-amber-50' },
 ]
 </script>
@@ -353,12 +353,12 @@ const quickLinks = [
               </div>
               Retornos da semana
             </h3>
-            <router-link to="/retornos" class="text-xs font-semibold text-primary-700 hover:underline">Ver todos</router-link>
+            <router-link to="/pacientes?aba=retornos" class="text-xs font-semibold text-primary-700 hover:underline">Ver todos</router-link>
           </div>
           <div class="space-y-1">
             <router-link
               v-for="r in dueReturns.slice(0, 5)" :key="r.id"
-              :to="`/pacientes/${r.patient.id}/clinico?aba=retornos`"
+              :to="`/pacientes/${r.patient.id}?aba=retornos`"
               class="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors"
             >
               <div class="flex-1 min-w-0">

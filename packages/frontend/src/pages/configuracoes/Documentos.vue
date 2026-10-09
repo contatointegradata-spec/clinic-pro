@@ -145,101 +145,6 @@ function exportDoc(doc: DocumentTemplate) {
   URL.revokeObjectURL(url)
 }
 
-// ─── Emitir documento para paciente via WhatsApp ───────────────────────────────
-
-const emitDoc = ref<DocumentTemplate | null>(null)
-const patientSearch = ref('')
-const selectedPatient = ref<Patient | null>(null)
-const customVarValues = reactive<Record<string, string>>({})
-const emitting = ref(false)
-
-function openEmitModal(doc: DocumentTemplate) {
-  emitDoc.value = doc
-  selectedPatient.value = null
-  patientSearch.value = ''
-  for (const k of Object.keys(customVarValues)) delete customVarValues[k]
-}
-
-function closeEmitModal() {
-  emitDoc.value = null
-  selectedPatient.value = null
-  patientSearch.value = ''
-  for (const k of Object.keys(customVarValues)) delete customVarValues[k]
-}
-
-const { data: patientsData } = useQuery<Patient[]>({
-  key: 'patients-list',
-  queryFn: () => api.get('/patients').then(r => r.data),
-  enabled: computed(() => !!emitDoc.value),
-  staleTime: 60_000,
-})
-const patients = computed(() => patientsData.value ?? [])
-
-const filteredPatients = computed(() => {
-  if (patientSearch.value.length < 2) return []
-  const term = patientSearch.value.toLowerCase()
-  return patients.value
-    .filter(p => p.name.toLowerCase().includes(term) || (p.phone ?? '').includes(patientSearch.value))
-    .slice(0, 20)
-})
-
-function selectPatient(p: Patient) {
-  selectedPatient.value = p
-  patientSearch.value = p.name
-}
-
-watch(patientSearch, () => { selectedPatient.value = null })
-
-interface VarsData { allVars: string[]; systemVars: string[]; customVars: string[] }
-
-const { data: varsData, isLoading: varsFetching } = useQuery<VarsData>({
-  key: computed(() => `doc-variables:${emitDoc.value?.id ?? ''}`),
-  queryFn: () => api.get(`/documents/${emitDoc.value!.id}/variables`).then(r => r.data),
-  enabled: computed(() => !!emitDoc.value),
-})
-
-const canSend = computed(() => !!selectedPatient.value?.phone && !emitting.value)
-const canGenerate = computed(() => !!selectedPatient.value && !generating.value)
-
-async function handleSendDoc() {
-  if (!emitDoc.value || !selectedPatient.value) return
-  emitting.value = true
-  try {
-    await api.post(`/documents/${emitDoc.value.id}/emit`, {
-      patientId: selectedPatient.value.id,
-      variables: { ...customVarValues },
-    })
-    toast.success('Documento enviado via WhatsApp!')
-    closeEmitModal()
-  } catch (err: unknown) {
-    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-    toast.error(msg ?? 'Erro ao enviar documento')
-  } finally {
-    emitting.value = false
-  }
-}
-
-// Deixa o documento pronto pra o Agente de IA entregar depois, sob pedido do
-// paciente pelo WhatsApp — não envia agora. Ver POST /documents/:id/generate.
-const generating = ref(false)
-
-async function handleGenerateForAgent() {
-  if (!emitDoc.value || !selectedPatient.value) return
-  generating.value = true
-  try {
-    await api.post(`/documents/${emitDoc.value.id}/generate`, {
-      patientId: selectedPatient.value.id,
-      variables: { ...customVarValues },
-    })
-    toast.success('Documento pronto — o paciente pode pedir pelo WhatsApp quando quiser.')
-    closeEmitModal()
-  } catch (err: unknown) {
-    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-    toast.error(msg ?? 'Erro ao preparar documento')
-  } finally {
-    generating.value = false
-  }
-}
 </script>
 
 <template>
@@ -247,7 +152,7 @@ async function handleGenerateForAgent() {
     <div class="flex items-start justify-between">
       <div class="animate-stagger-1">
         <h1 class="page-title">Documentos</h1>
-        <p class="page-subtitle">Templates de atestados, declarações, recibos e comprovantes</p>
+        <p class="page-subtitle">Modelos de termos, atestados, receitas e orientações. Para emitir, abra a ficha da paciente › Documentos.</p>
       </div>
       <button class="btn-primary animate-stagger-1" @click="handleNew">
         <Plus class="w-4 h-4" />
@@ -310,13 +215,6 @@ async function handleGenerateForAgent() {
             <p class="text-xs text-slate-400 mt-0.5 truncate">{{ doc.content.slice(0, 80) }}...</p>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
-            <button
-              class="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-              title="Enviar para Paciente via WhatsApp"
-              @click="openEmitModal(doc)"
-            >
-              <Send class="w-4 h-4" />
-            </button>
             <button
               class="p-1.5 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
               title="Exportar .txt"
@@ -427,142 +325,5 @@ Exemplo: Atesto que {{paciente}} esteve em consulta em {{data_hoje}}."
       </form>
     </Modal>
 
-    <!-- Modal: Enviar documento para paciente via WhatsApp -->
-    <Modal
-      :is-open="!!emitDoc"
-      title="Enviar Documento via WhatsApp"
-      size="md"
-      @close="closeEmitModal"
-    >
-      <div v-if="emitDoc" class="space-y-5">
-        <!-- Info do documento -->
-        <div class="flex items-center gap-3 p-3 bg-rose-50 rounded-xl border border-rose-100">
-          <FileText class="w-5 h-5 text-rose-600 flex-shrink-0" />
-          <div>
-            <p class="font-semibold text-slate-900 text-sm">{{ emitDoc.name }}</p>
-            <p class="text-xs text-slate-500 mt-0.5">
-              O conteúdo completo do documento será enviado ao paciente via WhatsApp com as variáveis preenchidas.
-            </p>
-          </div>
-        </div>
-
-        <!-- Seleção de paciente -->
-        <div>
-          <label class="label">Paciente destinatário</label>
-          <div class="relative">
-            <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <input
-              v-model="patientSearch"
-              type="text"
-              class="input-field pl-9"
-              placeholder="Buscar por nome ou telefone (mín. 2 caracteres)"
-              autofocus
-            />
-          </div>
-
-          <div v-if="filteredPatients.length > 0" class="mt-1.5 border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-44 overflow-y-auto shadow-sm">
-            <button
-              v-for="p in filteredPatients" :key="p.id"
-              class="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition-colors"
-              :class="selectedPatient?.id === p.id ? 'bg-rose-50' : ''"
-              @click="selectPatient(p)"
-            >
-              <div class="w-7 h-7 rounded-full bg-rose-100 flex items-center justify-center flex-shrink-0">
-                <User class="w-3.5 h-3.5 text-rose-600" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <p class="font-medium text-slate-900 text-sm truncate">{{ p.name }}</p>
-                <p class="text-xs text-slate-400">{{ p.phone || 'Sem telefone' }}</p>
-              </div>
-              <CheckCircle v-if="selectedPatient?.id === p.id" class="w-4 h-4 text-rose-600 flex-shrink-0" />
-            </button>
-          </div>
-
-          <p v-if="selectedPatient && !selectedPatient.phone" class="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mt-2">
-            Este paciente não tem telefone cadastrado e não pode receber o documento.
-          </p>
-        </div>
-
-        <!-- Variáveis de sistema (informativo) -->
-        <div v-if="varsFetching" class="flex items-center gap-2 text-sm text-slate-400">
-          <Loader2 class="w-4 h-4 animate-spin" />
-          Carregando variáveis do template...
-        </div>
-
-        <template v-if="varsData">
-          <div v-if="varsData.systemVars.length > 0" class="p-3 bg-primary-50 rounded-xl border border-primary-100">
-            <div class="flex items-center gap-2 mb-2">
-              <Info class="w-4 h-4 text-primary-600" />
-              <p class="text-xs font-semibold text-primary-700">Variáveis preenchidas automaticamente</p>
-            </div>
-            <div class="flex flex-wrap gap-1.5">
-              <span v-for="v in varsData.systemVars" :key="v" class="text-xs bg-white border border-primary-200 text-primary-700 px-2 py-0.5 rounded-md font-mono">
-                {{ wrapVar(v) }}
-              </span>
-            </div>
-          </div>
-
-          <!-- Variáveis custom que precisam de preenchimento -->
-          <div v-if="varsData.customVars.length > 0" class="space-y-3">
-            <div class="flex items-center gap-2">
-              <ChevronRight class="w-4 h-4 text-amber-500" />
-              <p class="text-sm font-semibold text-slate-700">
-                Preencha as variáveis customizadas
-              </p>
-            </div>
-            <div class="space-y-2.5">
-              <div v-for="v in varsData.customVars" :key="v">
-                <label class="label text-xs">
-                  <code class="font-mono bg-slate-100 px-1 rounded">{{ wrapVar(v) }}</code>
-                  — {{ varLabel(v) }}
-                </label>
-                <input
-                  v-model="customVarValues[v]"
-                  type="text"
-                  class="input-field text-sm"
-                  :placeholder="`Valor para ${varLabel(v)}`"
-                />
-              </div>
-            </div>
-          </div>
-
-          <p v-if="varsData.customVars.length === 0 && varsData.systemVars.length === 0" class="text-xs text-slate-400 text-center py-1">
-            Nenhuma variável detectada no template.
-          </p>
-        </template>
-
-        <!-- Ações -->
-        <div class="flex gap-3 pt-1">
-          <button class="btn-secondary flex-1" @click="closeEmitModal">
-            Cancelar
-          </button>
-          <button
-            :disabled="!canGenerate"
-            title="Prepara o documento e deixa disponível pro Agente de IA mandar quando o paciente pedir pelo WhatsApp — não envia agora"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium text-sm border border-primary-200 text-primary-700 hover:bg-primary-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            @click="handleGenerateForAgent"
-          >
-            <template v-if="generating">
-              <Loader2 class="w-4 h-4 animate-spin" />Preparando...
-            </template>
-            <template v-else>
-              <Bot class="w-4 h-4" />Deixar pronto pro Agente
-            </template>
-          </button>
-          <button
-            :disabled="!canSend"
-            class="btn-primary flex-1 flex items-center justify-center gap-2"
-            @click="handleSendDoc"
-          >
-            <template v-if="emitting">
-              <Loader2 class="w-4 h-4 animate-spin" />Enviando...
-            </template>
-            <template v-else>
-              <Send class="w-4 h-4" />Enviar agora
-            </template>
-          </button>
-        </div>
-      </div>
-    </Modal>
   </div>
 </template>

@@ -97,7 +97,7 @@ async function remove() {
           <span :class="['text-[11px] font-semibold px-2 py-0.5 rounded-full', PLAN_STATUS[plan.status].chip]">{{ PLAN_STATUS[plan.status].label }}</span>
         </div>
         <p class="text-xs text-slate-500 mt-0.5">
-          <router-link v-if="showPatient" :to="`/pacientes/${plan.patient.id}/clinico?aba=orcamentos`" class="font-medium text-primary-700 hover:underline">{{ plan.patient.name }}</router-link>
+          <router-link v-if="showPatient" :to="`/pacientes/${plan.patient.id}?aba=orcamentos`" class="font-medium text-primary-700 hover:underline">{{ plan.patient.name }}</router-link>
           <span v-if="showPatient"> · </span>
           Criado em {{ dayLabel(plan.createdAt) }}
           <template v-if="plan.validUntil && editable"> · válido até {{ dayLabel(plan.validUntil) }}</template>

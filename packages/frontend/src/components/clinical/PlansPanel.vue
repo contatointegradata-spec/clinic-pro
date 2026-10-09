@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { FileText, Search } from 'lucide-vue-next'
-import api from '../lib/api'
-import toast from '../lib/toast'
-import PageHeader from '../components/ui/PageHeader.vue'
-import PlanCard from '../components/clinical/PlanCard.vue'
-import PlanEditor from '../components/clinical/PlanEditor.vue'
-import { type TreatmentPlan, type PlanStatus, PLAN_STATUS, brl } from '../lib/clinical'
+import api from '../../lib/api'
+import toast from '../../lib/toast'
+import PlanCard from './PlanCard.vue'
+import PlanEditor from './PlanEditor.vue'
+import { type TreatmentPlan, type PlanStatus, PLAN_STATUS, brl } from '../../lib/clinical'
 
 const plans = ref<TreatmentPlan[]>([])
 const loading = ref(true)
@@ -60,8 +59,6 @@ function onSaved(plan: TreatmentPlan) {
 
 <template>
   <div class="space-y-5">
-    <PageHeader title="Orçamentos" subtitle="Planos de tratamento, aprovações e pacotes de sessões" />
-
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="card p-4">
         <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Aguardando aprovação</p>
@@ -103,7 +100,7 @@ function onSaved(plan: TreatmentPlan) {
     <div v-else-if="visible.length === 0" class="card text-center py-12">
       <div class="w-12 h-12 mx-auto rounded-2xl bg-primary-50 flex items-center justify-center mb-3"><FileText class="w-6 h-6 text-primary-500" /></div>
       <p class="text-sm font-medium text-slate-700">Nenhum orçamento {{ filter ? 'neste status' : 'ainda' }}</p>
-      <p class="text-xs text-slate-500 mt-1">Crie orçamentos pela ficha clínica da paciente (Pacientes › Ficha clínica › Orçamentos).</p>
+      <p class="text-xs text-slate-500 mt-1">Crie orçamentos pela ficha da paciente, na aba Orçamentos.</p>
     </div>
     <div v-else class="grid xl:grid-cols-2 gap-4 items-start">
       <PlanCard

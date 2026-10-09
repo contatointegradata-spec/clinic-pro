@@ -105,7 +105,7 @@ router.post('/:token/decision', async (req, res) => {
       message: `${plan.patient.name} ${approved ? 'aprovou' : 'recusou'} o orçamento "${plan.title}" pelo link.`,
       type: approved ? 'SUCCESS' : 'WARNING',
       category: 'CRM',
-      link: `/pacientes/${plan.patientId}/clinico?aba=orcamentos`,
+      link: `/pacientes/${plan.patientId}?aba=orcamentos`,
       entityType: 'treatmentPlan',
       entityId: plan.id,
       dedupeKey: `treatment-plan:${plan.id}:${data.decision}`,
