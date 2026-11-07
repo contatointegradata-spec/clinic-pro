@@ -1,0 +1,122 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap">
+<link rel="stylesheet" href="common.css"><script src="icons.js"></script><script src="common.js"></script>
+<style>
+.feat{justify-content:flex-start;padding-top:300px}
+.fi{width:120px;height:120px;border-radius:36px;background:var(--r600);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 12px 30px -8px rgba(160,91,102,.5)}
+.ft{font:600 78px/1.06 var(--display);letter-spacing:-.025em;margin:44px 0 0;text-wrap:balance}
+.fd{font:400 38px/1.4 var(--sans);color:var(--n600);margin:22px 0 0}
+.demo{margin-top:56px;padding:44px}
+.col{flex:1;display:flex;flex-direction:column;gap:14px}
+.colh{font:600 26px/1 var(--sans);color:var(--n500);letter-spacing:.06em;text-transform:uppercase;text-align:center;margin-bottom:8px}
+.blk{border-radius:20px;padding:18px 20px;font:600 26px/1.25 var(--sans)}
+.chip{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:26px 30px;border-radius:26px;background:var(--bg);border:2px solid var(--n100);font:500 34px/1.2 var(--sans)}
+.chip b{font-weight:600;color:var(--r700);font-variant-numeric:tabular-nums}
+.bar{height:20px;border-radius:99px;background:var(--n100);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:99px}
+.row{display:flex;justify-content:space-between;font:500 32px/1.2 var(--sans);margin-bottom:14px}
+</style></head><body><div id="stage">
+
+<div class="scene" id="A" style="align-items:flex-start">
+  <div id="a0" class="eyebrow"></div>
+  <p id="a1" class="h1" style="margin-top:50px;font-size:116px">Sua clínica inteira em <span class="grad">um só lugar.</span></p>
+</div>
+
+<div class="scene feat" id="F1">
+  <div class="fi"></div><p class="ft">Agenda por cadeira e profissional</p><p class="fd">Dia, semana ou mês, sem conflito de horário.</p>
+  <div class="card demo" style="display:flex;gap:18px">
+    <div class="col"><div class="colh">Cadeira 1</div><div class="blk" style="background:var(--r100);color:var(--r800);height:150px">09:00 Limpeza</div><div class="blk" style="background:var(--s50);color:var(--s700);height:110px">11:00 Avaliação</div></div>
+    <div class="col"><div class="colh">Cadeira 2</div><div class="blk" style="background:var(--t50);color:var(--t700);height:110px;margin-top:40px">10:00 Canal</div><div class="blk" style="background:var(--r100);color:var(--r800);height:150px">14:00 Implante</div></div>
+    <div class="col"><div class="colh">Sala 3</div><div class="blk" style="background:#f0e4ec;color:#67485f;height:130px">09:30 Toxina</div><div class="blk" style="background:#f5eddb;color:#6b5735;height:130px">15:00 Preenchimento</div></div>
+  </div>
+</div>
+
+<div class="scene feat" id="F2">
+  <div class="fi"></div><p class="ft">Odontograma digital</p><p class="fd">Cada dente e face, com histórico e procedimentos planejados.</p>
+  <div class="card demo"><div id="teeth" style="display:flex;justify-content:space-between"></div>
+    <div style="display:flex;gap:30px;margin-top:34px;font:500 28px/1 var(--sans);color:var(--n600);flex-wrap:wrap">
+      <span style="display:flex;gap:10px;align-items:center"><i style="width:22px;height:22px;border-radius:6px;background:var(--r500)"></i>Restauração</span>
+      <span style="display:flex;gap:10px;align-items:center"><i style="width:22px;height:22px;border-radius:6px;background:var(--t500)"></i>Cárie</span>
+      <span style="display:flex;gap:10px;align-items:center"><i style="width:22px;height:22px;border-radius:6px;background:var(--g500)"></i>Implante</span>
+    </div></div>
+</div>
+
+<div class="scene feat" id="F3">
+  <div class="fi"></div><p class="ft">Mapa de harmonização</p><p class="fd">Área, produto, unidades, lote e técnica de cada aplicação.</p>
+  <div class="card demo" style="display:flex;flex-direction:column;gap:18px">
+    <div class="chip">Glabela · Toxina<b>20 U</b></div>
+    <div class="chip">Frontal · Toxina<b>10 U</b></div>
+    <div class="chip">Lábios · Ácido hialurônico<b>1 mL</b></div>
+    <div id="f3n" style="font:500 30px/1.3 var(--sans);color:var(--s700);display:flex;gap:12px;align-items:center;margin-top:6px"></div>
+  </div>
+</div>
+
+<div class="scene feat" id="F4">
+  <div class="fi"></div><p class="ft">Fotos de antes e depois</p><p class="fd">Por data e área, lado a lado ou deslizando.</p>
+  <div class="card demo" style="padding:24px">
+    <div style="position:relative;height:520px;border-radius:28px;overflow:hidden">
+      <div style="position:absolute;inset:0;background:linear-gradient(160deg,#dcc1aa,#b38b6d)"></div>
+      <div id="after" style="position:absolute;inset:0;background:linear-gradient(160deg,#f6ede5,#e8d5c4)"></div>
+      <div style="position:absolute;left:28px;top:28px" class="badge b-sched"><i></i>Antes</div>
+      <div style="position:absolute;right:28px;top:28px" class="badge b-conf"><i></i>Depois</div>
+      <div id="handle" style="position:absolute;top:0;bottom:0;width:6px;background:#fff;box-shadow:0 0 20px rgba(0,0,0,.2)"><div style="position:absolute;top:50%;left:50%;width:84px;height:84px;margin:-42px 0 0 -42px;border-radius:50%;background:#fff;box-shadow:0 6px 18px rgba(0,0,0,.18)"></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="scene feat" id="F5">
+  <div class="fi"></div><p class="ft">Financeiro e NFS-e</p><p class="fd">Do procedimento ao lançamento com um clique.</p>
+  <div class="card demo">
+    <div style="font:500 30px/1 var(--sans);color:var(--n500)">Receita do mês</div>
+    <div style="font:600 84px/1.15 var(--sans);font-variant-numeric:tabular-nums;margin-top:10px">R$ <span id="rev">18.420</span></div>
+    <div id="bars" style="display:flex;align-items:flex-end;gap:22px;height:220px;margin-top:30px"></div>
+  </div>
+</div>
+
+<div class="scene feat" id="F6">
+  <div class="fi"></div><p class="ft">Estoque de insumos</p><p class="fd">Entradas, saídas e alerta de estoque baixo.</p>
+  <div class="card demo" style="display:flex;flex-direction:column;gap:34px">
+    <div><div class="row"><span>Toxina botulínica</span><span>64%</span></div><div class="bar"><i class="sb" data-w="64" style="background:var(--s500)"></i></div></div>
+    <div><div class="row"><span>Resina composta</span><span style="color:var(--t700)">18%</span></div><div class="bar"><i class="sb" data-w="18" style="background:var(--t500)"></i></div></div>
+    <div><div class="row"><span>Luvas descartáveis</span><span>82%</span></div><div class="bar"><i class="sb" data-w="82" style="background:var(--s500)"></i></div></div>
+    <div id="low" style="display:flex;gap:14px;align-items:center;padding:22px 28px;border-radius:24px;background:var(--t50);border:2px solid #f8e6dd;color:#7f4935;font:500 30px/1.3 var(--sans)"></div>
+  </div>
+</div>
+
+<div id="ctaHost"></div>
+</div>
+<script>
+$('#ctaHost').outerHTML = ctaHTML('Telas ilustrativas.');
+$('#a0').innerHTML = icon('sparkles', 32) + 'Odontologia e estética';
+const FI = ['calendar-days', 'smile', 'scan-face', 'camera', 'wallet', 'package'];
+FI.forEach((n, i) => { $(`#F${i + 1} .fi`).innerHTML = icon(n, 60); });
+$('#f3n').innerHTML = icon('check', 34) + 'Baixa automática no estoque';
+$('#low').innerHTML = icon('triangle-alert', 36) + 'Resina composta abaixo do mínimo';
+const TOOTH = 'M8 4.2c-2.3 0-3.9 1.8-3.9 4.4 0 2.3.9 3.8 1.5 5.7.5 1.6.7 3.1 1.1 4.6.3 1.2.9 2 1.7 2 1 0 1.3-1.1 1.6-2.6.3-1.6.6-3 2-3s1.7 1.4 2 3c.3 1.5.6 2.6 1.6 2.6.8 0 1.4-.8 1.7-2 .4-1.5.6-3 1.1-4.6.6-1.9 1.5-3.4 1.5-5.7 0-2.6-1.6-4.4-3.9-4.4-1.6 0-2.4.9-4 .9s-2.4-.9-4-.9Z';
+const TC = ['', 'var(--r500)', '', 'var(--t500)', '', '', 'var(--g500)', 'var(--r500)'];
+$('#teeth').innerHTML = TC.map((c, i) => `<div style="text-align:center"><svg class="tooth" viewBox="0 0 24 24" width="92" height="92"><path d="${TOOTH}" fill="${c || '#fff'}" stroke="${c || 'var(--n400)'}" stroke-width="1.2"/></svg><div style="font:600 24px/1 var(--sans);color:var(--n500);margin-top:8px">${18 - i}</div></div>`).join('');
+const BH = [42, 55, 48, 66, 72, 88];
+$('#bars').innerHTML = BH.map((h, i) => `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:10px;height:100%;justify-content:flex-end"><div class="bh" data-h="${h}" style="width:100%;border-radius:14px 14px 6px 6px;background:${i == 5 ? 'var(--r600)' : 'var(--r200)'}"></div><span style="font:500 22px/1 var(--sans);color:var(--n500)">${['jun', 'jul', 'ago', 'set', 'out', 'nov'][i]}</span></div>`).join('');
+window.DURATION = 17;
+const F0 = 3.0, FD = 1.75;
+window.render = function (t) {
+  sceneVis($('#A'), t, 0, 2.8);
+  vis($('#a0'), t, 0.1, 2.7); vis($('#a1'), t, 0.35, 2.75, { sc: .03 });
+  for (let i = 0; i < 6; i++) {
+    const a = F0 + i * FD, b = a + FD - 0.3, sc = $(`#F${i + 1}`);
+    sceneVis(sc, t, a, b);
+    const kids = [...sc.children];
+    kids.forEach((el, j) => vis(el, t, a + j * 0.08, b + (kids.length - j) * 0.02, { d: .5, e: .3, dy: 70 }));
+    sc.style.transform = `translateX(${-80 * eio(p(t, b, b + .3))}px)`;
+  }
+  const a2 = F0 + FD; $$('.tooth').forEach((el, i) => { const k = eo(p(t, a2 + .3 + i * .06, a2 + .6 + i * .06)); el.style.transform = `translateY(${(1 - k) * 30}px)`; el.style.opacity = k; });
+  const a4 = F0 + 3 * FD, x = 0.15 + 0.7 * eio(p(t, a4 + .4, a4 + 1.4));
+  $('#after').style.clipPath = `inset(0 0 0 ${x * 100}%)`; $('#handle').style.left = `calc(${x * 100}% - 3px)`;
+  const a5 = F0 + 4 * FD;
+  $$('.bh').forEach((el, i) => { el.style.height = (+el.dataset.h * eo(p(t, a5 + .35 + i * .07, a5 + .85 + i * .07))) + '%'; });
+  $('#rev').textContent = Math.round(18420 * eo(p(t, a5 + .3, a5 + 1.2))).toLocaleString('pt-BR');
+  const a6 = F0 + 5 * FD;
+  $$('.sb').forEach((el, i) => { el.style.width = (+el.dataset.w * eo(p(t, a6 + .35 + i * .1, a6 + 1.0 + i * .1))) + '%'; });
+  ctaRender(t, F0 + 6 * FD + 0.1);
+};
+</script></body></html>

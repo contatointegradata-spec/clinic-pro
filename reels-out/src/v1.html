@@ -1,0 +1,77 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap">
+<link rel="stylesheet" href="common.css"><script src="icons.js"></script><script src="common.js"></script>
+<style>
+.bub{max-width:740px;padding:30px 36px;border-radius:36px;font:400 38px/1.38 var(--sans);position:relative}
+.in{background:#fff;border:2px solid var(--n200);border-bottom-left-radius:10px;align-self:flex-start}
+.out{background:var(--r600);color:#fff;border-bottom-right-radius:10px;align-self:flex-end}
+.meta{display:block;font:500 24px/1 var(--sans);opacity:.7;margin-top:14px;text-align:right}
+.dots{display:flex;gap:12px;align-self:flex-end;background:var(--r100);padding:26px 32px;border-radius:36px;border-bottom-right-radius:10px}
+.dots i{width:16px;height:16px;border-radius:50%;background:var(--r500);display:block}
+</style></head><body><div id="stage">
+
+<div class="scene" id="A" style="align-items:flex-start">
+  <div id="a1" class="eyebrow"></div>
+  <div id="clock" style="font:600 300px/1 var(--display);letter-spacing:-.03em;margin-top:40px;font-variant-numeric:tabular-nums">22:07</div>
+  <p id="a2" class="h2" style="margin-top:40px">A paciente chamou no WhatsApp.</p>
+  <p id="a3" class="lead" style="margin-top:30px">Sua recepção já foi embora.</p>
+</div>
+
+<div class="scene" id="B" style="justify-content:flex-start;padding-top:270px">
+  <div id="b0" class="eyebrow"></div>
+  <div id="chat" class="card" style="margin-top:44px;padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:26px;padding:34px 40px;border-bottom:2px solid var(--n100)">
+      <div style="width:92px;height:92px;border-radius:50%;background:var(--r100);color:var(--r700);font:600 36px/92px var(--sans);text-align:center">MS</div>
+      <div><div style="font:600 40px/1.2 var(--sans)">Mariana S.</div><div style="font:400 30px/1.3 var(--sans);color:var(--n500)">WhatsApp · Clareamento</div></div>
+    </div>
+    <div style="background:var(--bg);height:960px;overflow:hidden"><div id="msgs" style="display:flex;flex-direction:column;gap:26px;padding:40px">
+      <div class="bub in" id="m1">Oi! Vi o post de vocês no Instagram. Queria fazer clareamento, como funciona?<span class="meta">22:07</span></div>
+      <div class="dots" id="ty1"><i></i><i></i><i></i></div>
+      <div class="bub out" id="m2">Oi, Mariana! Começamos com uma avaliação. Tenho quinta às 09:00 ou às 14:30. Qual fica melhor?<span class="meta">22:07</span></div>
+      <div class="bub in" id="m3">Quinta 14:30!<span class="meta">22:08</span></div>
+      <div class="dots" id="ty2"><i></i><i></i><i></i></div>
+      <div class="bub out" id="m4">Pronto! Sua avaliação está marcada para quinta, 14:30. Te mando um lembrete na véspera.<span class="meta">22:08</span></div>
+    </div></div>
+  </div>
+</div>
+
+<div class="scene" id="C">
+  <p id="c0" class="lead" style="font-weight:500;color:var(--n500)">Quarta, 08:00</p>
+  <p id="c1" class="h1" style="margin-top:24px">Você só confere a <span class="grad">agenda pela manhã.</span></p>
+  <div id="c2" class="card" style="margin-top:80px;padding:44px;display:flex;gap:36px;align-items:center">
+    <div style="width:170px;flex-shrink:0;text-align:center;border-right:2px solid var(--n100);padding-right:30px">
+      <div style="font:600 30px/1 var(--sans);color:var(--r600);letter-spacing:.08em">QUI</div>
+      <div style="font:600 60px/1.1 var(--sans);margin-top:8px;font-variant-numeric:tabular-nums">14:30</div>
+    </div>
+    <div style="min-width:0">
+      <div style="font:600 42px/1.2 var(--sans)">Avaliação de clareamento</div>
+      <div style="font:400 32px/1.3 var(--sans);color:var(--n500);margin-top:8px">Mariana S. · Consultório 1</div>
+      <div style="margin-top:22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap"><span class="badge b-sched"><i></i>Agendado</span><span id="c3" style="font:500 28px/1 var(--sans);color:var(--n500)">pela IA às 22:08</span></div>
+    </div>
+  </div>
+</div>
+
+<div id="ctaHost"></div>
+</div>
+<script>
+$('#ctaHost').outerHTML = ctaHTML('O Agente de IA é um adicional do plano. Conversa ilustrativa.');
+$('#a1').innerHTML = icon('clock', 32) + 'Terça-feira';
+$('#b0').innerHTML = icon('bot', 32) + 'Agente de IA atendendo';
+window.DURATION = 16;
+window.render = function (t) {
+  sceneVis($('#A'), t, 0, 3.2);
+  vis($('#a1'), t, 0.1, 3.0); vis($('#clock'), t, 0.25, 3.0, { sc: .06 }); vis($('#a2'), t, 0.8, 3.05); vis($('#a3'), t, 1.5, 3.1);
+
+  sceneVis($('#B'), t, 3.4, 10);
+  vis($('#b0'), t, 3.4, 10); vis($('#chat'), t, 3.5, 10.05, { dy: 120 });
+  const seq = [['m1', 3.9, 1e9], ['ty1', 4.9, 5.6], ['m2', 5.6, 1e9], ['m3', 7.2, 1e9], ['ty2', 7.9, 8.5], ['m4', 8.5, 1e9]];
+  for (const [id, a, b] of seq) { const el = $('#' + id); vis(el, t, a, b, { d: .45, e: .01, dy: 40, sc: .04 }); el.style.display = (t < a || t > b + .02) ? 'none' : ''; }
+  $('#msgs').style.transform = `translateY(${-230 * eo(p(t, 8.5, 9.0))}px)`;
+  $$('.dots i').forEach((d, i) => { d.style.transform = `translateY(${-8 * Math.max(0, Math.sin(t * 9 - i * 0.9))}px)`; });
+
+  sceneVis($('#C'), t, 10.2, 13.4);
+  vis($('#c0'), t, 10.2, 13.3); vis($('#c1'), t, 10.4, 13.35); vis($('#c2'), t, 11.1, 13.4, { dy: 100, sc: .04 }); vis($('#c3'), t, 11.8, 13.4, { dy: 0 });
+
+  ctaRender(t, 13.6);
+};
+</script></body></html>
