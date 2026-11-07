@@ -636,8 +636,9 @@ function toggleFaq(i: number) {
           <h2 class="mt-2 font-display text-3xl sm:text-4xl font-semibold tracking-tight">Um plano simples, com tudo incluído</h2>
           <p class="mt-4 text-slate-600 text-lg">Sem taxa de adesão, sem fidelidade, sem cobrança por paciente.</p>
         </div>
-        <div class="mt-12 grid lg:grid-cols-[1fr_1.2fr] gap-8 items-center max-w-4xl mx-auto">
-          <div class="space-y-4">
+        <div class="mt-12 grid lg:grid-cols-[1fr_1.2fr] gap-8 items-start max-w-4xl mx-auto">
+          <div class="space-y-4 lg:sticky lg:top-24">
+            <p class="text-sm font-semibold text-slate-700">Quanto custa resolver isso de outro jeito</p>
             <div class="rounded-2xl border border-slate-200 bg-white p-6">
               <p class="text-sm text-slate-500">Secretária meio período</p>
               <p class="mt-1 text-2xl font-bold text-slate-400 line-through">R$ 2.000+/mês</p>

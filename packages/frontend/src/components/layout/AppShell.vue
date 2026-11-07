@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { Menu, X } from 'lucide-vue-next'
 import Sidebar from './Sidebar.vue'
 import SettingsSidebar from './SettingsSidebar.vue'
-import FinanceiroSidebar from './FinanceiroSidebar.vue'
+import FinanceiroTabs from './FinanceiroTabs.vue'
 import SettingsMobileNav from './SettingsMobileNav.vue'
 import SubscriptionGate from '../SubscriptionGate.vue'
 import { VersionUpdateBanner } from '../system'
@@ -59,20 +59,16 @@ const secretaryPermission = computed(() => route.meta.secretaryPermission as Sec
     <div v-if="mobileOpen" class="overlay lg:hidden" @click="mobileOpen = false" />
 
     <div class="relative hidden lg:block flex-shrink-0" :style="{ width: `${sidebarCollapsed ? 68 : 256}px`, transition: 'width 0.3s cubic-bezier(.22,1,.36,1)' }">
-      <div :class="['absolute inset-0 transition-all duration-300', (isSettings || isFinanceiro) ? 'opacity-0 pointer-events-none -translate-x-2' : 'opacity-100 translate-x-0']">
+      <div :class="['absolute inset-0 transition-all duration-300', isSettings ? 'opacity-0 pointer-events-none -translate-x-2' : 'opacity-100 translate-x-0']">
         <Sidebar :collapsed="sidebarCollapsed" @toggle-collapse="toggleSidebar" />
       </div>
       <div :class="['absolute inset-0 transition-all duration-300', isSettings ? 'opacity-100 translate-x-0' : 'opacity-0 pointer-events-none translate-x-2']">
         <SettingsSidebar :collapsed="sidebarCollapsed" @toggle-collapse="toggleSidebar" />
       </div>
-      <div :class="['absolute inset-0 transition-all duration-300', isFinanceiro ? 'opacity-100 translate-x-0' : 'opacity-0 pointer-events-none translate-x-2']">
-        <FinanceiroSidebar :collapsed="sidebarCollapsed" @toggle-collapse="toggleSidebar" />
-      </div>
     </div>
 
     <div :class="['fixed inset-y-0 left-0 z-50 lg:hidden transition-transform duration-300', mobileOpen ? 'translate-x-0' : '-translate-x-full']" style="width: 256px">
       <SettingsSidebar v-if="isSettings" :collapsed="false" @toggle-collapse="mobileOpen = false" />
-      <FinanceiroSidebar v-else-if="isFinanceiro" :collapsed="false" @toggle-collapse="mobileOpen = false" />
       <Sidebar v-else :collapsed="false" @toggle-collapse="mobileOpen = false" />
     </div>
 
@@ -94,6 +90,7 @@ const secretaryPermission = computed(() => route.meta.secretaryPermission as Sec
       <main class="flex-1 overflow-y-auto overflow-x-hidden">
         <div class="p-4 sm:p-6 max-w-screen-2xl mx-auto w-full">
           <SettingsMobileNav v-if="isSettings" />
+          <FinanceiroTabs v-if="isFinanceiro" />
           <SubscriptionGate>
             <router-view v-slot="{ Component }">
               <transition name="page-fade" mode="out-in">
