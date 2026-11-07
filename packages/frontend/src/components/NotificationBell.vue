@@ -108,14 +108,15 @@ async function removeNotification(n: Notification) {
     <button
       ref="triggerRef"
       :class="[
-        'w-full flex items-center gap-2.5 px-3 py-2 text-slate-500 hover:text-primary-700 hover:bg-primary-50 rounded-xl transition-all duration-200 text-sm relative',
-        collapsed ? 'justify-center' : '',
+        'sidebar-link group w-full',
+        collapsed ? 'justify-center px-0' : '',
       ]"
       :aria-label="unreadCount > 0 ? `Notificações (${unreadCount} não lidas)` : 'Notificações'"
       :aria-expanded="open"
+      :title="collapsed ? 'Notificações' : undefined"
       @click="open ? (open = false) : openPanel()"
     >
-      <Bell class="w-4 h-4 flex-shrink-0" />
+      <Bell class="sidebar-icon" />
       <span v-if="!collapsed" class="flex-1 text-left">Notificações</span>
       <span
         v-if="unreadCount > 0"

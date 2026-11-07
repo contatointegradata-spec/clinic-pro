@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Home, Settings, ChevronRight, PanelLeftClose, PanelLeft, LogOut } from 'lucide-vue-next'
+import { Home, Settings, PanelLeftClose, PanelLeft, LogOut } from 'lucide-vue-next'
 import { useAuthStore } from '../../stores/auth'
 import { getVisibleSettingsNav, SETTINGS_GROUP_LABELS } from '../../config/settingsNav'
 import { useSecretaryPermissions } from '../../composables/useSecretaryPermissions'
@@ -30,7 +30,7 @@ function handleLogout() {
 
 <template>
   <aside
-    class="bg-white border-r border-slate-200 flex flex-col h-screen flex-shrink-0 select-none overflow-hidden"
+    class="sidebar-shell flex flex-col h-screen flex-shrink-0 select-none overflow-hidden"
     :style="{ width: `${props.collapsed ? 68 : 256}px`, transition: 'width 0.32s cubic-bezier(.22,1,.36,1)' }"
   >
     <div class="px-2.5 py-3.5 border-b border-slate-100 flex-shrink-0">
@@ -67,17 +67,16 @@ function handleLogout() {
       <template v-for="(item, i) in visible" :key="item.to">
         <p
           v-if="!props.collapsed && (i === 0 || visible[i - 1].group !== item.group)"
-          :class="['section-label mb-1.5', i === 0 ? '' : 'mt-4']"
+          :class="['sidebar-section', i === 0 ? '' : 'mt-4']"
         >{{ SETTINGS_GROUP_LABELS[item.group] }}</p>
         <router-link
           :to="item.to"
           :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']"
         >
-          <component :is="item.icon" :class="['w-4.5 h-4.5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
+          <component :is="item.icon" class="sidebar-icon" />
           <span class="flex-1 text-sm overflow-hidden transition-all duration-300 whitespace-nowrap" :style="{ opacity: props.collapsed ? 0 : 1, maxWidth: props.collapsed ? '0' : '200px' }">
             {{ item.label }}
           </span>
-          <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-3.5 h-3.5 text-primary-500/70 flex-shrink-0" />
           <span v-if="props.collapsed" class="tooltip">{{ item.label }}</span>
         </router-link>
       </template>

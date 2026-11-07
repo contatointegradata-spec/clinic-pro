@@ -2,7 +2,7 @@
 import { computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  LayoutDashboard, CalendarDays, Users2, CircleDollarSign, UserCog, LogOut, ChevronRight,
+  LayoutDashboard, CalendarDays, Users2, CircleDollarSign, UserCog, LogOut,
   Settings, Bot, Database, PanelLeftClose, PanelLeft,
   ShieldCheck, Building2, CreditCard, Webhook, FolderKanban, Boxes, MessagesSquare,
 } from 'lucide-vue-next'
@@ -21,10 +21,6 @@ const authStore = useAuthStore()
 const { can } = useSecretaryPermissions()
 const route = useRoute()
 const router = useRouter()
-
-const isChatbotRoute = computed(() => route.path.startsWith('/agente/chatbot'))
-const isCrmRoute = computed(() => route.path.startsWith('/agente/crm'))
-const isAttendanceRoute = computed(() => route.path.startsWith('/atendimento'))
 
 // Badge de não lidas "minhas" do Atendimento — polling leve; na própria
 // tela de Atendimento o stream em tempo real também atualiza o summary.
@@ -45,28 +41,62 @@ const { data: preRegistrations } = useQuery<unknown[]>({
 const pendingCount = computed(() => preRegistrations.value?.length ?? 0)
 
 const roleLabel: Record<string, string> = { ADMIN: 'Administrador', DOCTOR: 'Especialista', SECRETARY: 'Secretária' }
-const roleColor: Record<string, string> = {
-  ADMIN: 'bg-violet-50 text-violet-700 border border-violet-100',
-  DOCTOR: 'bg-primary-50 text-primary-700 border border-primary-100',
-  SECRETARY: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
+
+type NavItem = {
+  to: string
+  icon: unknown
+  label: string
+  /** Rota ativa quando o caminho começa com este prefixo (padrão: o próprio `to`). */
+  match?: string
+  badge?: number
+  badgeTone?: 'amber' | 'sage'
+  dot?: boolean
 }
+type NavSection = { label: string; items: NavItem[] }
 
-const navItems = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined as string | undefined },
-  { to: '/agenda', icon: CalendarDays, label: 'Agenda', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/pacientes', icon: Users2, label: 'Pacientes', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/financeiro', icon: CircleDollarSign, label: 'Financeiro', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: 'financeiro' },
-  { to: '/estoque', icon: Boxes, label: 'Estoque', roles: ['ADMIN', 'DOCTOR', 'SECRETARY'], secretaryPermission: undefined },
-  { to: '/usuarios', icon: UserCog, label: 'Usuários', roles: ['ADMIN'], secretaryPermission: undefined },
-]
-
-const visibleItems = computed(() => navItems.filter(item => {
+const sections = computed<NavSection[]>(() => {
   const role = authStore.user?.role
-  if (!role) return false
-  if (!item.roles.includes(role)) return false
-  if (role === 'SECRETARY' && item.secretaryPermission) return can(item.secretaryPermission as any)
-  return true
-}))
+  if (!role) return []
+  const isSecretary = role === 'SECRETARY'
+  const allowed = (perm?: string) => !isSecretary || !perm || can(perm as any)
+
+  const clinic: NavItem[] = [
+    { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/agenda', icon: CalendarDays, label: 'Agenda' },
+    { to: '/pacientes', icon: Users2, label: 'Pacientes', badge: pendingCount.value, badgeTone: 'amber' },
+    ...(allowed('financeiro') ? [{ to: '/financeiro', icon: CircleDollarSign, label: 'Financeiro' }] : []),
+    { to: '/estoque', icon: Boxes, label: 'Estoque' },
+    ...(role === 'ADMIN' ? [{ to: '/usuarios', icon: UserCog, label: 'Usuários' }] : []),
+  ]
+
+  const whatsapp: NavItem[] = [
+    { to: '/atendimento', icon: MessagesSquare, label: 'Atendimento', badge: attendanceUnread.value, badgeTone: 'sage', dot: attendanceUnread.value > 0 },
+    ...(can('chatbot_light_operar') || can('chatbot_light_configurar')
+      ? [
+          { to: '/agente/chatbot', icon: Bot, label: 'Agente de IA' },
+          { to: '/agente/crm', icon: FolderKanban, label: 'CRM' },
+        ]
+      : []),
+  ]
+
+  const list: NavSection[] = [
+    { label: 'Clínica', items: clinic },
+    { label: 'WhatsApp', items: whatsapp },
+  ]
+  if (isSecretary) list.push({ label: 'Salas', items: [{ to: '/minhas-salas', icon: Building2, label: 'Minhas Salas' }] })
+  if (role === 'ADMIN') {
+    list.push({
+      label: 'Admin',
+      items: [
+        { to: '/admin/gestao', icon: ShieldCheck, label: 'Gestão' },
+        { to: '/admin/planos', icon: CreditCard, label: 'Planos' },
+        { to: '/admin/integracoes', icon: Webhook, label: 'Integrações' },
+        { to: '/admin/sql', icon: Database, label: 'SQL Admin' },
+      ],
+    })
+  }
+  return list
+})
 
 const initials = computed(() => authStore.user?.name?.split(' ').slice(0, 2).map(n => n[0]).join('').toUpperCase() || 'U')
 
@@ -84,128 +114,91 @@ function handleLogout() {
 
 <template>
   <aside
-    class="bg-white border-r border-slate-200/80 flex flex-col h-screen flex-shrink-0 overflow-hidden select-none"
+    class="sidebar-shell flex flex-col h-screen flex-shrink-0 overflow-hidden select-none"
     :style="{ width: `${props.collapsed ? 68 : 256}px`, transition: 'width 0.32s cubic-bezier(.22,1,.36,1)' }"
   >
-    <div class="px-3 py-3.5 border-b border-slate-100 flex-shrink-0">
-      <div v-if="!props.collapsed" class="flex items-center justify-between min-w-0">
-        <ClinicLogo size="md" dark />
-        <button class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-all duration-150 flex-shrink-0 ml-1" title="Recolher sidebar" @click="emit('toggleCollapse')">
-          <PanelLeftClose class="w-4 h-4" />
-        </button>
-      </div>
-      <div v-else class="flex items-center justify-between min-w-0">
-        <ClinicLogo icon-only size="sm" dark />
-        <button class="w-7 h-7 flex items-center justify-center text-primary-500 hover:text-primary-700 hover:bg-primary-50 rounded-lg transition-all duration-150 flex-shrink-0" title="Expandir sidebar" @click="emit('toggleCollapse')">
-          <PanelLeft class="w-4.5 h-4.5" />
-        </button>
-      </div>
+    <!-- Marca + recolher -->
+    <div :class="['flex items-center flex-shrink-0 h-16', props.collapsed ? 'flex-col justify-center gap-1.5 h-24 px-2' : 'justify-between px-4']">
+      <router-link to="/dashboard" class="min-w-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-300" title="Ir para o Dashboard">
+        <ClinicLogo :icon-only="props.collapsed" size="md" dark />
+      </router-link>
+      <button
+        class="w-7 h-7 flex items-center justify-center text-slate-400 hover:text-primary-700 hover:bg-white rounded-lg transition-all duration-150 flex-shrink-0"
+        :title="props.collapsed ? 'Expandir menu' : 'Recolher menu'"
+        :aria-label="props.collapsed ? 'Expandir menu' : 'Recolher menu'"
+        @click="emit('toggleCollapse')"
+      >
+        <PanelLeft v-if="props.collapsed" class="w-4 h-4" />
+        <PanelLeftClose v-else class="w-4 h-4" />
+      </button>
     </div>
 
-    <nav class="flex-1 px-2.5 py-3 space-y-1 overflow-y-auto scrollbar-none">
-      <p v-if="!props.collapsed" class="section-label mb-2.5">Menu Principal</p>
-      <router-link
-        v-for="item in visibleItems"
-        :key="item.to"
-        :to="item.to"
-        :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']"
-      >
-        <component :is="item.icon" :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-        <span class="flex-1 overflow-hidden transition-all duration-300 whitespace-nowrap" :style="{ opacity: props.collapsed ? 0 : 1, maxWidth: props.collapsed ? '0' : '200px' }">
-          {{ item.label }}
-        </span>
-        <span v-if="item.to === '/pacientes' && pendingCount > 0 && !props.collapsed" class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold bg-amber-500 text-white rounded-full leading-none">
-          {{ pendingCount > 99 ? '99+' : pendingCount }}
-        </span>
-        <ChevronRight v-if="isActive(item.to) && !props.collapsed" class="w-4 h-4 text-primary-500/70 flex-shrink-0" />
-        <span v-if="props.collapsed" class="tooltip">{{ item.label }}</span>
-      </router-link>
-
-      <div :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
-        <p v-if="!props.collapsed" class="section-label mb-2">WhatsApp</p>
-        <router-link to="/atendimento" :class="['sidebar-link group tooltip-trigger', isAttendanceRoute ? 'active' : '']">
-          <span class="relative flex-shrink-0">
-            <MessagesSquare :class="['w-5 h-5 transition-all duration-200', isAttendanceRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-            <span v-if="props.collapsed && attendanceUnread > 0" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white" />
-          </span>
-          <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">Atendimento</span>
-          <span v-else class="tooltip">Atendimento</span>
-          <span v-if="!props.collapsed && attendanceUnread > 0" class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-semibold bg-emerald-500 text-white rounded-full leading-none" :aria-label="`${attendanceUnread} conversas não lidas`">
-            {{ attendanceUnread > 99 ? '99+' : attendanceUnread }}
-          </span>
-        </router-link>
-        <template v-if="can('chatbot_light_operar') || can('chatbot_light_configurar')">
-          <router-link to="/agente/chatbot" :class="['sidebar-link group tooltip-trigger mt-1', isChatbotRoute ? 'active' : '']">
-            <Bot :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isChatbotRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-            <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">Agente de IA</span>
-            <span v-else class="tooltip">Agente de IA</span>
+    <!-- Navegação -->
+    <nav class="flex-1 min-h-0 overflow-y-auto scrollbar-none px-3 pb-3" aria-label="Menu principal">
+      <div v-for="(section, i) in sections" :key="section.label" :class="i === 0 ? 'pt-1' : 'pt-4'">
+        <p v-if="!props.collapsed" class="sidebar-section">{{ section.label }}</p>
+        <div v-else-if="i > 0" class="mx-auto mb-2 h-px w-8 bg-slate-200/80" />
+        <div class="space-y-0.5">
+          <router-link
+            v-for="item in section.items"
+            :key="item.to"
+            :to="item.to"
+            :class="['sidebar-link group', props.collapsed ? 'justify-center px-0' : '', isActive(item.match ?? item.to) ? 'active' : '']"
+            :aria-current="isActive(item.match ?? item.to) ? 'page' : undefined"
+            :title="props.collapsed ? item.label : undefined"
+          >
+            <span class="relative flex-shrink-0">
+              <component :is="item.icon" class="sidebar-icon" />
+              <span v-if="props.collapsed && (item.dot || (item.badge ?? 0) > 0)" class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-[#FBF8F5]" :class="item.badgeTone === 'amber' ? 'bg-amber-500' : 'bg-sage-500'" />
+            </span>
+            <span v-if="!props.collapsed" class="flex-1 truncate">{{ item.label }}</span>
+            <span
+              v-if="!props.collapsed && (item.badge ?? 0) > 0"
+              :class="['inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[10.5px] font-semibold rounded-full leading-none', item.badgeTone === 'amber' ? 'bg-amber-100 text-amber-800' : 'bg-sage-500 text-white']"
+              :aria-label="`${item.badge} pendentes`"
+            >
+              {{ (item.badge ?? 0) > 99 ? '99+' : item.badge }}
+            </span>
           </router-link>
-          <router-link to="/agente/crm" :class="['sidebar-link group tooltip-trigger mt-1', isCrmRoute ? 'active' : '']">
-            <FolderKanban :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isCrmRoute ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-            <span v-if="!props.collapsed" class="flex-1 overflow-hidden whitespace-nowrap">CRM</span>
-            <span v-else class="tooltip">CRM</span>
-          </router-link>
-        </template>
-      </div>
-
-      <div v-if="authStore.user?.role === 'SECRETARY'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
-        <p v-if="!props.collapsed" class="section-label mb-2">Salas</p>
-        <router-link to="/minhas-salas" :class="['sidebar-link group tooltip-trigger', isActive('/minhas-salas') ? 'active' : '']">
-          <Building2 :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive('/minhas-salas') ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-          <span v-if="!props.collapsed" class="flex-1">Minhas Salas</span>
-        </router-link>
-      </div>
-
-      <div v-if="authStore.user?.role === 'ADMIN'" :class="[props.collapsed ? 'mt-3 pt-3' : 'mt-4 pt-3', 'border-t border-slate-100']">
-        <p v-if="!props.collapsed" class="section-label mb-2">Admin</p>
-        <router-link v-for="item in [
-          { to: '/admin/gestao', icon: ShieldCheck, label: 'Gestão' },
-          { to: '/admin/planos', icon: CreditCard, label: 'Planos' },
-          { to: '/admin/integracoes', icon: Webhook, label: 'Integrações' },
-          { to: '/admin/sql', icon: Database, label: 'SQL Admin' },
-        ]" :key="item.to" :to="item.to" :class="['sidebar-link group tooltip-trigger', isActive(item.to) ? 'active' : '']">
-          <component :is="item.icon" :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', isActive(item.to) ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
-          <span v-if="!props.collapsed" class="flex-1">{{ item.label }}</span>
-        </router-link>
+        </div>
       </div>
     </nav>
 
-    <div class="px-2.5 pb-2 border-t border-slate-100 pt-2">
-      <router-link to="/configuracoes/perfil" :class="['sidebar-link group tooltip-trigger', route.path.startsWith('/configuracoes') ? 'active' : '']">
-        <Settings :class="['w-5 h-5 flex-shrink-0 transition-all duration-200', route.path.startsWith('/configuracoes') ? 'text-primary-600 scale-105' : 'text-slate-400 group-hover:text-primary-600 group-hover:scale-105']" />
+    <!-- Rodapé: configurações, notificações e usuário -->
+    <div class="flex-shrink-0 px-3 pb-3 pt-2 border-t border-slate-200/70 space-y-0.5">
+      <router-link
+        to="/configuracoes/perfil"
+        :class="['sidebar-link group', props.collapsed ? 'justify-center px-0' : '', route.path.startsWith('/configuracoes') ? 'active' : '']"
+        :title="props.collapsed ? 'Configurações' : undefined"
+      >
+        <Settings class="sidebar-icon" />
         <span v-if="!props.collapsed" class="flex-1">Configurações</span>
       </router-link>
-    </div>
-
-    <div class="p-3 flex-shrink-0 border-t border-slate-100">
-      <div :class="['flex items-center gap-3', props.collapsed ? 'justify-center' : 'mb-2.5']">
-        <div class="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 shadow-sm shadow-primary-600/20 ring-2 ring-primary-50">
-          <img v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" :alt="authStore.user.name" class="w-full h-full object-cover" />
-          <div v-else class="w-full h-full bg-gradient-to-br from-primary-500 to-primary-700 flex items-center justify-center">
-            <span class="text-white text-xs font-semibold">{{ initials }}</span>
-          </div>
-        </div>
-        <div v-if="!props.collapsed" class="flex-1 min-w-0 overflow-hidden">
-          <p class="text-slate-900 text-xs font-semibold truncate leading-tight">{{ authStore.user?.name }}</p>
-          <span :class="['text-xs px-2 py-0.5 rounded-full font-medium', authStore.user?.role ? roleColor[authStore.user.role] : '']">
-            {{ authStore.user?.role ? roleLabel[authStore.user.role] : '' }}
-          </span>
-        </div>
-      </div>
 
       <NotificationBell :collapsed="props.collapsed" />
 
-      <button
-        v-if="!props.collapsed"
-        class="w-full flex items-center gap-2.5 px-3 py-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all duration-200 text-sm group"
-        @click="handleLogout"
-      >
-        <LogOut class="w-4 h-4 flex-shrink-0 transition-transform duration-200 group-hover:translate-x-0.5" />
-        <span>Sair do sistema</span>
-      </button>
-      <button v-else class="w-full flex items-center justify-center p-2 mt-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all duration-200" title="Sair" @click="handleLogout">
-        <LogOut class="w-4 h-4" />
-      </button>
+      <div :class="['mt-2 flex items-center gap-2.5 rounded-2xl bg-white/80 border border-slate-200/70 shadow-sm', props.collapsed ? 'flex-col p-1.5' : 'p-2']">
+        <router-link to="/configuracoes/perfil" class="flex items-center gap-2.5 min-w-0 flex-1 rounded-xl" title="Meu perfil">
+          <div class="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 ring-2 ring-white shadow-sm">
+            <img v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" :alt="authStore.user.name" class="w-full h-full object-cover" />
+            <div v-else class="w-full h-full bg-gradient-to-br from-primary-400 to-primary-700 flex items-center justify-center">
+              <span class="text-white text-xs font-semibold">{{ initials }}</span>
+            </div>
+          </div>
+          <div v-if="!props.collapsed" class="min-w-0">
+            <p class="text-slate-900 text-[13px] font-semibold truncate leading-tight">{{ authStore.user?.name }}</p>
+            <p class="text-slate-400 text-[11.5px] truncate mt-0.5">{{ authStore.user?.role ? roleLabel[authStore.user.role] : '' }}</p>
+          </div>
+        </router-link>
+        <button
+          class="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+          title="Sair do sistema"
+          aria-label="Sair do sistema"
+          @click="handleLogout"
+        >
+          <LogOut class="w-4 h-4" />
+        </button>
+      </div>
     </div>
   </aside>
 </template>
