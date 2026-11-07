@@ -11,6 +11,17 @@ import { triggerLightAutomatedMessage } from '../lib/chatbot-light-engine'
 import { getLocalDateInTz } from '../lib/chatbot-light-guided-engine'
 
 const router = Router()
+
+// CPF é único por médico (@@unique([doctorId, cpf])). Se duas gravações
+// concorrentes passarem pela checagem prévia, o banco recusa a segunda com
+// P2002 — vira 409 com mensagem clara em vez de "Erro interno".
+const CPF_DUPLICATE_MESSAGE = 'Este CPF já está cadastrado em outro paciente deste profissional.'
+function isCpfUniqueViolation(error: unknown): boolean {
+  const e = error as { code?: string; meta?: { target?: unknown } } | null
+  if (!e || e.code !== 'P2002') return false
+  const target = e.meta?.target
+  return Array.isArray(target) ? target.includes('cpf') : String(target ?? '').includes('cpf')
+}
 router.use(authenticate)
 
 // phone/responsiblePhone normalizados aqui (DDI+DDD+número, só dígitos) —
@@ -318,15 +329,17 @@ router.post('/', async (req: AuthRequest, res) => {
   try {
     const { plans, confirmDuplicate, ...rest } = patientSchema.parse(req.body)
 
+    const doctorId = await resolvePrimaryDoctorId(req)
+
+    // CPF repetido só conta dentro do mesmo médico: o mesmo paciente pode ter
+    // cadastro com médicos diferentes (multitenant).
     if (rest.cpf) {
-      const existing = await prisma.patient.findUnique({ where: { cpf: rest.cpf } })
+      const existing = await prisma.patient.findFirst({ where: { doctorId, cpf: rest.cpf }, select: { id: true } })
       if (existing) {
-        res.status(400).json({ message: 'CPF já cadastrado' })
+        res.status(409).json({ message: CPF_DUPLICATE_MESSAGE, code: 'PATIENT_CPF_DUPLICATE', existingPatientId: existing.id })
         return
       }
     }
-
-    const doctorId = await resolvePrimaryDoctorId(req)
 
     const dup = await checkPhoneDuplicate({ doctorId, phone: rest.phone, name: rest.name })
     if (dup.duplicateOf && !confirmDuplicate) {
@@ -396,6 +409,10 @@ router.post('/', async (req: AuthRequest, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    if (isCpfUniqueViolation(error)) {
+      res.status(409).json({ message: CPF_DUPLICATE_MESSAGE, code: 'PATIENT_CPF_DUPLICATE' })
       return
     }
     console.error('[patients] POST /', error)
@@ -485,6 +502,10 @@ router.put('/:id', async (req: AuthRequest, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+      return
+    }
+    if (isCpfUniqueViolation(error)) {
+      res.status(409).json({ message: CPF_DUPLICATE_MESSAGE, code: 'PATIENT_CPF_DUPLICATE' })
       return
     }
     console.error('[patients] PUT /:id', error)
@@ -631,6 +652,10 @@ router.post('/pre-register', async (req: AuthRequest, res) => {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
     }
+    if (isCpfUniqueViolation(error)) {
+      res.status(409).json({ message: CPF_DUPLICATE_MESSAGE, code: 'PATIENT_CPF_DUPLICATE' })
+      return
+    }
     console.error('[patients] POST /pre-register', error)
     res.status(500).json({ message: 'Erro interno do servidor' })
   }
@@ -714,6 +739,10 @@ router.post('/:id/complete-registration', async (req: AuthRequest, res) => {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: 'Dados inválidos', errors: error.errors })
+    }
+    if (isCpfUniqueViolation(error)) {
+      res.status(409).json({ message: CPF_DUPLICATE_MESSAGE, code: 'PATIENT_CPF_DUPLICATE' })
+      return
     }
     console.error('[patients] POST /:id/complete-registration', error)
     res.status(500).json({ message: 'Erro interno do servidor' })

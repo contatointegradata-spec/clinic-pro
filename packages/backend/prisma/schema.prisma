@@ -228,7 +228,9 @@ model Patient {
   // (lib/patient-identity.ts).
   whatsappLid       String?
   birthDate         DateTime?
-  cpf               String?       @unique
+  // CPF é único POR MÉDICO (tenant), não no sistema todo: o mesmo paciente
+  // pode ser atendido por médicos diferentes, cada um com seu cadastro.
+  cpf               String?
   rg                String?
   address           String?
   notes             String?
@@ -280,6 +282,7 @@ model Patient {
   @@index([leadStatus])
   @@index([doctorId, phoneKey])
   @@index([whatsappLid])
+  @@unique([doctorId, cpf])
   nfses              Nfse[]
 
   @@map("TBLPACIENTE")

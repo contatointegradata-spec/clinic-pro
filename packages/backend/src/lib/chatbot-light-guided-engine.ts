@@ -352,8 +352,10 @@ export async function createAppointmentFromChatbot(params: {
     // Find or create patient
     let patient: any = null
     if (patientCpf) {
-      patient = await tx.patient.findUnique({
-        where: { cpf: patientCpf }
+      // Sempre dentro do médico deste agendamento: o mesmo CPF pode existir
+      // em cadastros de outros médicos (multitenant).
+      patient = await tx.patient.findFirst({
+        where: { doctorId, cpf: patientCpf }
       })
     }
     
